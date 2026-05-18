@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability para el panel principal y el overlay",
+  "windows": ["main", "overlay"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "shell:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-title",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-is-visible"
+  ]
+}
