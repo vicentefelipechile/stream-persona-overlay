@@ -139,6 +139,11 @@ pub async fn toggle_overlay(app: AppHandle) -> CmdResult<()> {
             overlay.hide().map_err(map_err)?;
             tracing::info!("Overlay ocultado");
         } else {
+            // Notify overlay.ts to reset the fade cover BEFORE the window becomes
+            // visible. The 120ms delay gives the WebView time to process the event
+            // and paint the black cover before show() is called.
+            let _ = app.emit("overlay-will-show", ());
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
             overlay.show().map_err(map_err)?;
             tracing::info!("Overlay mostrado");
         }
@@ -147,23 +152,45 @@ pub async fn toggle_overlay(app: AppHandle) -> CmdResult<()> {
 }
 
 /// Envía un mensaje de prueba al overlay (para preview/debug).
+/// Si TTS está habilitado, también lo sintetiza para probar el lip-sync.
 #[tauri::command]
 pub async fn send_test_message(
     display_name: String,
     mouth_open_path: String,
     mouth_closed_path: String,
+    state: State<'_, AppState>,
     app: AppHandle,
 ) -> CmdResult<()> {
     let payload = crate::state::ChatMessagePayload {
         platform: "test".to_string(),
         username: "test_user".to_string(),
-        message: format!("Mensaje de prueba de {}", display_name),
+        message: format!("Hola, soy {}! Este es un mensaje de prueba.", display_name),
         user_id: 0,
-        display_name,
+        display_name: display_name.clone(),
         mouth_open_path,
         mouth_closed_path,
         voice_id: "default".to_string(),
     };
     app.emit("chat-message", &payload).map_err(map_err)?;
+
+    // Speak the test message so the streamer can verify lip-sync
+    let tts_enabled = state.config_cache.read()
+        .map(|c| c.tts_enabled)
+        .unwrap_or(false);
+    if tts_enabled {
+        let app_clone = app.clone();
+        let tts_text  = payload.message.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = crate::tts::speak_with_events(
+                tts_text,
+                "default".to_string(),
+                0, // test user_id
+                app_clone,
+            ).await {
+                tracing::warn!("[tts/test] Error en TTS de prueba: {}", e);
+            }
+        });
+    }
+
     Ok(())
 }

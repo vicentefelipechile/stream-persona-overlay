@@ -55,18 +55,22 @@ export const DEFAULT_ANIMATION_CONFIG: AnimationConfig = {
 export async function loadAnimationConfig(): Promise<AnimationConfig> {
   try {
     const raw = await invoke<Record<string, unknown>>("get_config_cmd");
+    // NOTE: boolean config values come from SQLite as strings ("true"/"false").
+    // Using Boolean(str) would always return true for non-empty strings, so we
+    // must compare explicitly with the string "true".
+    const parseBool = (v: unknown): boolean => String(v) === "true";
     return {
       animationIn:         (raw.animation_in          as AnimationType) || "bounce",
       animationOut:        (raw.animation_out         as AnimationType) || "slide-up",
-      visibleDurationSecs: (raw.visible_duration_secs as number)        || 8,
-      idleWiggle:          Boolean(raw.idle_wiggle),
-      idleBreathe:         Boolean(raw.idle_breathe),
-      glowEffect:          Boolean(raw.glow_effect),
+      visibleDurationSecs: Number(raw.visible_duration_secs)            || 8,
+      idleWiggle:          parseBool(raw.idle_wiggle),
+      idleBreathe:         parseBool(raw.idle_breathe),
+      glowEffect:          parseBool(raw.glow_effect),
       glowColor:           (raw.glow_color            as string)        || "#00c896",
-      outlineEffect:       Boolean(raw.outline_effect),
-      personaSizePx:       (raw.persona_size_px       as number)        || 256,
-      audioThreshold:      (raw.audio_threshold       as number)        || 20,
-      maxVisiblePersonas:  (raw.max_visible_personas  as number)        || 4,
+      outlineEffect:       parseBool(raw.outline_effect),
+      personaSizePx:       Number(raw.persona_size_px)                  || 256,
+      audioThreshold:      Number(raw.audio_threshold)                  || 20,
+      maxVisiblePersonas:  Number(raw.max_visible_personas)             || 4,
     };
   } catch (e) {
     console.warn("[animation-config] Error cargando config:", e);

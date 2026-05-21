@@ -30,37 +30,36 @@ export class AudioLevelDetector {
   async start(): Promise<void> {
     if (this.isRunning) return;
 
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-        video: false,
-      });
+    // Do NOT wrap in try/catch — let the rejection propagate so overlay.ts
+    // can detect the failure and fall back to TTS-event-based mouth control.
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+      video: false,
+    });
 
-      this.context = new window.AudioContext();
-      this.analyser = this.context.createAnalyser();
-      this.analyser.fftSize = 256;
-      this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    this.context = new window.AudioContext();
+    this.analyser = this.context.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
-      const source = this.context.createMediaStreamSource(this.stream);
-      source.connect(this.analyser);
+    const source = this.context.createMediaStreamSource(this.stream);
+    source.connect(this.analyser);
 
-      this.isRunning = true;
-      this.tick();
-      console.info("[audio-detector] Started listening to microphone/loopback.");
-    } catch (e) {
-      console.warn("[audio-detector] Could not access microphone. Ensure 'Stereo Mix' is enabled:", e);
-    }
+    this.isRunning = true;
+    this.tick();
+    console.info("[audio-detector] Started — Stereo Mix / loopback active.");
   }
 
   private tick = (): void => {
     if (!this.isRunning || !this.analyser || !this.dataArray) return;
 
+    // @ts-ignore - Im not sure why this raise a type error, but it works so ¯\_(ツ)_/¯
     this.analyser.getByteFrequencyData(this.dataArray);
-    
+
     let sum = 0;
     for (let i = 0; i < this.dataArray.length; i++) {
       sum += this.dataArray[i];

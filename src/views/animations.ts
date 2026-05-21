@@ -15,6 +15,19 @@ import { AnimationType } from "../overlay/animation-engine";
 import { AnimationConfig, loadAnimationConfig } from "../overlay/animation-config";
 
 // =========================================================================================================
+// Types
+// =========================================================================================================
+
+interface UserPreview {
+  id: number;
+  display_name: string;
+  persona: {
+    mouth_open_path: string;
+    mouth_closed_path: string;
+  } | null;
+}
+
+// =========================================================================================================
 // Constants
 // =========================================================================================================
 
@@ -174,10 +187,33 @@ export async function renderAnimations(): Promise<void> {
             min="0" max="100" step="1"
             value="${cfg.audioThreshold}" />
         </div>
-        <p style="font-size:12px;color:#8b8fa8;margin-top:8px;">
-          El TTS del sistema emite eventos de habla que sincronizan la boca de la persona automáticamente.
-          Este umbral se usa si en el futuro se conecta detección de micrófono (VAD).
+        <div style="margin-top:14px;padding:10px 12px;background:rgba(0,200,150,0.08);border-left:3px solid #00c896;border-radius:0 4px 4px 0;">
+          <p style="font-size:12px;color:#adb1c5;line-height:1.6;margin:0;">
+            <strong style="color:#00c896">Pipeline de lip-sync:</strong><br>
+            <strong>1. Evento TTS (principal):</strong> Rust emite <code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:2px;">tts-state</code> cuando el TTS del OS
+            empieza y termina. Esto sincroniza la boca aunque no haya Stereo Mix.<br><br>
+            <strong>2. Web Audio API (granular):</strong> Si configuraste <strong>"Stereo Mix"</strong> o un cable virtual
+            (VB-Cable) como dispositivo de grabación predeterminado en Windows, el overlay capta el audio del TTS
+            en tiempo real y abre/cierra la boca sílaba por sílaba según el umbral de este slider.
+            El estado del mic aparece en la esquina superior derecha del overlay al iniciarse.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Preview -->
+    <section class="section">
+      <div class="section-title">▶ Preview de Animación</div>
+      <div class="card">
+        <p style="font-size:13px;color:#8b8fa8;margin-bottom:14px;">
+          Envía un mensaje de prueba al overlay con la animación actual configurada.
+          Si TTS está habilitado también se sintetizará la voz para verificar el lip-sync.
+          Asegurate de tener el overlay visible antes de hacer click.
         </p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <button id="btn-preview-anim" class="btn btn-primary">&#9654; Probar animación</button>
+          <span id="preview-status" style="font-size:13px;color:#8b8fa8;"></span>
+        </div>
       </div>
     </section>
 
@@ -266,6 +302,49 @@ export async function renderAnimations(): Promise<void> {
     } catch (e) {
       showToast(String(e), "error");
       statusEl.textContent = "";
+    }
+  });
+
+  // =========================================================================================================
+  // Preview Button
+  // =========================================================================================================
+
+  const previewBtn    = container.querySelector<HTMLButtonElement>("#btn-preview-anim")!;
+  const previewStatus = container.querySelector<HTMLElement>("#preview-status")!;
+
+  previewBtn.addEventListener("click", async () => {
+    previewBtn.disabled  = true;
+    previewStatus.textContent = "Buscando usuario con persona...";
+
+    try {
+      const users = await invoke<UserPreview[]>("get_users");
+      const withPersona = users.find((u) => u.persona !== null);
+
+      if (!withPersona || !withPersona.persona) {
+        previewStatus.textContent = "No hay usuarios con persona registrada.";
+        showToast("Registrá al menos un usuario con imágenes para hacer preview.", "info");
+        previewBtn.disabled = false;
+        return;
+      }
+
+      previewStatus.textContent = `Enviando preview de \"${withPersona.display_name}\"...`;
+
+      await invoke("send_test_message", {
+        displayName:     withPersona.display_name,
+        mouthOpenPath:   withPersona.persona.mouth_open_path,
+        mouthClosedPath: withPersona.persona.mouth_closed_path,
+      });
+
+      previewStatus.textContent = "Preview enviado. Asegurate de tener el overlay visible.";
+      showToast(`Preview enviado para ${withPersona.display_name}`, "success");
+    } catch (e) {
+      showToast(String(e), "error");
+      previewStatus.textContent = "Error al enviar preview.";
+    } finally {
+      setTimeout(() => {
+        previewBtn.disabled       = false;
+        previewStatus.textContent = "";
+      }, 5000);
     }
   });
 }

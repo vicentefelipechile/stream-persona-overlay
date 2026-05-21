@@ -72,6 +72,38 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   // =========================================================================================================
+  // Fade-in Cover
+  // =========================================================================================================
+  // resetAndTriggerFade() works for both the initial window load and every
+  // subsequent show() call. Key steps:
+  //  1. Disable the CSS transition temporarily so the opacity:1 reset is instant.
+  //  2. Force a reflow (offsetHeight read) so the browser commits the opaque state.
+  //  3. Re-enable the transition and add .fade-out to start the 2-second fade.
+
+  function resetAndTriggerFade(): void {
+    const cover = document.getElementById("fade-cover");
+    if (!cover) return;
+
+    // Remove transition so the reset to black is instant (no reverse fade)
+    cover.style.transition = "none";
+    cover.classList.remove("fade-out");
+    cover.style.opacity    = "1";
+
+    // Reading offsetHeight forces a synchronous layout — the browser must
+    // process the opacity:1 before continuing, preventing animation batching.
+    void cover.offsetHeight;
+
+    // Restore transition and trigger the fade-out
+    cover.style.transition = "";
+    cover.style.opacity    = "";
+    requestAnimationFrame(() => {
+      cover.classList.add("fade-out");
+    });
+  }
+
+  resetAndTriggerFade();
+
+  // =========================================================================================================
   // State
   // =========================================================================================================
 
@@ -82,17 +114,147 @@ window.addEventListener("DOMContentLoaded", async () => {
   const msgQueue: ChatMessagePayload[] = [];
   let queueBusy = false;
 
+  // Last message per user — used by the lip-sync simulator
+  const lastMessages = new Map<number, string>();
+
+  // Pending lip-sync simulation timers per user (cancelled on speaking=false)
+  const lipSyncTimers = new Map<number, ReturnType<typeof setTimeout>[]>();
+
+  // =========================================================================================================
+  // Audio Status Indicator
+  // =========================================================================================================
+  // A small status badge in the top-right corner that shows whether the
+  // AudioLevelDetector (Stereo Mix / loopback) started successfully.
+  // It auto-hides after 4 s so it never interferes with the actual stream.
+  const audioIndicator = document.createElement("div");
+  audioIndicator.id = "audio-indicator";
+  audioIndicator.style.cssText = [
+    "position:fixed",
+    "top:12px",
+    "right:16px",
+    "background:rgba(0,0,0,0.72)",
+    "color:#e8eaf0",
+    "font-family:'IBM Plex Sans',sans-serif",
+    "font-size:12px",
+    "font-weight:600",
+    "padding:5px 10px",
+    "border-radius:4px",
+    "display:flex",
+    "align-items:center",
+    "gap:6px",
+    "z-index:9999",
+    "transition:opacity 0.5s",
+    "pointer-events:none",
+  ].join(";");
+  audioIndicator.innerHTML = `<span id="audio-dot" style="width:8px;height:8px;border-radius:50%;background:#f0b429;display:inline-block"></span>
+    <span id="audio-label">🎙️ Mic: conectando...</span>`;
+  document.body.appendChild(audioIndicator);
+
+  function setAudioStatus(ok: boolean, msg: string): void {
+    const dot   = document.getElementById("audio-dot")!;
+    const label = document.getElementById("audio-label")!;
+    dot.style.background = ok ? "#00c896" : "#e05252";
+    label.textContent    = msg;
+    // Auto-hide after 4 s (keep visible on error so streamer notices)
+    if (ok) {
+      setTimeout(() => { audioIndicator.style.opacity = "0"; }, 4000);
+    }
+  }
+
   // Lip-sync state
   let activeTTSUserId: number | null = null;
+  let audioDetectorActive = false;
+
   const audioDetector = new AudioLevelDetector((isSpeaking) => {
+    // Audio detector provides granular syllable-level control.
+    // It only runs when Stereo Mix / loopback is configured in the OS.
     if (activeTTSUserId !== null) {
       const persona = queue.get(activeTTSUserId);
       if (persona) persona.setMouth(isSpeaking ? "open" : "closed");
     }
   });
-  
+
   audioDetector.setThreshold(animCfg.audioThreshold);
-  audioDetector.start();
+
+  // Start detector and update the status badge.
+  // If getUserMedia fails (no Stereo Mix), the tts-state listener below
+  // acts as primary mouth controller instead.
+  audioDetector.start().then(() => {
+    audioDetectorActive = true;
+    setAudioStatus(true, "🎙️ Mic: activo (lip-sync granular OK)");
+  }).catch(() => {
+    audioDetectorActive = false;
+    setAudioStatus(false, "🎙️ Sin Stereo Mix — lip-sync via TTS evento (abre/cierra por frase)");
+  });
+
+  // =========================================================================================================
+  // Lip-Sync Text Simulation
+  // =========================================================================================================
+  // When Stereo Mix is NOT the default recording device, the AudioLevelDetector
+  // gets no signal and the mouth stays static. This simulator analyzes the
+  // message text and schedules open/closed transitions that mimic natural speech
+  // pauses (spaces = brief close, punctuation = longer close, words = open).
+  // The AudioLevelDetector overrides these timers in real time when active.
+
+  function stopLipSyncSimulation(userId: number): void {
+    const timers = lipSyncTimers.get(userId);
+    if (timers) { timers.forEach(clearTimeout); lipSyncTimers.delete(userId); }
+  }
+
+  function startLipSyncSimulation(userId: number, message: string): void {
+    stopLipSyncSimulation(userId);
+
+    // Approximate speech rate: ~13 chars/second (~150 wpm, avg 5 chars/word)
+    const CHARS_PER_MS = 13 / 1000;
+
+    // Tokenize: words, spaces, and punctuation pauses
+    const tokens = message.match(/[.!?]+|[,;:]+|\s+|[^\s.,!?;:]+/g) ?? [];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let cursor = 0;
+
+    for (const token of tokens) {
+      const isPunct  = /^[.!?]+$/.test(token);
+      const isComma  = /^[,;:]+$/.test(token);
+      const isSpace  = /^\s+$/.test(token);
+
+      // Decide duration and mouth state for this token
+      let durationMs: number;
+      let open: boolean;
+
+      if (isPunct) {
+        // Sentence-ending punctuation — longer pause, mouth closed
+        durationMs = 350;
+        open = false;
+      } else if (isComma) {
+        // Mid-sentence pause
+        durationMs = 180;
+        open = false;
+      } else if (isSpace) {
+        // Brief inter-word closure
+        durationMs = 80;
+        open = false;
+      } else {
+        // Word — mouth open, duration proportional to length
+        durationMs = Math.max(120, token.length / CHARS_PER_MS);
+        open = true;
+      }
+
+      const t = cursor;
+      const uid = userId;
+      timers.push(setTimeout(() => {
+        // Only act if this user is still the active TTS speaker
+        if (activeTTSUserId !== uid) return;
+        // Only act if audio detector is NOT providing real-time control
+        if (audioDetectorActive) return;
+        const p = queue.get(uid);
+        if (p) p.setMouth(open ? "open" : "closed");
+      }, t));
+
+      cursor += durationMs;
+    }
+
+    lipSyncTimers.set(userId, timers);
+  }
 
   // =========================================================================================================
   // Helpers
@@ -183,24 +345,32 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Tauri Event Listeners
   // =========================================================================================================
 
+  // Rust emits this 120ms before show() — gives us time to reset the fade cover
+  // to opaque black while the window is still hidden, so the user never sees the flash.
+  await listen("overlay-will-show", () => {
+    resetAndTriggerFade();
+  });
+
   await listen<string>("overlay-display-mode-changed", (event) => {
     displayMode = event.payload;
   });
 
   await listen<Record<string, unknown>>("animation-config-changed", (event) => {
     const raw = event.payload;
+    // Rust sends booleans as strings "true"/"false" — must compare explicitly
+    const parseBool = (v: unknown) => String(v) === "true";
     animCfg = {
-      animationIn:         (raw.animation_in          as string) as AnimationConfig["animationIn"] || "bounce",
-      animationOut:        (raw.animation_out         as string) as AnimationConfig["animationOut"] || "slide-up",
-      visibleDurationSecs: (raw.visible_duration_secs as number) || 8,
-      idleWiggle:          Boolean(raw.idle_wiggle),
-      idleBreathe:         Boolean(raw.idle_breathe),
-      glowEffect:          Boolean(raw.glow_effect),
-      glowColor:           (raw.glow_color            as string) || "#00c896",
-      outlineEffect:       Boolean(raw.outline_effect),
-      personaSizePx:       (raw.persona_size_px       as number) || 256,
-      audioThreshold:      (raw.audio_threshold       as number) || 20,
-      maxVisiblePersonas:  (raw.max_visible_personas  as number) || 4,
+      animationIn:         (raw.animation_in  as string) as AnimationConfig["animationIn"] || "bounce",
+      animationOut:        (raw.animation_out as string) as AnimationConfig["animationOut"] || "slide-up",
+      visibleDurationSecs: Number(raw.visible_duration_secs) || 8,
+      idleWiggle:          parseBool(raw.idle_wiggle),
+      idleBreathe:         parseBool(raw.idle_breathe),
+      glowEffect:          parseBool(raw.glow_effect),
+      glowColor:           (raw.glow_color as string) || "#00c896",
+      outlineEffect:       parseBool(raw.outline_effect),
+      personaSizePx:       Number(raw.persona_size_px)       || 256,
+      audioThreshold:      Number(raw.audio_threshold)       || 20,
+      maxVisiblePersonas:  Number(raw.max_visible_personas)  || 4,
     };
     queue.setMaxVisible(animCfg.maxVisiblePersonas);
     audioDetector.setThreshold(animCfg.audioThreshold);
@@ -211,6 +381,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   await listen<ChatMessagePayload>("chat-message", (event) => {
+    // Store the message for lip-sync simulation when TTS fires
+    lastMessages.set(event.payload.user_id, event.payload.message);
     if (displayMode === "queue") {
       handleQueue(event.payload);
     } else {
@@ -219,15 +391,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   await listen<TtsStatePayload>("tts-state", (event) => {
-    if (event.payload.speaking) {
-      activeTTSUserId = event.payload.user_id;
+    const { user_id, speaking } = event.payload;
+    const persona = queue.get(user_id);
+
+    if (speaking) {
+      activeTTSUserId = user_id;
+      if (persona) persona.setMouth("open");
+
+      // Launch text-based simulation for natural pauses.
+      // Runs only when audio detector is inactive (no Stereo Mix).
+      // If Stereo Mix IS active, audioDetectorActive=true and each timer
+      // is a no-op, so real-time audio control takes full precedence.
+      const msg = lastMessages.get(user_id) ?? "";
+      if (msg) startLipSyncSimulation(user_id, msg);
     } else {
-      if (activeTTSUserId === event.payload.user_id) {
-        activeTTSUserId = null;
-        // Force close when TTS is completely done
-        const persona = queue.get(event.payload.user_id);
-        if (persona) persona.setMouth("closed");
-      }
+      activeTTSUserId = null;
+      stopLipSyncSimulation(user_id);
+      if (persona) persona.setMouth("closed");
     }
   });
 });

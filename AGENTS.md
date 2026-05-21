@@ -108,18 +108,17 @@ The animation and lip-sync system works as follows:
 
 #### The Lip-Sync Pipeline (Voice to Mouth Movement)
 1. **Message Detection**: Rust detects a message on Twitch/TikTok.
-2. **Event Emission**: Rust emits `chat-message` to the overlay frontend.
+2. **Event Emission**: Rust emits `chat-message` to the overlay frontend. `overlay.ts` stores the message text.
 3. **Load in Overlay**: The overlay creates a `PersonaController` and puts it in the `PersonaQueue`.
 4. **TTS Execution**: Rust executes the TTS asynchronously using `speak_with_events`.
-5. **Signaling**: When starting to speak, Rust emits the Tauri event `tts-state` with `speaking: true` and the `user_id`. When finished, it emits `speaking: false`.
-6. **Audio Analysis (Frontend)**:
-   - The `overlay.ts` file instantiates an `AudioLevelDetector` (Web Audio API).
-   - This detector listens to the system's default recording device (which must be "Stereo Mix" or a virtual cable to capture the TTS audio).
-   - The detector calculates the amplitude in real time. If it exceeds the configured `audioThreshold`, it calls `persona.setMouth("open")`, otherwise `"closed"`.
-   - **Important**: The `tts-state` event only tells the frontend **who** is speaking. The `AudioLevelDetector` is what tells it **when** to open the mouth based on the actual sound.
+5. **Signaling (Primary)**: When starting to speak, Rust emits the Tauri event `tts-state` with `speaking: true` and the `user_id`. When finished, it emits `speaking: false`.
+6. **Mouth Animation (Dual Mode)**:
+   - **Text Simulation (Fallback)**: When `tts-state: true` fires, `overlay.ts` immediately opens the mouth and starts scheduling mouth closures based on the words and punctuation of the message text to simulate natural pauses.
+   - **Audio Analysis (Granular)**: If the system default recording device is set to "Stereo Mix" or a virtual cable, the `AudioLevelDetector` captures the TTS audio in real-time. If it detects a signal, it overrides the text simulation and triggers mouth open/closed states exactly matching the audio amplitude against `audioThreshold`.
 
 #### The Animation Engine (`AnimationEngine`)
 - The `motion` library is used (formerly Framer Motion but for vanilla JS).
+- Exit animations (`playOut`) **must** use single end-keyframes (e.g., `{ y: -80 }` instead of `{ y: [0, -80] }`). This lets `motion` calculate the start position from the current DOM transform, preventing visual snaps if the element was in the middle of a float loop.
 - It supports 10 entry and exit animation styles: `bounce`, `slide-up`, `slide-left`, `slide-right`, `pop`, `flip`, `shake`, `rubber`, `glitch`, `float`.
 
 #### ⚠️ Motion v11 Types Gotcha (Very Important)
@@ -471,6 +470,16 @@ TikTool requires an internet connection and an API key. For offline TikTok devel
 8. **For images in the overlay:** always use `convertFileSrc(path)` before assigning to `img.src` so Tauri can serve the local file via the asset protocol.
 9. **The Discord bot and chat clients are tolerant of empty config** — if the token/channel/username is empty, they return without error.
 10. **TikTok LIVE** has no official public API. The current integration depends on the external TikTool service (`wss://api.tik.tools`). If the service fails, the module must handle the error and retry with backoff — never crash the process.
+11. **NEVER use box-drawing characters** (`─`, `│`, `├`, `└`, `┌`, `┐`, `┘`, `┤`, `┬`, `┴`, `┼`, etc.) in code comments or section headers. These characters are invisible or corrupt on many terminals and editors. The only allowed section-separator style in TypeScript/Rust source files is:
+    ```typescript
+    // =========================================================================================================
+    // Section Name
+    // =========================================================================================================
+    ```
+    Violating this rule **will require a fix** before the code is accepted.
+12. **Overlay Lifecycle**: Do not destroy the overlay window. `lib.rs` intercepts `CloseRequested` and calls `hide()` instead. When showing the overlay, `toggle_overlay` emits `overlay-will-show` and delays 120ms so `overlay.ts` can set a black fade-cover to prevent bright chroma-key flashes.
+13. **Typed Arrays**: TypeScript 5.x makes typed arrays generic. Web Audio API methods like `getByteFrequencyData` require `Uint8Array<ArrayBuffer>`, not `Uint8Array` (which defaults to the wider `ArrayBufferLike`).
+14. **Boolean Config Parsing**: SQLite config values are retrieved as strings. Do not use `Boolean(value)` since `Boolean("false") === true`. Use explicit string comparison: `String(value) === "true"`.
 
 ---
 

@@ -12,16 +12,6 @@
 import { animate } from "motion";
 import { AnimationEngine, AnimationType } from "./animation-engine";
 
-// Motion v11 type workaround — see animation-engine.ts for explanation
-function animEl(
-  el: HTMLElement | HTMLImageElement,
-  kf: Record<string, number | string | (number | string)[]>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  opts?: any
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return animate(el as any, kf as any, opts);
-}
 
 // =========================================================================================================
 // Types
@@ -120,8 +110,8 @@ export class PersonaController {
       this.currentMouth = state;
 
       const showOpen = state === "open";
-      animEl(this.imgOpen,   { opacity: showOpen ? [0, 1] : [1, 0] }, { duration: 0.05 });
-      animEl(this.imgClosed, { opacity: showOpen ? [1, 0] : [0, 1] }, { duration: 0.05 });
+      animate(this.imgOpen,   { opacity: showOpen ? [0, 1] : [1, 0] }, { duration: 0.05 });
+      animate(this.imgClosed, { opacity: showOpen ? [1, 0] : [0, 1] }, { duration: 0.05 });
     }, this.MOUTH_DEBOUNCE_MS);
   }
 

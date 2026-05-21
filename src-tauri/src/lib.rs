@@ -84,6 +84,20 @@ pub fn run() {
             if let Ok(mut h) = app_state.twitch_handle.lock()  { *h = Some(twitch_h);  }
             if let Ok(mut h) = app_state.tiktok_handle.lock()  { *h = Some(tiktok_h);  }
 
+            // Interceptar el cierre de la ventana overlay para ocultarla en lugar
+            // de destruirla. Si se destruye, get_webview_window("overlay") devuelve
+            // None y el botón "Mostrar ventana" deja de funcionar.
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let overlay_hide = overlay.clone();
+                overlay.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = overlay_hide.hide();
+                        tracing::info!("[overlay] Cierre interceptado — ventana ocultada (no destruida)");
+                    }
+                });
+            }
+
             tracing::info!("Setup completado — todos los módulos iniciados");
             Ok(())
         })
