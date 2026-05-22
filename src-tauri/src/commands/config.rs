@@ -87,8 +87,9 @@ pub async fn set_chroma_color(
         set_config_value(&db, "chroma_color", &color).map_err(map_err)?;
     }
 
-    // Notificar al overlay en tiempo real
+    // Notificar al overlay en tiempo real (Tauri window + WS browser source)
     app.emit("chroma-color-changed", &color).map_err(map_err)?;
+    state.broadcast_ws("chroma-color-changed", &color);
 
     Ok(())
 }

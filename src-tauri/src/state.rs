@@ -2,8 +2,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use rusqlite::Connection;
 use tauri::async_runtime::JoinHandle;
+use tokio::sync::broadcast;
 
-// ─── AppState ────────────────────────────────────────────────────────────────
+// =========================================================================================================
+// AppState
+// =========================================================================================================
 
 /// Estado global compartido por todas las tasks de tokio
 #[derive(Clone)]
@@ -27,10 +30,17 @@ pub struct AppState {
     pub twitch_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Handle de la tarea del cliente de TikTok.
     pub tiktok_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    /// Broadcast channel sender for the OBS Browser Source WebSocket.
+    /// Every Tauri event that the overlay reacts to is also broadcast here
+    /// so connected browser clients receive the same data without Tauri IPC.
+    pub ws_tx: broadcast::Sender<String>,
+    /// Handle for the axum HTTP/WebSocket server task.
+    pub server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl AppState {
     pub fn new(conn: Connection, app_data_dir: PathBuf) -> Self {
+        let (ws_tx, _) = broadcast::channel::<String>(512);
         AppState {
             db: Arc::new(Mutex::new(conn)),
             config_cache: Arc::new(RwLock::new(AppConfig::default())),
@@ -38,6 +48,19 @@ impl AppState {
             discord_handle: Arc::new(Mutex::new(None)),
             twitch_handle: Arc::new(Mutex::new(None)),
             tiktok_handle: Arc::new(Mutex::new(None)),
+            ws_tx,
+            server_handle: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Broadcast a JSON-encoded event to all connected OBS Browser Source WS clients.
+    /// Silently ignores if there are no receivers.
+    pub fn broadcast_ws<T: serde::Serialize>(&self, event: &str, payload: &T) {
+        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+            "event": event,
+            "payload": payload
+        })) {
+            let _ = self.ws_tx.send(json);
         }
     }
 
@@ -71,11 +94,22 @@ impl AppState {
         }
     }
 
+    /// Aborta la tarea del servidor HTTP/WebSocket si está corriendo.
+    pub fn abort_server(&self) {
+        if let Ok(mut guard) = self.server_handle.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+                tracing::info!("[server] Tarea del servidor HTTP abortada");
+            }
+        }
+    }
+
     /// Aborta todas las tareas de background (llamar al cerrar la app).
     pub fn abort_all(&self) {
         self.abort_discord();
         self.abort_twitch();
         self.abort_tiktok();
+        self.abort_server();
     }
 }
 

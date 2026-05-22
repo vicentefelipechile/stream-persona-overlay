@@ -6,6 +6,7 @@ pub mod chat_platform;
 pub mod commands;
 pub mod db;
 pub mod discord;
+pub mod server;
 pub mod state;
 pub mod tiktok;
 pub mod tts;
@@ -80,10 +81,28 @@ pub fn run() {
                 tiktok::spawn_tiktok_client(state_for_tiktok, handle_for_tiktok).await;
             });
 
+            // Spawn the OBS Browser Source HTTP/WebSocket server
+            let state_for_server = app_state.clone();
+            // In dev mode Vite serves assets from memory — dist/ doesn't exist.
+            // The server uses dev_mode to read source HTML and rewrite Vite URLs instead.
+            let dev_mode = cfg!(debug_assertions);
+            let dist_dir = if dev_mode {
+                std::env::current_dir().unwrap_or_default().join("dist")
+            } else {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("dist")))
+                    .unwrap_or_default()
+            };
+            let server_h = tauri::async_runtime::spawn(async move {
+                server::start_server(state_for_server, dist_dir, dev_mode).await;
+            });
+
             // Guardar handles para poder abortarlos al reiniciar o cerrar
             if let Ok(mut h) = app_state.discord_handle.lock() { *h = Some(discord_h); }
             if let Ok(mut h) = app_state.twitch_handle.lock()  { *h = Some(twitch_h);  }
             if let Ok(mut h) = app_state.tiktok_handle.lock()  { *h = Some(tiktok_h);  }
+            if let Ok(mut h) = app_state.server_handle.lock()  { *h = Some(server_h);  }
 
             // Interceptar el cierre de la ventana overlay para ocultarla en lugar
             // de destruirla. Si se destruye, get_webview_window("overlay") devuelve

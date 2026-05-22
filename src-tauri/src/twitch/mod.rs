@@ -131,18 +131,20 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                     if let Err(e) = app_handle.emit("chat-message", &payload) {
                         tracing::error!("[twitch] Error emitiendo chat-message: {}", e);
                     }
+                    state.broadcast_ws("chat-message", &payload);
 
                     let tts_enabled = state.config_cache.read()
                         .map(|c| c.tts_enabled)
                         .unwrap_or(false);
                     if tts_enabled {
                         let app_clone  = app_handle.clone();
+                        let ws_tx      = state.ws_tx.clone();
                         let tts_text   = payload.message.clone();
                         let tts_voice  = payload.voice_id.clone();
                         let tts_uid    = payload.user_id;
                         tauri::async_runtime::spawn(async move {
                             if let Err(e) = crate::tts::speak_with_events(
-                                tts_text, tts_voice, tts_uid, app_clone,
+                                tts_text, tts_voice, tts_uid, app_clone, ws_tx,
                             ).await {
                                 tracing::warn!("[tts/twitch] Error en TTS: {}", e);
                             }

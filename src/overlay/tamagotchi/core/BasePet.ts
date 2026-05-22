@@ -12,6 +12,12 @@
 import { animate } from "motion";
 import { invoke } from "@tauri-apps/api/core";
 import { PetStateMachine } from "./PetStateMachine";
+
+// Module-level invoke override. Defaults to the Tauri invoke.
+// PetManager sets this before creating any pets when running in browser mode.
+type InvokeFn = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+let _invoke: InvokeFn = invoke as InvokeFn;
+export function configureBasePetInvoke(fn: InvokeFn): void { _invoke = fn; }
 import { ActionRegistry } from "./ActionRegistry";
 import type { BaseAction, ActionInput } from "./BaseAction";
 import { PropRenderer } from "../props/PropRenderer";
@@ -331,14 +337,14 @@ export class BasePet {
     );
     this.el.remove();
     if (this.userId > 0) {
-      invoke("tama_remove_pet_state", { userId: this.userId }).catch(() => {});
+      _invoke("tama_remove_pet_state", { userId: this.userId }).catch(() => {});
     }
     this.despawnCallback?.();
   }
 
   private _persistState(isSleeping: boolean): void {
     if (this.userId <= 0) return;
-    invoke("tama_upsert_pet_state", {
+    _invoke("tama_upsert_pet_state", {
       userId:      this.userId,
       displayName: this.config.displayName,
       floorX:      this.pos.x,

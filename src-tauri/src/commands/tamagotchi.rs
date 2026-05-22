@@ -1,4 +1,4 @@
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -45,8 +45,12 @@ pub async fn tama_trigger_action(
         input:     serde_json::Value,
     }
 
-    app.emit("tama-action", Payload { user_id, action_id, input })
-        .map_err(map_err)?;
+    let payload = Payload { user_id, action_id, input };
+    app.emit("tama-action", payload.clone()).map_err(map_err)?;
+
+    // Also broadcast to OBS Browser Source WebSocket clients
+    let state = app.state::<AppState>();
+    state.broadcast_ws("tama-action", &payload);
 
     tracing::info!("[tama] Action triggered for user_id={}", user_id);
     Ok(())

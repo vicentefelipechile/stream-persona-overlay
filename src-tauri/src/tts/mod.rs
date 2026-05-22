@@ -8,15 +8,26 @@ pub struct VoiceInfo {
 }
 
 /// Reproduce un texto con la voz indicada usando el crate `tts`.
-/// Emite eventos `tts-state` al overlay para sincronizar el lip-sync.
+/// Emite eventos `tts-state` al overlay Tauri y los difunde por WebSocket.
 pub async fn speak_with_events(
-    text: String,
+    text:     String,
     voice_id: String,
-    user_id: i64,
-    app: tauri::AppHandle,
+    user_id:  i64,
+    app:      tauri::AppHandle,
+    ws_tx:    tokio::sync::broadcast::Sender<String>,
 ) -> Result<()> {
     use tauri::Emitter;
     use tts::Tts;
+
+    let broadcast = |speaking: bool| {
+        let payload = crate::state::TtsStatePayload { user_id, speaking };
+        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+            "event": "tts-state",
+            "payload": payload
+        })) {
+            let _ = ws_tx.send(json);
+        }
+    };
 
     let mut tts = Tts::default()?;
 
@@ -31,6 +42,7 @@ pub async fn speak_with_events(
     if let Err(e) = app.emit("tts-state", crate::state::TtsStatePayload { user_id, speaking: true }) {
         tracing::warn!("[tts] Error emitiendo tts-state(speaking=true): {}", e);
     }
+    broadcast(true);
 
     tts.speak(&text, false)?;
 
@@ -50,6 +62,7 @@ pub async fn speak_with_events(
     if let Err(e) = app.emit("tts-state", crate::state::TtsStatePayload { user_id, speaking: false }) {
         tracing::warn!("[tts] Error emitiendo tts-state(speaking=false): {}", e);
     }
+    broadcast(false);
 
     Ok(())
 }

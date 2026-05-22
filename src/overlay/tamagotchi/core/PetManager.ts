@@ -9,8 +9,25 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { BasePet } from "./BasePet";
+import { BasePet, configureBasePetInvoke } from "./BasePet";
 import type { PetConfig } from "./BasePet";
+
+// =========================================================================================================
+// Transport Interface
+// =========================================================================================================
+
+/** Injectable transport — pass a browser transport to init() to use WS instead of Tauri IPC. */
+export interface PetTransport {
+  listen<T>(event: string, handler: (e: { payload: T }) => void): Promise<() => void>;
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  convertFileSrc(path: string): string;
+}
+
+const _tauriTransport: PetTransport = {
+  listen:         (event, handler) => listen(event, handler),
+  invoke:         (command, args)  => invoke(command, args),
+  convertFileSrc: convertFileSrc,
+};
 import { PetFloor } from "./PetFloor";
 import { PetScheduler } from "./PetScheduler";
 
@@ -58,6 +75,7 @@ export class PetManager {
   private static floor:     PetFloor;
   private static _scheduler: PetScheduler;
   private static container: HTMLElement;
+  private static transport: PetTransport = _tauriTransport;
 
   private static enabled    = true;
   private static maxPets    = 8;
@@ -67,11 +85,16 @@ export class PetManager {
   // Init
   // =========================================================================================================
 
-  static async init(container: HTMLElement): Promise<void> {
+  static async init(container: HTMLElement, transport?: PetTransport): Promise<void> {
     this.container = container;
+    if (transport) {
+      this.transport = transport;
+      // Wire BasePet's module-level invoke to the same transport
+      configureBasePetInvoke((cmd, args) => transport.invoke(cmd, args));
+    }
 
     try {
-      const cfg = await invoke<Record<string, unknown>>("get_config_cmd");
+      const cfg = await this.transport.invoke<Record<string, unknown>>("get_config_cmd");
       this.enabled   = String(cfg["tama_enabled"])   === "true";
       this.maxPets   = Number(cfg["tama_max_pets"])  || 8;
       this.petSizePx = Number(cfg["tama_pet_size_px"]) || 80;
@@ -81,13 +104,13 @@ export class PetManager {
     this.floor     = new PetFloor({ y: floorY, thickness: 20, minSpacing: 100 });
     this._scheduler = new PetScheduler(this.pets);
 
-    await listen<ChatMessagePayload>("chat-message", e => {
+    await this.transport.listen<ChatMessagePayload>("chat-message", e => {
       this._onChatMessage(e.payload).catch(console.error);
     });
-    await listen<TtsStatePayload>("tts-state", e => {
+    await this.transport.listen<TtsStatePayload>("tts-state", e => {
       this._onTtsState(e.payload);
     });
-    await listen<TamaActionPayload>("tama-action", e => {
+    await this.transport.listen<TamaActionPayload>("tama-action", e => {
       this._onTamaAction(e.payload).catch(console.error);
     });
 
@@ -120,8 +143,8 @@ export class PetManager {
       const cfg: PetConfig = {
         userId:       payload.user_id,
         displayName:  payload.display_name,
-        mouthOpenUrl: convertFileSrc(payload.mouth_open_path),
-        mouthClosedUrl: convertFileSrc(payload.mouth_closed_path),
+        mouthOpenUrl:   this.transport.convertFileSrc(payload.mouth_open_path),
+        mouthClosedUrl: this.transport.convertFileSrc(payload.mouth_closed_path),
         sizePx:  this.petSizePx,
         floorY:  this.floor.floorY,
         initialX: spawnX,

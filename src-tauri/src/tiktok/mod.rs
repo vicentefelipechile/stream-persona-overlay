@@ -134,6 +134,7 @@ fn handle_tiktok_event(
         if let Err(e) = app_handle.emit("chat-message", &payload) {
             tracing::error!("Error emitiendo evento TikTok chat-message: {}", e);
         }
+        state.broadcast_ws("chat-message", &payload);
 
         // TTS con eventos de lip-sync (si está habilitado)
         let tts_enabled = state.config_cache.read()
@@ -141,12 +142,13 @@ fn handle_tiktok_event(
             .unwrap_or(false);
         if tts_enabled {
             let app_clone = app_handle.clone();
+            let ws_tx     = state.ws_tx.clone();
             let tts_text  = payload.message.clone();
             let tts_voice = payload.voice_id.clone();
             let tts_uid   = payload.user_id;
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = crate::tts::speak_with_events(
-                    tts_text, tts_voice, tts_uid, app_clone,
+                    tts_text, tts_voice, tts_uid, app_clone, ws_tx,
                 ).await {
                     tracing::warn!("[tts/tiktok] Error en TTS: {}", e);
                 }

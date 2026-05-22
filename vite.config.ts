@@ -10,8 +10,9 @@ export default defineConfig(async () => ({
   build: {
     rollupOptions: {
       input: {
-        main:    resolve(__dirname, "index.html"),
-        overlay: resolve(__dirname, "overlay.html"),
+        main:            resolve(__dirname, "index.html"),
+        overlay:         resolve(__dirname, "overlay.html"),
+        overlay_browser: resolve(__dirname, "overlay-browser.html"),
       },
     },
   },

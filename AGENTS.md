@@ -35,16 +35,19 @@ Users register and manage their images through a **Discord bot** (slash commands
 | `reqwest 0.12` | HTTP client for external API validation (Twitch) |
 | `once_cell 1` | Global static initialization |
 | `tauri-plugin-shell` | Shell plugin (registered but not used for user-facing features — kept for potential future use) |
+| `axum 0.7` (feature `ws`) | HTTP + WebSocket server for the OBS Browser Source |
+| `tower-http 0.5` (feature `fs`) | Static file serving middleware (`ServeDir`) used by the axum server |
 
 ### Frontend — Vanilla TypeScript (`src/`)
 
 | Technology | Use |
 |---|---|
 | Vanilla TypeScript (no framework) | All UI for the admin panel and the overlay |
-| Vite 6 | Bundler and dev server |
+| Vite 6 | Bundler and dev server (three entry points: `main`, `overlay`, `overlay_browser`) |
 | `motion` (v12+) | Animation engine for Tamagotchi pet actions (DOM animate API) |
-| `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` |
+| `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` — used by Tauri windows only |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
+| `ws-transport.ts` (internal) | Drop-in replacement for Tauri API used by the OBS Browser Source overlay |
 
 ### Frontend Design System
 
@@ -59,9 +62,11 @@ Users register and manage their images through a **Discord bot** (slash commands
 
 ### Internal Communication
 
-- **Frontend → Rust:** `invoke(command_name, args)` via Tauri Commands
-- **Rust → Frontend:** `app_handle.emit(event_name, payload)` via Tauri Events
-- **Never** use fetch/HTTP or WebSockets directly from the frontend to talk to the Rust backend.
+- **Admin panel / Tauri overlay → Rust:** `invoke(command_name, args)` via Tauri Commands
+- **Rust → Admin panel / Tauri overlay:** `app_handle.emit(event_name, payload)` via Tauri Events
+- **OBS Browser Source → Rust:** `wsInvoke(command, args)` via `ws-transport.ts` (WebSocket on port 6767)
+- **Rust → OBS Browser Source:** `state.broadcast_ws(event, payload)` fan-outs through `AppState.ws_tx`
+- **Rule:** never use fetch/HTTP or raw WebSockets from the admin panel or Tauri overlay to talk to Rust — use `invoke`/`listen` only. The WebSocket transport is exclusively for the browser overlay.
 
 ---
 
@@ -73,12 +78,15 @@ TAURI PROCESS (Rust — single binary)
 +-- tauri::async_runtime::spawn --> discord::spawn_discord_bot()
 +-- tauri::async_runtime::spawn --> twitch::spawn_twitch_client()
 +-- tauri::async_runtime::spawn --> tiktok::spawn_tiktok_client()
++-- tauri::async_runtime::spawn --> server::start_server()  (axum on port 6767)
 |
-+-- AppState --- Arc<Mutex<Connection>>    (SQLite — std::sync::Mutex)
-             --- Arc<RwLock<AppConfig>>    (in-memory cache — std::sync::RwLock)
++-- AppState --- Arc<Mutex<Connection>>              (SQLite — std::sync::Mutex)
+             --- Arc<RwLock<AppConfig>>              (in-memory cache — std::sync::RwLock)
+             --- broadcast::Sender<String> (ws_tx)   (fan-out to all WS clients)
 
-Tauri Events --> WebView "main"    (Admin panel — index.html)
-             --> WebView "overlay"  (Chroma key — overlay.html)
+Tauri Events    --> WebView "main"      (Admin panel — index.html)
+                --> WebView "overlay"   (Chroma key — overlay.html)
+broadcast_ws()  --> axum WS /ws        (OBS Browser Source — overlay-browser.html)
 ```
 
 ### Tauri Windows (defined in `tauri.conf.json`)
@@ -135,12 +143,14 @@ stream-persona-overlay/
 |   +-- state.ts                  # AppState singleton + TS types + showToast()
 |   +-- styles.css                # Global panel styles
 |   +-- views/
-|   |   +-- config.ts             # /config view — global settings
+|   |   +-- config.ts             # /config view — global settings (includes OBS Browser Source URL)
 |   |   +-- users.ts              # /users view — user CRUD
 |   |   +-- logs.ts               # /logs view — message history
 |   |   +-- tamagotchi.ts         # /tamagotchi view — pet admin panel
 |   |   +-- overlay.ts            # Entry point for overlay.html (NOT a panel view)
-|   +-- overlay/                  # Overlay-specific modules (used by overlay.ts)
+|   |   +-- overlay-browser.ts    # Entry point for overlay-browser.html (OBS Browser Source)
+|   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
+|   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
 |   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
 |   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, PetFloor, BasePet, PetScheduler, PetManager
 |   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, _template
@@ -160,6 +170,8 @@ stream-persona-overlay/
 |       +-- lib.rs                # setup_app: DB init, spawn tasks, register handlers, exit logic
 |       +-- state.rs              # AppState, AppConfig, ChatMessagePayload, TtsStatePayload
 |       +-- chat_platform.rs      # ChatPlatform trait abstraction for providers
+|       +-- server/
+|       |   +-- mod.rs            # axum HTTP+WS server on port 6767 (OBS Browser Source)
 |       +-- db/
 |       |   +-- mod.rs
 |       |   +-- migrations.rs     # run_migrations() — creates tables and inserts defaults
@@ -185,8 +197,9 @@ stream-persona-overlay/
 |           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
 |
 +-- index.html                    # Admin panel HTML
-+-- overlay.html                  # Overlay window HTML (chroma key)
-+-- vite.config.ts                # Vite configuration
++-- overlay.html                  # Overlay window HTML (chroma key, Tauri window)
++-- overlay-browser.html          # OBS Browser Source HTML (transparent, no Tauri APIs)
++-- vite.config.ts                # Vite configuration (3 entry points: main, overlay, overlay_browser)
 +-- tsconfig.json
 +-- package.json
 +-- AGENTS.md                     # This file
@@ -259,12 +272,14 @@ Migrations are inline in `db/migrations.rs` via `run_migrations(&conn)`. They us
 
 ```rust
 pub struct AppState {
-    pub db: Arc<Mutex<Connection>>,           // std::sync::Mutex (NOT tokio::sync::Mutex)
-    pub config_cache: Arc<RwLock<AppConfig>>, // std::sync::RwLock
+    pub db: Arc<Mutex<Connection>>,                    // std::sync::Mutex (NOT tokio::sync::Mutex)
+    pub config_cache: Arc<RwLock<AppConfig>>,          // std::sync::RwLock
     pub app_data_dir: Arc<PathBuf>,
     pub discord_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub twitch_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub tiktok_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    pub ws_tx: broadcast::Sender<String>,              // tokio broadcast — fan-out to WS clients
+    pub server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 ```
 
@@ -272,7 +287,8 @@ pub struct AppState {
 - **`db` uses `std::sync::Mutex`** (not `tokio::sync::Mutex` and not `RwLock`). Lock with `state.db.lock().map_err(map_err)?`. Do not `.await` it — it is synchronous.
 - **Do not create additional connections.** All DB access goes through this single `Arc<Mutex<Connection>>`.
 - **`config_cache` uses `std::sync::RwLock`** — this is intentional so it can be written in `setup()` before the Tokio runtime starts. Use `.read().map_err(...)` / `.write().map_err(...)`.
-- Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, `abort_tiktok()`, `abort_all()`.
+- **`ws_tx`** is a `tokio::sync::broadcast::Sender<String>`. Call `state.broadcast_ws(event, &payload)` every time you call `app.emit(event, &payload)` so the OBS Browser Source receives the same data. It's safe to ignore if there are no receivers.
+- Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, `abort_tiktok()`, `abort_server()`, `abort_all()`.
 - Always update `config_cache` after every `set_config_value` call. The `set_config_cmd` command does this for individual keys.
 
 ---
@@ -328,18 +344,22 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 
 ### Rust → Frontend
 
-| Event | Payload | Emitter | Listener |
-|---|---|---|---|
-| `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (via overlay.ts init) |
-| `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) |
-| `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` |
-| `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) |
-| `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `PetManager` (via overlay.ts init) |
-| `twitch-connected` | `string` (channel) | `twitch/mod.rs` (on RoomState) | `main.ts` |
-| `twitch-error` | `string` (error msg) | `twitch/mod.rs` | `main.ts` |
-| `tiktok-connected` | `string` (username) | `commands/control.rs` | `main.ts` |
-| `discord-ready` | `string` (bot username) | `discord/mod.rs` | `main.ts` |
-| `discord-error` | `string` (error msg) | `discord/mod.rs` | `main.ts` |
+All events marked **WS** are also broadcast to OBS Browser Source clients via `state.broadcast_ws()`.
+
+| Event | Payload | Emitter | Tauri Listener | WS |
+|---|---|---|---|---|
+| `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (overlay.ts) | Yes |
+| `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
+| `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
+| `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
+| `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `PetManager` (overlay.ts) | Yes |
+| `twitch-connected` | `string` (channel) | `twitch/mod.rs` (on RoomState) | `main.ts` | No |
+| `twitch-error` | `string` (error msg) | `twitch/mod.rs` | `main.ts` | No |
+| `tiktok-connected` | `string` (username) | `commands/control.rs` | `main.ts` | No |
+| `discord-ready` | `string` (bot username) | `discord/mod.rs` | `main.ts` | No |
+| `discord-error` | `string` (error msg) | `discord/mod.rs` | `main.ts` | No |
+
+> **Rule:** Every time you add a new event that the overlay reacts to, you must also call `state.broadcast_ws(event, &payload)` right after `app.emit(event, &payload)` so the OBS Browser Source receives it.
 
 ### `ChatMessagePayload`
 
@@ -442,10 +462,19 @@ await AppState.setConfig(key, value); // Save and reload cache
 - **Architecture:** Abstracted behind the `ChatPlatform` trait (`chat_platform.rs`). This trait standardizes event handling and message parsing across all chat providers (Twitch, TikTok, etc.).
 - **Local dev/testing:** When TikTool is unavailable, simulate chat events with a local WebSocket mock server that emits the same JSON structure as TikTool's `chat` events.
 
+### `server/`
+
+- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on `127.0.0.1:6767`.
+- Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprite images from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket).
+- **Dev mode** (`dev_mode = true`): reads `overlay-browser.html` from the project root (not `dist/`) and rewrites `/src/*` references to `http://localhost:1420/src/*` so assets are served by the Vite dev server. Enabled automatically when compiled in debug mode (`cfg(debug_assertions)`).
+- **Production mode**: reads all files from `dist/` (Vite build output bundled alongside the binary).
+- The WebSocket handler subscribes to `AppState.ws_tx` and forwards broadcast messages to each connected client. It also receives commands from the browser overlay (`get_config_cmd`, `tama_upsert_pet_state`, `tama_remove_pet_state`) and executes them against the DB.
+- **Security:** `/persona` canonicalizes both the requested path and `app_data_dir` before calling `starts_with` — this handles the Windows `\\?\` extended-path prefix and prevents path traversal.
+
 ### `tts/`
 
 - Wrapper over the `tts` crate abstracting SAPI (Windows), NSSpeechSynthesizer (macOS), and espeak (Linux).
-- `speak_with_events(text, voice_id, user_id, app_handle)` emits `tts-state { user_id, speaking: true }` before speaking and `speaking: false` after finishing.
+- `speak_with_events(text, voice_id, user_id, app_handle, ws_tx)` emits `tts-state { user_id, speaking: true }` before speaking and `speaking: false` after finishing. Also broadcasts both events via `ws_tx` so the OBS Browser Source overlay receives lip-sync events.
 - TTS events are consumed by `PetManager._onTtsState()` to drive pet lip-sync and trigger `returnToFloor()`.
 - TTS may not be available in all environments — handle errors with `tracing::warn!` without propagating panics.
 
@@ -579,6 +608,7 @@ Twitch/TikTok chat: message from "myuser"
 | Overlay fade-cover (prevents chroma flashbang on window show) | Done |
 | Tamagotchi pet system — persistent chat-user pets walking on overlay floor | Done |
 | Proper process exit when main window closes | Done |
+| OBS Browser Source — axum HTTP+WS server, no chroma key required | Done |
 
 ---
 
@@ -692,6 +722,98 @@ this.el.style.transform = "";
 ```
 
 Without this, subsequent action animations start from a polluted inline transform that corrupts squash/stretch or other keyframe interpolations.
+
+---
+
+---
+
+## 17. OBS Browser Source
+
+An alternative to the chroma-key Window Capture workflow. The streamer adds `http://localhost:6767/overlay` as a **Browser Source** in OBS — the background is natively transparent, no chroma key or filters needed.
+
+### How it works
+
+```
+OBS Browser Source  -->  GET http://localhost:6767/overlay
+                              |
+                         axum server (server/mod.rs)
+                              |-- serves overlay-browser.html
+                              |-- GET /assets/* (Vite-compiled JS/CSS)
+                              |-- GET /persona?path=... (pet images)
+                              |-- GET /ws (bidirectional WebSocket)
+                                       |
+                              broadcast channel (AppState.ws_tx)
+                                       |
+                              Rust event emitters
+                              (twitch, tiktok, tts, config, control, tamagotchi)
+```
+
+### WebSocket Protocol
+
+**Server → Client (events):**
+```json
+{ "event": "chat-message", "payload": { ...ChatMessagePayload } }
+{ "event": "tts-state",    "payload": { "user_id": 1, "speaking": true } }
+{ "event": "tama-action",  "payload": { "user_id": 1, "action_id": "jump", "input": {} } }
+{ "event": "chroma-color-changed", "payload": "#00FF00" }
+{ "event": "overlay-will-show",    "payload": null }
+```
+
+**Client → Server (commands):**
+```json
+{ "id": "uuid-v4", "command": "get_config_cmd" }
+{ "id": "uuid-v4", "command": "tama_upsert_pet_state", "args": { "userId": 1, "floorX": 200, "isSleeping": false, "displayName": "..." } }
+{ "id": "uuid-v4", "command": "tama_remove_pet_state", "args": { "userId": 1 } }
+```
+
+**Server → Client (responses):**
+```json
+{ "id": "uuid-v4", "result": { ...AppConfig } }
+{ "id": "uuid-v4", "error": "DB lock failed" }
+```
+
+The server accepts both camelCase and snake_case arg keys to match Tauri's automatic casing conversion.
+
+### TypeScript Transport (`src/overlay/ws-transport.ts`)
+
+Exports three functions that mirror the Tauri API surface:
+- `wsListen<T>(event, handler)` → `Promise<() => void>` — same signature as `listen` from `@tauri-apps/api/event`
+- `wsInvoke<T>(command, args?)` → `Promise<T>` — same signature as `invoke` from `@tauri-apps/api/core`
+- `browserConvertFileSrc(path)` → `string` — returns `http://localhost:6767/persona?path=<encoded>`
+
+The transport auto-reconnects (1.5 s backoff) and queues `wsInvoke` calls with a 5 s timeout.
+
+### PetManager Transport Injection
+
+`PetManager.init(container, transport?)` accepts an optional `PetTransport` interface:
+
+```typescript
+export interface PetTransport {
+  listen<T>(event: string, handler: (e: { payload: T }) => void): Promise<() => void>;
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  convertFileSrc(path: string): string;
+}
+```
+
+- Default (no argument): uses Tauri APIs — existing `overlay.ts` works unchanged.
+- With browser transport: `overlay-browser.ts` passes `wsListen`/`wsInvoke`/`browserConvertFileSrc`.
+
+`BasePet` also has a module-level invoke override: `configureBasePetInvoke(fn)` — called by `PetManager.init()` when a browser transport is provided, so pet DB persistence (`tama_upsert_pet_state` / `tama_remove_pet_state`) goes through the WS channel.
+
+### Dev vs Production
+
+| Mode | HTML served from | Assets served from |
+|---|---|---|
+| `tauri dev` (debug) | Project root `overlay-browser.html` with `/src/*` rewritten to `http://localhost:1420/src/*` | Vite dev server (port 1420) |
+| `tauri build` (release) | `dist/overlay-browser.html` | `dist/assets/*` via axum `ServeDir` |
+
+No build step is required in dev — the server adapts automatically based on `cfg(debug_assertions)`.
+
+### Adding a New Event to the Browser Source
+
+1. Emit via Tauri as usual: `app.emit("my-event", &payload)`
+2. Immediately after, broadcast: `state.broadcast_ws("my-event", &payload)`
+3. In `overlay-browser.ts` or wherever needed: `wsListen("my-event", handler)`
 
 ---
 

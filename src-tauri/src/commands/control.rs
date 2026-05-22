@@ -133,7 +133,7 @@ pub async fn connect_tiktok(
 
 /// Muestra u oculta la ventana overlay (ventana para captura en OBS).
 #[tauri::command]
-pub async fn toggle_overlay(app: AppHandle) -> CmdResult<()> {
+pub async fn toggle_overlay(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     if let Some(overlay) = app.get_webview_window("overlay") {
         if overlay.is_visible().map_err(|e: tauri::Error| e.to_string())? {
             overlay.hide().map_err(map_err)?;
@@ -143,6 +143,7 @@ pub async fn toggle_overlay(app: AppHandle) -> CmdResult<()> {
             // visible. The 120ms delay gives the WebView time to process the event
             // and paint the black cover before show() is called.
             let _ = app.emit("overlay-will-show", ());
+            state.broadcast_ws("overlay-will-show", &serde_json::Value::Null);
             tokio::time::sleep(std::time::Duration::from_millis(120)).await;
             overlay.show().map_err(map_err)?;
             tracing::info!("Overlay mostrado");
@@ -172,6 +173,7 @@ pub async fn send_test_message(
         voice_id: "default".to_string(),
     };
     app.emit("chat-message", &payload).map_err(map_err)?;
+    state.broadcast_ws("chat-message", &payload);
 
     // Speak the test message so the streamer can verify lip-sync
     let tts_enabled = state.config_cache.read()
@@ -179,6 +181,7 @@ pub async fn send_test_message(
         .unwrap_or(false);
     if tts_enabled {
         let app_clone = app.clone();
+        let ws_tx     = state.ws_tx.clone();
         let tts_text  = payload.message.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = crate::tts::speak_with_events(
@@ -186,6 +189,7 @@ pub async fn send_test_message(
                 "default".to_string(),
                 0, // test user_id
                 app_clone,
+                ws_tx,
             ).await {
                 tracing::warn!("[tts/test] Error en TTS de prueba: {}", e);
             }
