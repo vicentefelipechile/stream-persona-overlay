@@ -20,7 +20,7 @@ export const VALID_TRANSITIONS: Record<PetState, PetState[]> = {
   idle:        ["approaching", "action", "sleeping", "despawning"],
   approaching: ["talking"],
   talking:     ["returning"],
-  returning:   ["idle"],
+  returning:   ["idle", "approaching"],
   action:      ["idle"],
   sleeping:    ["idle", "despawning"],
   despawning:  [],

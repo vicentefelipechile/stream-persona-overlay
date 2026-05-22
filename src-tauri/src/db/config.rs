@@ -47,6 +47,7 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_action_check_secs"  => cfg.tama_action_check_secs = value.parse().unwrap_or(8),
             "tama_action_probability" => cfg.tama_action_probability = value.parse().unwrap_or(0.15),
             "tama_enabled_actions"    => cfg.tama_enabled_actions   = value,
+            "tama_jump_on_speak"      => cfg.tama_jump_on_speak     = value == "true",
             _ => {}
         }
     }

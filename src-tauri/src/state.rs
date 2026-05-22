@@ -153,6 +153,7 @@ pub struct AppConfig {
     pub tama_action_check_secs: u32,
     pub tama_action_probability: f64,
     pub tama_enabled_actions: String,
+    pub tama_jump_on_speak: bool,
 }
 
 // ─── ChatMessagePayload ──────────────────────────────────────────────────────

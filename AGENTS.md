@@ -257,6 +257,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_action_check_secs` | `"8"` | Interval between random action rolls |
 | `tama_action_probability` | `"0.15"` | Probability per interval of triggering a random action |
 | `tama_enabled_actions` | `'["jump","popcorn","dance","fight","explode"]'` | JSON array of action IDs in the random pool |
+| `tama_jump_on_speak` | `"false"` | When `"true"`, pets execute a `jump` action in place when their owner sends a chat message instead of walking to the center |
 
 > **Important:** The bot token and API keys are stored in the local SQLite `config` table. Never hardcode them in source code or plain-text files.
 >
@@ -573,12 +574,13 @@ Twitch/TikTok chat: message from "myuser"
   --> app_handle.emit("chat-message", payload)  -->  WebView "overlay"
   --> PetManager._onChatMessage():
       --> If pet does not exist: BasePet constructed at floorY, spawn() animation
-      --> pet.onChatMessage() --> FSM "approaching" --> pet moves toward center
+      --> if tama_jump_on_speak=true: pet.executeAction("jump") in place, done
+      --> else: pet.onChatMessage() --> FSM "approaching" --> pet walks to center (floor level, 200 px/s)
       --> FSM "talking"
   --> (parallel) TTS reads the message
       --> tts-state { speaking: true }  --> pet opens mouth
-      --> tts-state { speaking: false } --> pet closes mouth, returnToFloor()
-      --> FSM "returning" --> "idle", idle-walk resumes
+      --> tts-state { speaking: false } --> pet closes mouth, returnFromFocus()
+      --> FSM "returning" --> pet walks back to originX at 200 px/s --> "idle", idle-walk resumes
 ```
 
 ---
@@ -634,11 +636,11 @@ overlay.ts
 
 | File | Role |
 |---|---|
-| `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle ↔ approaching → talking → returning → idle, idle → action → idle, idle → sleeping → despawning |
+| `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle ↔ approaching → talking → returning ↔ approaching (re-focus), returning → idle, idle → action → idle, idle → sleeping → despawning |
 | `BaseAction.ts` | Abstract base for all actions. Uses `import type { BasePet }` (avoids circular dep). Provides `wait(ms)`, `cancelled` flag, `onCancel()` hook |
 | `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
 | `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) |
-| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop, mouth images, approach/return, sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state` |
+| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `WALK_SPEED_PX_PER_S = 36`), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. Exposes `configureBasePetInvoke()` for browser transport injection. `markTtsFinished()` handles the race where TTS ends before pet reaches center. |
 | `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool |
 | `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets |
 
@@ -669,9 +671,17 @@ To add a new action, copy `_template.ts`, implement `execute()`, set `meta.id` a
 chat-message (new user)
   --> BasePet constructed  (DOM element placed at floorY, initial X from PetFloor)
   --> pet.spawn()          (pop-in animation, then FSM → "idle")
-  --> pet.onChatMessage()  (FSM → "approaching", pet moves to center + floatY - 60px, FSM → "talking")
+  --> if jumpOnSpeak: pet.executeAction("jump") in place, done
+  --> else: pet.onChatMessage()
+        --> saves originX = pos.x
+        --> FSM → "approaching" → walks to center at floor level (200 px/s)
+        --> FSM → "talking"
   --> tts-state speaking=false
-  --> pet.returnToFloor()  (FSM → "returning" → "idle", idle-walk resumes)
+  --> pet.returnFromFocus()  (FSM → "returning" → walks back to originX at 200 px/s → "idle", idle-walk resumes)
+
+note: if tts-state speaking=false arrives while still approaching,
+      pet.markTtsFinished() sets pendingReturn=true; _doApproach() triggers
+      returnFromFocus() immediately upon arrival instead of entering "talking".
 
 5 min inactivity
   --> FSM → "sleeping"  (PropRenderer shows ZZZ, DB persists is_sleeping=true)
@@ -685,6 +695,7 @@ chat-message (returning user while sleeping)
 
 - ON/OFF toggle (`tama_set_enabled`)
 - Sliders for size, max pets, inactivity timeout, walk speed
+- **"Saltar al hablar" toggle** (`tama_jump_on_speak`) — when enabled, pets jump in place on chat message instead of walking to center
 - Checkbox list of enabled actions (saved as JSON array to `tama_enabled_actions`)
 - Active pet list with manual action trigger (calls `tama_trigger_action`)
 - Refresh button re-fetches `tama_get_pet_states`
@@ -818,3 +829,28 @@ No build step is required in dev — the server adapts automatically based on `c
 ---
 
 *Updated 2026-05-22 — Stream Persona Overlay v0.1*
+
+---
+
+## 18. Focus Animation (chat-message response)
+
+When a user sends a chat message and TTS is enabled, the pet executes a "focus" cycle:
+
+1. **originX saved** — `BasePet` records `pos.x` at the moment `onChatMessage()` is first called. Subsequent messages while already focused do not overwrite it.
+2. **Approach** — pet walks to `window.innerWidth / 2 - sizePx / 2` on the floor at `FOCUS_SPEED_PX_PER_S = 200 px/s`. No vertical movement — the pet stays on `floorY` throughout.
+3. **Talking** — FSM state while TTS plays. `setMouth(true/false)` drives lip-sync.
+4. **Return** — `returnFromFocus()` walks the pet back to `originX` at the same 200 px/s speed, then clears `originX` and transitions to `idle`.
+
+### Race condition guard (`pendingReturn`)
+
+If `tts-state { speaking: false }` arrives before the pet finishes walking to center:
+- `PetManager._onTtsState` calls `pet.markTtsFinished()` which sets `pendingReturn = true`.
+- When `_doApproach()` arrives at center, it detects `pendingReturn`, skips entering "talking", and immediately calls `returnFromFocus()`.
+
+### Re-focus on new message while returning
+
+`PetStateMachine` allows `returning → approaching`. `onChatMessage()` handles this case: it aborts the current `moveTo`, keeps `originX` intact, and re-runs `_doApproach()`.
+
+### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
+
+`PetManager` reads this config at `init()`. When set, `_onChatMessage` calls `pet.executeAction("jump")` instead of `pet.onChatMessage()`. The pet jumps in place — no approach, no center movement. The `jumpOnSpeak` flag is stored as a static property on `PetManager`; changes take effect only after the overlay reloads.

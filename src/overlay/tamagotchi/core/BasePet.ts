@@ -18,6 +18,7 @@ import { PetStateMachine } from "./PetStateMachine";
 type InvokeFn = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 let _invoke: InvokeFn = invoke as InvokeFn;
 export function configureBasePetInvoke(fn: InvokeFn): void { _invoke = fn; }
+
 import { ActionRegistry } from "./ActionRegistry";
 import type { BaseAction, ActionInput } from "./BaseAction";
 import { PropRenderer } from "../props/PropRenderer";
@@ -63,6 +64,14 @@ export class BasePet {
   private moveToAbort:   (() => void) | null = null;
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private despawnCallback: (() => void) | null = null;
+
+  // X position saved when focus starts; restored when focus ends.
+  // Not persisted to DB — a restart mid-focus respawns at floor_x which is fine.
+  private originX: number | null = null;
+
+  // Set to true when tts-state speaking=false arrives while still approaching.
+  // _doApproach checks this on arrival and triggers an immediate return.
+  private pendingReturn = false;
 
   private readonly INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -157,8 +166,32 @@ export class BasePet {
 
   async onChatMessage(): Promise<void> {
     this._resetInactivityTimer();
+    const state = this.fsm.state;
+
+    if (state === "approaching" || state === "talking") {
+      // Already focused — nothing to do besides the inactivity reset above.
+      return;
+    }
+
+    if (state === "returning") {
+      // Pet is walking home — send it back to center without overwriting originX.
+      this.moveToAbort?.();
+      this.fsm.transition("approaching");
+      await this._doApproach();
+      return;
+    }
+
+    if (state === "sleeping") {
+      // Wake the pet first, then focus it.
+      this._stopCurrentAction();
+      this.props.hideAll();
+      this.fsm.transition("idle");
+    }
+
     if (!this.fsm.canDo("approaching")) return;
     this._stopCurrentAction();
+    // Only capture originX on a fresh focus entry (idle -> approaching).
+    if (this.originX === null) this.originX = this.pos.x;
     this.fsm.transition("approaching");
     await this._doApproach();
   }
@@ -193,11 +226,19 @@ export class BasePet {
   // Movement
   // =========================================================================================================
 
-  private _startIdleWalk(): void {
-    const step = () => {
-      if (this.fsm.state !== "idle") return;
+  // 36 px/s at 60 fps ≈ 0.6 px/frame — used for idle walk.
+  private static readonly WALK_SPEED_PX_PER_S = 36;
+  // Faster speed for approach/return so the pet arrives before TTS ends.
+  private static readonly FOCUS_SPEED_PX_PER_S = 200;
 
-      this.pos.x += this.direction * 0.6;
+  private _startIdleWalk(): void {
+    let lastTime: number | null = null;
+    const step = (now: number) => {
+      if (this.fsm.state !== "idle") return;
+      const dt = lastTime !== null ? (now - lastTime) / 1000 : 0;
+      lastTime = now;
+
+      this.pos.x += this.direction * BasePet.WALK_SPEED_PX_PER_S * dt;
 
       const margin = this.config.sizePx / 2 + 20;
       const maxX   = window.innerWidth - margin;
@@ -290,22 +331,32 @@ export class BasePet {
 
   private async _doApproach(): Promise<void> {
     this._stopWalking();
-    const centerX   = window.innerWidth / 2 + (Math.random() * 200 - 100);
-    const approachY = this.config.floorY - 60;
-
-    await Promise.all([
-      this.moveTo(centerX, 200),
-      this.moveY(approachY, 0.5),
-    ]);
-
+    // Center the pet horizontally (account for sprite width so it looks visually centered).
+    const centerX = window.innerWidth / 2 - this.config.sizePx / 2;
+    await this.moveTo(centerX, BasePet.FOCUS_SPEED_PX_PER_S);
+    if (this.fsm.state !== "approaching") return;
     this.fsm.transition("talking");
+    // TTS may have finished while we were still walking — return immediately if so.
+    if (this.pendingReturn) {
+      this.pendingReturn = false;
+      this.returnFromFocus().catch(() => {});
+      return;
+    }
   }
 
-  async returnToFloor(): Promise<void> {
+  // Called by PetManager when tts-state speaking=false arrives before the pet
+  // finishes walking to center. The flag is consumed by _doApproach on arrival.
+  markTtsFinished(): void {
+    this.pendingReturn = true;
+  }
+
+  async returnFromFocus(): Promise<void> {
     if (!this.fsm.canDo("returning")) return;
     this.fsm.transition("returning");
-    await this.moveY(this.config.floorY, 0.5);
-    this.fsm.transition("idle");
+    const target = this.originX ?? this.pos.x;
+    await this.moveTo(target, BasePet.FOCUS_SPEED_PX_PER_S);
+    this.originX = null;
+    if (this.fsm.state === "returning") this.fsm.transition("idle");
   }
 
   // =========================================================================================================

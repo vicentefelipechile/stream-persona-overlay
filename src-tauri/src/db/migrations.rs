@@ -87,6 +87,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_action_check_secs",  "8"),
         ("tama_action_probability", "0.15"),
         ("tama_enabled_actions",    r#"["jump","popcorn","dance","fight","explode"]"#),
+        ("tama_jump_on_speak",      "false"),
     ];
 
     for (key, value) in &defaults {

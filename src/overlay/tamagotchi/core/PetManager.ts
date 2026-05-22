@@ -77,9 +77,10 @@ export class PetManager {
   private static container: HTMLElement;
   private static transport: PetTransport = _tauriTransport;
 
-  private static enabled    = true;
-  private static maxPets    = 8;
-  private static petSizePx  = 80;
+  private static enabled      = true;
+  private static maxPets      = 8;
+  private static petSizePx    = 80;
+  private static jumpOnSpeak  = false;
 
   // =========================================================================================================
   // Init
@@ -98,9 +99,10 @@ export class PetManager {
       this.enabled   = String(cfg["tama_enabled"])   === "true";
       this.maxPets   = Number(cfg["tama_max_pets"])  || 8;
       this.petSizePx = Number(cfg["tama_pet_size_px"]) || 80;
+      this.jumpOnSpeak = String(cfg["tama_jump_on_speak"]) === "true";
     } catch (_) {}
 
-    const floorY = window.innerHeight - this.petSizePx - 20;
+    const floorY = window.innerHeight - this.petSizePx - 28;
     this.floor     = new PetFloor({ y: floorY, thickness: 20, minSpacing: 100 });
     this._scheduler = new PetScheduler(this.pets);
 
@@ -159,7 +161,12 @@ export class PetManager {
       await pet.spawn();
     }
 
-    await this.pets.get(payload.user_id)!.onChatMessage();
+    const pet = this.pets.get(payload.user_id)!;
+    if (this.jumpOnSpeak) {
+      await pet.executeAction("jump");
+    } else {
+      await pet.onChatMessage();
+    }
   }
 
   private static _onTtsState(payload: TtsStatePayload): void {
@@ -169,8 +176,13 @@ export class PetManager {
 
     pet.setMouth(payload.speaking);
 
-    if (!payload.speaking && pet.fsm.state === "talking") {
-      pet.returnToFloor().catch(() => {});
+    if (!payload.speaking) {
+      if (pet.fsm.state === "talking") {
+        pet.returnFromFocus().catch(() => {});
+      } else if (pet.fsm.state === "approaching") {
+        // TTS finished before the pet reached center — flag it so _doApproach returns immediately on arrival.
+        pet.markTtsFinished();
+      }
     }
   }
 

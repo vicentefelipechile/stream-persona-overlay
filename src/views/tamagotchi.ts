@@ -66,6 +66,7 @@ export async function renderTamagotchi(): Promise<void> {
   const inactivityMins   = Number(cfg["tama_inactivity_mins"])   || 5;
   const actionCheckSecs  = Number(cfg["tama_action_check_secs"]) || 8;
   const actionProb       = Number(cfg["tama_action_probability"])|| 0.15;
+  const jumpOnSpeak      = String(cfg["tama_jump_on_speak"])     === "true";
 
   let enabledActions: string[] = [];
   try {
@@ -146,6 +147,13 @@ export async function renderTamagotchi(): Promise<void> {
             <span id="cfg-prob-val">${actionProb}</span>
           </div>
         </div>
+        <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;">
+          <label style="margin:0;">Saltar al hablar</label>
+          <label class="switch">
+            <input type="checkbox" id="cfg-jump-on-speak" ${jumpOnSpeak ? "checked" : ""}/>
+            <span class="switch-track"></span>
+          </label>
+        </div>
       </div>
 
       <div class="card">
@@ -219,6 +227,11 @@ export async function renderTamagotchi(): Promise<void> {
   _bindRange("cfg-inactivity", "cfg-inactivity-val", " min");
   _bindRange("cfg-check",      "cfg-check-val",      "s");
   _bindRange("cfg-prob",       "cfg-prob-val",       "");
+
+  container.querySelector<HTMLInputElement>("#cfg-jump-on-speak")!.addEventListener("change", (e) => {
+    const value = (e.target as HTMLInputElement).checked ? "true" : "false";
+    invoke("set_config_cmd", { key: "tama_jump_on_speak", value }).catch(err => showToast(String(err), "error"));
+  });
 
   // Auto-save each slider on release
   const sliderMap: Array<[string, string]> = [
