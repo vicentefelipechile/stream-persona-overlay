@@ -21,6 +21,7 @@ import { AnimationConfig, loadAnimationConfig } from "../overlay/animation-confi
 import { PersonaController, PersonaConfig } from "../overlay/persona-controller";
 import { PersonaQueue } from "../overlay/persona-queue";
 import { AudioLevelDetector } from "../overlay/audio-detector";
+import { PetManager } from "../overlay/tamagotchi/core/PetManager";
 
 // =========================================================================================================
 // Types
@@ -54,8 +55,9 @@ const PERSONA_GAP     = 20;
 // =========================================================================================================
 
 window.addEventListener("DOMContentLoaded", async () => {
-  const body      = document.getElementById("overlay-body")!;
-  const container = document.getElementById("personas-container")!;
+  const body               = document.getElementById("overlay-body")!;
+  const container          = document.getElementById("personas-container")!;
+  const tamagotchiContainer = document.getElementById("tamagotchi-container")!;
 
   // Load initial config
   let animCfg: AnimationConfig = await loadAnimationConfig();
@@ -102,6 +104,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   resetAndTriggerFade();
+
+  // Start the Tamagotchi pet system (non-blocking — errors don't affect main overlay)
+  PetManager.init(tamagotchiContainer).catch(err => {
+    console.warn("[tamagotchi] PetManager init failed:", err);
+  });
 
   // =========================================================================================================
   // State

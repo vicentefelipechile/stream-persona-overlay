@@ -34,6 +34,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 | `tracing 0.1` + `tracing-subscriber` | Structured logging |
 | `reqwest 0.12` | HTTP client for external API validation (Twitch) |
 | `once_cell 1` | Global static initialization |
+| `tauri-plugin-shell` | Shell plugin (registered but not used for user-facing features — kept for potential future use) |
 
 ### Frontend — Vanilla TypeScript (`src/`)
 
@@ -41,7 +42,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 |---|---|
 | Vanilla TypeScript (no framework) | All UI for the admin panel and the overlay |
 | Vite 6 | Bundler and dev server |
-| `motion` (v11+) | Animation engine for avatars (replaces manual CSS transitions) |
+| `motion` (v12+) | Animation engine for personas (DOM animate API) |
 | `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
 
@@ -68,16 +69,16 @@ Users register and manage their images through a **Discord bot** (slash commands
 
 ```
 TAURI PROCESS (Rust — single binary)
-│
-├── tauri::async_runtime::spawn → discord::spawn_discord_bot()
-├── tauri::async_runtime::spawn → twitch::spawn_twitch_client()
-├── tauri::async_runtime::spawn → tiktok::spawn_tiktok_client()
-│
-└── AppState  ─── Arc<RwLock<Connection>>  (SQLite)
-               ─── Arc<RwLock<AppConfig>>  (in-memory cache)
+|
++-- tauri::async_runtime::spawn --> discord::spawn_discord_bot()
++-- tauri::async_runtime::spawn --> twitch::spawn_twitch_client()
++-- tauri::async_runtime::spawn --> tiktok::spawn_tiktok_client()
+|
++-- AppState --- Arc<Mutex<Connection>>    (SQLite — std::sync::Mutex)
+             --- Arc<RwLock<AppConfig>>    (in-memory cache — std::sync::RwLock)
 
-Tauri Events ──→ WebView "main"    (Admin panel — index.html)
-             ──→ WebView "overlay"  (Chroma key — overlay.html)
+Tauri Events --> WebView "main"    (Admin panel — index.html)
+             --> WebView "overlay"  (Chroma key — overlay.html)
 ```
 
 ### Tauri Windows (defined in `tauri.conf.json`)
@@ -102,9 +103,7 @@ The `overlay` window starts hidden. The "Toggle Overlay" button in the panel cal
 
 > **`withGlobalTauri: true`** is set in `tauri.conf.json`. This injects the Tauri API as `window.__TAURI__` globally. Import from `@tauri-apps/api/*` as usual — do not rely on the global directly. This setting also affects CSP configuration.
 
-### 🧠 Animation and Lip-Sync System Architecture (New)
-
-The animation and lip-sync system works as follows:
+### Animation and Lip-Sync System Architecture
 
 #### The Lip-Sync Pipeline (Voice to Mouth Movement)
 1. **Message Detection**: Rust detects a message on Twitch/TikTok.
@@ -113,17 +112,30 @@ The animation and lip-sync system works as follows:
 4. **TTS Execution**: Rust executes the TTS asynchronously using `speak_with_events`.
 5. **Signaling (Primary)**: When starting to speak, Rust emits the Tauri event `tts-state` with `speaking: true` and the `user_id`. When finished, it emits `speaking: false`.
 6. **Mouth Animation (Dual Mode)**:
-   - **Text Simulation (Fallback)**: When `tts-state: true` fires, `overlay.ts` immediately opens the mouth and starts scheduling mouth closures based on the words and punctuation of the message text to simulate natural pauses.
-   - **Audio Analysis (Granular)**: If the system default recording device is set to "Stereo Mix" or a virtual cable, the `AudioLevelDetector` captures the TTS audio in real-time. If it detects a signal, it overrides the text simulation and triggers mouth open/closed states exactly matching the audio amplitude against `audioThreshold`.
+   - **Text Simulation (Fallback)**: When `tts-state: true` fires, `overlay.ts` opens the mouth and schedules open/closed transitions based on words and punctuation of the message text to simulate natural pauses.
+   - **Audio Analysis (Granular)**: If the system default recording device is set to "Stereo Mix" or a virtual cable, the `AudioLevelDetector` captures the TTS audio in real-time. If it detects a signal, it overrides the text simulation and triggers mouth states exactly matching audio amplitude against `audioThreshold`.
 
 #### The Animation Engine (`AnimationEngine`)
-- The `motion` library is used (formerly Framer Motion but for vanilla JS).
-- Exit animations (`playOut`) **must** use single end-keyframes (e.g., `{ y: -80 }` instead of `{ y: [0, -80] }`). This lets `motion` calculate the start position from the current DOM transform, preventing visual snaps if the element was in the middle of a float loop.
+- The `motion` library is used (v12+, formerly Framer Motion but for vanilla JS).
+- All keyframes use **CSS `transform` strings** (e.g., `{ transform: "translateY(100px)" }`) — **never** use shorthand property names (`x`, `y`, `scale`, `rotateY`, etc.) directly in the keyframe object. Shorthand names cause TypeScript compile errors in motion v12, even though they work at runtime.
+- Exit animations (`playOut`) use single end-keyframes (e.g., `{ transform: "translateY(-80px)" }`). This lets `motion` calculate the start position from the current DOM transform, preventing visual snaps if the element is mid-animation.
 - It supports 10 entry and exit animation styles: `bounce`, `slide-up`, `slide-left`, `slide-right`, `pop`, `flip`, `shake`, `rubber`, `glitch`, `float`.
 
-#### ⚠️ Motion v11 Types Gotcha (Very Important)
-Version 11 of `motion` has a severe bug or restriction in its TypeScript types for `ObjectTarget<HTMLElement>`. It does not recognize shorthand transformation properties like `x`, `y`, `scale`, `rotateY`, etc., even though they work perfectly at runtime.
-- **Solution implemented**: In `animation-engine.ts` and `persona-controller.ts` a wrapper called `animEl()` is used that casts the element and arguments to `any` before calling `animate()`. **Do not attempt to remove these casts or you will break the project's typing**.
+#### ⚠️ Motion v12 Types Constraint (Critical)
+`motion` v12 does **not** accept shorthand transformation properties (`x`, `y`, `scale`, `rotate`, `rotateY`, etc.) in the TypeScript type for keyframe objects targeting `HTMLElement`, even though they work fine at runtime.
+
+**The only working solution** is to use CSS `transform` strings:
+```typescript
+// WRONG — causes TS error even though it runs fine:
+animate(el, { y: 100, scale: 0 }, { duration: 0.3 });
+
+// CORRECT — use CSS transform strings:
+animate(el, { transform: "translateY(100px) scale(0)" }, { duration: 0.3 });
+```
+
+For opacity and filter, shorthand works fine. Only `transform`-related properties require the string form.
+
+The `@ts-ignore` comment is also used in some files (e.g., `audio-detector.ts`) as a last resort when a Web API method has a type mismatch — this is acceptable only when the runtime behavior is verified correct.
 
 ---
 
@@ -131,68 +143,76 @@ Version 11 of `motion` has a severe bug or restriction in its TypeScript types f
 
 ```
 stream-persona-overlay/
-├── src/                          # Frontend TypeScript
-│   ├── main.ts                   # Panel entry point (index.html)
-│   ├── router.ts                 # Manual hash-based ViewRouter
-│   ├── state.ts                  # AppState singleton + TS types + showToast()
-│   ├── styles.css                # Global panel styles
-│   ├── views/
-│   │   ├── config.ts             # /config view — global settings
-│   │   ├── users.ts              # /users view — user CRUD
-│   │   ├── preview.ts            # /preview view — overlay preview
-│   │   ├── logs.ts               # /logs view — message history
-│   │   └── animations.ts         # /animations view — configure effects
-│   ├── overlay/                  # Overlay-specific modules
-│   │   ├── animation-config.ts   # Loading and mapping of animation config
-│   │   ├── animation-engine.ts   # Motion.js engine with the 10 effects
-│   │   ├── audio-detector.ts     # Web Audio API analyzer for Lip-Sync
-│   │   ├── persona-controller.ts # Lifecycle controller of an avatar in the DOM
-│   │   └── persona-queue.ts      # Capacity manager (prevents avatar saturation)
-│   ├── components/               # Reusable frontend components
-│   │   ├── persona-card.ts       # Visual persona card component
-│   │   └── color-picker.ts       # Chroma color selector component
-│   ├── assets/                   # Static frontend assets
-│   └── styles/                   # Additional CSS (overlay, panel)
-│
-├── src-tauri/
-│   ├── tauri.conf.json           # Window config, bundle, CSP
-│   ├── Cargo.toml                # Rust dependencies
-│   ├── build.rs                  # Tauri build script
-│   └── src/
-│       ├── main.rs               # Binary entry point (delegates to lib.rs::run())
-│       ├── lib.rs                # setup_app: DB init, spawn tasks, register handlers
-│       ├── state.rs              # AppState, AppConfig, ChatMessagePayload
-│       ├── chat_platform.rs      # ChatPlatform trait abstraction for providers
-│       ├── db/
-│       │   ├── mod.rs
-│       │   ├── migrations.rs     # run_migrations() — creates tables and inserts defaults
-│       │   ├── users.rs          # Full CRUD for users + personas + logs
-│       │   └── config.rs         # get_config() / set_config_value()
-│       ├── discord/
-│       │   ├── mod.rs            # spawn_discord_bot() — reads token, starts poise::Framework
-│       │   └── commands/
-│       │       ├── persona.rs    # /persona: set-username, upload-open, upload-closed, preview, remove
-│       │       └── admin.rs      # /admin commands (streamer role only): get-user, toggle-active, delete-user
-│       ├── twitch/
-│       │   ├── mod.rs            # spawn_twitch_client() — TwitchIRC, on_message → emit "chat-message"
-│       │   └── handler.rs        # User lookup logic in DB
-│       ├── tiktok/
-│       │   ├── mod.rs            # spawn_tiktok_client() — WS to TikTool, on_chat_event → emit
-│       │   └── handler.rs        # TikTok event parsing
-│       ├── tts/
-│       │   └── mod.rs            # TTS wrapper (tts crate)
-│       └── commands/
-│           ├── mod.rs
-│           ├── users.rs          # get_users, get_user, update_user_cmd, delete_user_cmd, toggle_user_active_cmd, get_recent_logs_cmd
-│           ├── config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color
-│           └── control.rs        # restart_discord_bot, connect_twitch, connect_tiktok, toggle_overlay, send_test_message
-│
-├── index.html                    # Admin panel HTML
-├── overlay.html                  # Overlay window HTML (chroma key)
-├── vite.config.ts                # Vite configuration
-├── tsconfig.json
-├── package.json
-└── plan-proyecto-streamoverlay.md  # Original design document (reference)
++-- src/                          # Frontend TypeScript
+|   +-- main.ts                   # Panel entry point (index.html)
+|   +-- router.ts                 # Manual hash-based ViewRouter
+|   +-- state.ts                  # AppState singleton + TS types + showToast()
+|   +-- styles.css                # Global panel styles
+|   +-- views/
+|   |   +-- config.ts             # /config view — global settings
+|   |   +-- users.ts              # /users view — user CRUD
+|   |   +-- preview.ts            # /preview view — overlay preview
+|   |   +-- logs.ts               # /logs view — message history
+|   |   +-- animations.ts         # /animations view — configure animation effects
+|   |   +-- tamagotchi.ts         # /tamagotchi view — pet admin panel
+|   |   +-- overlay.ts            # Entry point for overlay.html (NOT a panel view)
+|   +-- overlay/                  # Overlay-specific modules (used by overlay.ts)
+|   |   +-- animation-config.ts   # AnimationConfig type + loadAnimationConfig()
+|   |   +-- animation-engine.ts   # AnimationEngine: 10 enter/exit effects
+|   |   +-- audio-detector.ts     # AudioLevelDetector: Web Audio API lip-sync
+|   |   +-- persona-controller.ts # PersonaController: DOM lifecycle of one avatar
+|   |   +-- persona-queue.ts      # PersonaQueue: capacity manager (max visible)
+|   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
+|   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, PetFloor, BasePet, PetScheduler, PetManager
+|   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, _template
+|   |       +-- props/            # PropRenderer, PropAssetLoader
+|   +-- components/               # Reusable frontend components
+|   |   +-- persona-card.ts       # Visual persona card component
+|   |   +-- color-picker.ts       # Chroma color selector component
+|   +-- assets/                   # Static frontend assets
+|   +-- styles/
+|       +-- overlay.css           # Overlay window styles (chroma key, personas, effects)
+|
++-- src-tauri/
+|   +-- tauri.conf.json           # Window config, bundle, CSP
+|   +-- Cargo.toml                # Rust dependencies
+|   +-- build.rs                  # Tauri build script
+|   +-- src/
+|       +-- main.rs               # Binary entry point (delegates to lib.rs::run())
+|       +-- lib.rs                # setup_app: DB init, spawn tasks, register handlers
+|       +-- state.rs              # AppState, AppConfig, ChatMessagePayload, TtsStatePayload
+|       +-- chat_platform.rs      # ChatPlatform trait abstraction for providers
+|       +-- db/
+|       |   +-- mod.rs
+|       |   +-- migrations.rs     # run_migrations() — creates tables and inserts defaults
+|       |   +-- users.rs          # Full CRUD for users + personas + logs
+|       |   +-- config.rs         # get_config() / set_config_value()
+|       +-- discord/
+|       |   +-- mod.rs            # spawn_discord_bot() — reads token, starts poise::Framework
+|       |   +-- commands/
+|       |       +-- persona.rs    # /persona: set-username, upload-open, upload-closed, preview, remove
+|       |       +-- admin.rs      # /admin commands (streamer role only): get-user, toggle-active, delete-user
+|       +-- twitch/
+|       |   +-- mod.rs            # spawn_twitch_client() — TwitchIRC, on_message --> emit "chat-message"
+|       |   +-- handler.rs        # User lookup logic in DB
+|       +-- tiktok/
+|       |   +-- mod.rs            # spawn_tiktok_client() — WS to TikTool, on_chat_event --> emit
+|       |   +-- handler.rs        # TikTok event parsing
+|       +-- tts/
+|       |   +-- mod.rs            # TTS wrapper (tts crate)
+|       +-- commands/
+|           +-- mod.rs
+|           +-- users.rs          # get_users, get_user, update_user_cmd, delete_user_cmd, toggle_user_active_cmd, get_recent_logs_cmd
+|           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config
+|           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
+|
++-- index.html                    # Admin panel HTML
++-- overlay.html                  # Overlay window HTML (chroma key)
++-- vite.config.ts                # Vite configuration
++-- tsconfig.json
++-- package.json
++-- AGENTS.md                     # This file
++-- plan-proyecto-streamoverlay.md  # Original design document (reference)
 ```
 
 ---
@@ -217,6 +237,7 @@ users        -- discord_id (UNIQUE), display_name, twitch_username, tiktok_usern
 personas     -- user_id (UNIQUE FK), mouth_open_path, mouth_closed_path
 config       -- key TEXT PRIMARY KEY, value TEXT  (key-value store)
 message_log  -- platform, username, message, user_id (nullable FK), shown
+pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x, is_sleeping
 ```
 
 > **`personas.user_id` is UNIQUE** — there is exactly one persona per user. Uploading a new image must use an **upsert** (`INSERT OR REPLACE` / `ON CONFLICT DO UPDATE`), not a plain `INSERT`. A duplicate insert will raise a constraint violation.
@@ -236,8 +257,31 @@ message_log  -- platform, username, message, user_id (nullable FK), shown
 | `discord_bot_token` | `""` | Discord bot token |
 | `discord_guild_id` | `""` | Discord server ID |
 | `discord_channel_id` | `""` | Discord channel ID |
+| `overlay_display_mode` | `"parallel"` | `"parallel"` or `"queue"` — persona layout mode |
+| `animation_in` | `"bounce"` | Entry animation type |
+| `animation_out` | `"slide-up"` | Exit animation type |
+| `visible_duration_secs` | `"8"` | How long a persona stays visible |
+| `idle_wiggle` | `"true"` | Subtle idle rotation CSS animation |
+| `idle_breathe` | `"false"` | Gentle vertical scale CSS animation |
+| `glow_effect` | `"false"` | Colored halo drop-shadow |
+| `glow_color` | `"#00c896"` | Color of the glow effect |
+| `outline_effect` | `"true"` | Black drop-shadow outline for readability |
+| `persona_size_px` | `"256"` | Persona image size in pixels |
+| `audio_threshold` | `"20"` | Web Audio amplitude threshold for lip-sync |
+| `max_visible_personas` | `"4"` | Maximum simultaneous persona bubbles |
+| `tama_enabled` | `"true"` | Enable/disable Tamagotchi pet system |
+| `tama_pet_size_px` | `"80"` | Pet sprite size in pixels |
+| `tama_floor_y` | `"900"` | Y pixel position of the pet floor |
+| `tama_walk_speed` | `"0.6"` | Horizontal walk speed (px per frame) |
+| `tama_inactivity_mins` | `"5"` | Minutes before a pet falls asleep |
+| `tama_max_pets` | `"8"` | Maximum simultaneous pets on screen |
+| `tama_action_check_secs` | `"8"` | Interval between random action rolls |
+| `tama_action_probability` | `"0.15"` | Probability per interval of triggering a random action |
+| `tama_enabled_actions` | `'["jump","popcorn","dance","fight","explode"]'` | JSON array of action IDs in the random pool |
 
 > **Important:** The bot token and API keys are stored in the local SQLite `config` table. Never hardcode them in source code or plain-text files.
+>
+> **Boolean Config Parsing:** All config values are stored as strings. Do NOT use `Boolean(value)` — `Boolean("false") === true`. Always use `String(value) === "true"` for explicit comparison. The same applies when reading booleans emitted in Tauri events from Rust (they arrive as `"true"`/`"false"` strings).
 
 ### Migrations
 
@@ -249,20 +293,21 @@ Migrations are inline in `db/migrations.rs` via `run_migrations(&conn)`. They us
 
 ```rust
 pub struct AppState {
-    pub db: Arc<Mutex<Connection>>,           // Synchronous Mutex for SQLite connection
-    pub config_cache: Arc<RwLock<AppConfig>>, // In-memory config cache
-    pub app_data_dir: Arc<PathBuf>,           // Shared data directory path
-    pub discord_handle: Arc<Mutex<Option<JoinHandle<()>>>>, // Task handles for lifecycle
+    pub db: Arc<Mutex<Connection>>,           // std::sync::Mutex (NOT tokio::sync::Mutex)
+    pub config_cache: Arc<RwLock<AppConfig>>, // std::sync::RwLock
+    pub app_data_dir: Arc<PathBuf>,
+    pub discord_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub twitch_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub tiktok_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 ```
 
 - **`AppState` is `Clone`** — clone it freely to pass to tokio tasks.
-- **DB Access is synchronous:** Use `state.db.lock()` (or handle poisoning). Do not `await` it.
+- **`db` uses `std::sync::Mutex`** (not `tokio::sync::Mutex` and not `RwLock`). Lock with `state.db.lock().map_err(map_err)?`. Do not `.await` it — it is synchronous.
 - **Do not create additional connections.** All DB access goes through this single `Arc<Mutex<Connection>>`.
-- Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, etc., to prevent stale connections during restarts.
-- Always update `config_cache` after every `set_config_value` call.
+- **`config_cache` uses `std::sync::RwLock`** — this is intentional so it can be written in `setup()` before the Tokio runtime starts. Use `.read().map_err(...)` / `.write().map_err(...)`.
+- Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, `abort_tiktok()`, `abort_all()`.
+- Always update `config_cache` after every `set_config_value` call. The `set_config_cmd` command does this for individual keys; `save_animation_config` updates the full animation block at once.
 
 ---
 
@@ -286,9 +331,20 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | Command | TS Signature | Description |
 |---|---|---|
 | `get_config_cmd` | `invoke<AppConfig>("get_config_cmd")` | Full config |
-| `set_config_cmd` | `invoke("set_config_cmd", { key, value })` | Save a key-value pair |
+| `set_config_cmd` | `invoke("set_config_cmd", { key, value })` | Save a single key-value pair |
 | `get_available_voices_cmd` | `invoke<VoiceInfo[]>("get_available_voices_cmd")` | System TTS voices |
 | `set_chroma_color` | `invoke("set_chroma_color", { color })` | Update color and emit `chroma-color-changed` |
+| `save_animation_config` | `invoke("save_animation_config", { config: AnimationConfigInput })` | Save all animation config fields atomically and emit `animation-config-changed` |
+
+### Tamagotchi (`commands/tamagotchi.rs`)
+
+| Command | TS Signature | Description |
+|---|---|---|
+| `tama_trigger_action` | `invoke("tama_trigger_action", { user_id, action_id, input })` | Emit `tama-action` event to overlay so PetManager forwards it to the target pet |
+| `tama_set_enabled` | `invoke("tama_set_enabled", { enabled })` | Persist `tama_enabled` config key |
+| `tama_get_pet_states` | `invoke<PetStateRow[]>("tama_get_pet_states")` | Return all active pet rows joined with display_name from users |
+| `tama_upsert_pet_state` | `invoke("tama_upsert_pet_state", { user_id, display_name, floor_x, is_sleeping })` | Sync pet position/state to DB (called by overlay on spawn and state change) |
+| `tama_remove_pet_state` | `invoke("tama_remove_pet_state", { user_id })` | Delete pet row from DB (called by overlay on despawn) |
 
 ### Control (`commands/control.rs`)
 
@@ -296,10 +352,10 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 |---|---|---|
 | `restart_discord_bot` | `invoke("restart_discord_bot")` | Re-spawn the Discord bot |
 | `connect_twitch` | `invoke("connect_twitch", { channel })` | Save channel and reconnect IRC client |
-| `validate_twitch_token` | `invoke<string>("validate_twitch_token", { token })` | Validates OAuth token and returns username |
+| `validate_twitch_token` | `invoke<string>("validate_twitch_token", { token })` | Validates OAuth token against Twitch API and returns username. Also saves `twitch_bot_token` and `twitch_bot_username` to DB. |
 | `connect_tiktok` | `invoke("connect_tiktok", { username })` | Save username and reconnect WS |
 | `toggle_overlay` | `invoke("toggle_overlay")` | Show / hide the overlay window |
-| `send_test_message` | `invoke("send_test_message", { display_name, mouth_open_path, mouth_closed_path })` | Emit a test `chat-message` |
+| `send_test_message` | `invoke("send_test_message", { display_name, mouth_open_path, mouth_closed_path })` | Emit a test `chat-message` (and TTS if enabled) |
 
 ---
 
@@ -309,12 +365,17 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 
 | Event | Payload | Emitter | Listener |
 |---|---|---|---|
-| `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `overlay.ts`, `preview.ts` |
+| `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `overlay.ts` |
+| `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `overlay.ts` |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` |
+| `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` |
+| `overlay-display-mode-changed` | `string` | `commands/config.rs` | `overlay.ts` |
+| `animation-config-changed` | `AppConfig` (full config object) | `commands/config.rs` | `overlay.ts` |
+| `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `overlay.ts` → PetManager |
 | `twitch-connected` | `string` (channel) | `twitch/mod.rs` (on RoomState) | `main.ts` |
 | `twitch-error` | `string` (error msg) | `twitch/mod.rs` | `main.ts` |
 | `tiktok-connected` | `string` (username) | `commands/control.rs` | `main.ts` |
-| `discord-ready` | `string` (bot username)| `discord/mod.rs` | `main.ts` |
+| `discord-ready` | `string` (bot username) | `discord/mod.rs` | `main.ts` |
 | `discord-error` | `string` (error msg) | `discord/mod.rs` | `main.ts` |
 
 ### `ChatMessagePayload`
@@ -324,11 +385,20 @@ interface ChatMessagePayload {
   platform: string;         // "twitch" | "tiktok" | "test"
   username: string;         // Platform username
   message: string;          // Message text
-  user_id: number;          // DB ID (0 for test messages)
+  user_id: number;          // DB ID (i64 in Rust, number in TS — 0 for test messages)
   display_name: string;     // Name to display on the overlay
   mouth_open_path: string;  // Absolute OS filesystem path
   mouth_closed_path: string;
   voice_id: string;
+}
+```
+
+### `TtsStatePayload`
+
+```typescript
+interface TtsStatePayload {
+  user_id: number;   // Matches ChatMessagePayload.user_id
+  speaking: boolean; // true = TTS started, false = TTS finished
 }
 ```
 
@@ -343,11 +413,13 @@ interface ChatMessagePayload {
 The router in `router.ts` is manual, hash-based (`#/config`, `#/users`, etc.).
 
 ```typescript
-export type ViewId = "config" | "users" | "preview" | "logs";
+export type ViewId = "config" | "users" | "preview" | "logs" | "animations" | "tamagotchi";
 ```
 
 - To add a new view: add an entry in `routes`, create the file under `src/views/`, and add `data-view="new-view"` to the sidebar in `index.html`.
 - Each view exports a function `render<Name>(): Promise<void>` that writes into `#view-container`.
+
+> **Note:** `src/views/overlay.ts` is NOT a panel view — it runs in the `overlay` window (`overlay.html`) and is never loaded by the router.
 
 ### AppState (Frontend Singleton)
 
@@ -363,15 +435,28 @@ await AppState.setConfig(key, value); // Save and reload cache
 - Always reload fresh state with `load*()` methods when entering a view.
 - Use `showToast(message, "success" | "error" | "info")` for notifications.
 
-### Overlay Window (`overlay.ts`)
+### Overlay Window (`src/views/overlay.ts`)
 
-- Runs in `overlay.html` (separate window).
-- Manages `activePersonas: Map<user_id, PersonaBubble>`.
-- The `PersonaBubble` class handles positioning, mouth animation, and auto-exit after 6 seconds of inactivity.
-- Horizontal positioning: `PERSONA_START_X=40`, `PERSONA_WIDTH=200`, `PERSONA_GAP=20` — bubbles stack left-to-right as different users appear.
-- **Display Mode:** Managed by `AppConfig.overlay_display_mode`.
-  - `parallel`: bubbles stack left-to-right (`PERSONA_START_X`, `PERSONA_GAP`).
-  - `queue`: bubbles appear one at a time centrally.
+- Runs in `overlay.html` (separate window, not loaded by the router).
+- Manages a `PersonaQueue` that holds up to `maxVisiblePersonas` active `PersonaController` instances.
+- **Two display modes** (read from config, updated live via `overlay-display-mode-changed`):
+  - `"parallel"`: each unique user gets their own slot, positioned left-to-right using `PERSONA_START_X=40` and `PERSONA_GAP=20`.
+  - `"queue"`: only one persona visible at a time; messages queue up and play sequentially.
+- Persona entry uses `AnimationEngine.playIn()`, exit uses `AnimationEngine.playOut()`.
+- A small `#audio-indicator` badge shows whether Stereo Mix is active. It auto-hides after 4 s on success, stays visible on failure.
+- **Fade-cover mechanism**: `#fade-cover` starts opaque black. `resetAndTriggerFade()` is called on init and on every `overlay-will-show` event to prevent chroma flashbang when the window opens.
+
+### PersonaController (`src/overlay/persona-controller.ts`)
+
+- Manages the DOM for a single persona bubble: images, name label, message bubble.
+- `setMouth(state: "open" | "closed")` animates opacity between the two mouth images with 80 ms debounce.
+- Visual effects (wiggle, breathe, glow, outline) are toggled via CSS classes on the wrapper element.
+
+### AnimationConfig (`src/overlay/animation-config.ts`)
+
+- `loadAnimationConfig()` calls `get_config_cmd` and maps the raw `Record<string, unknown>` to a typed `AnimationConfig` object.
+- All boolean fields from SQLite must be parsed with `String(v) === "true"` (not `Boolean(v)`).
+- `DEFAULT_ANIMATION_CONFIG` is used as fallback when the backend call fails.
 
 ---
 
@@ -394,7 +479,7 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 - `spawn_twitch_client(state, app_handle)`: connects via `twitch-irc` to the configured channel.
 - Uses **authenticated** connection if `twitch_bot_username` and `twitch_bot_token` are set (required to receive messages when the stream is offline). If empty, falls back to an anonymous connection (only works when the channel is live).
-- `twitch_bot_token` is validated against Twitch's API (`id.twitch.tv/oauth2/validate`) before saving to automatically fetch the `twitch_bot_username`.
+- `twitch_bot_token` is validated against Twitch's API (`id.twitch.tv/oauth2/validate`) via `validate_twitch_token` command before saving to automatically fetch the `twitch_bot_username`.
 - For each incoming message: looks up in DB whether the `twitch_username` is registered and active.
 - Emits `twitch-connected` to the frontend only upon receiving a successful `RoomState` from the server.
 - On match: emits `chat-message` to the frontend with the `ChatMessagePayload`.
@@ -412,6 +497,7 @@ await AppState.setConfig(key, value); // Save and reload cache
 ### `tts/`
 
 - Wrapper over the `tts` crate abstracting SAPI (Windows), NSSpeechSynthesizer (macOS), and espeak (Linux).
+- `speak_with_events(text, voice_id, user_id, app_handle)` emits `tts-state { user_id, speaking: true }` before speaking and `speaking: false` after finishing.
 - TTS may not be available in all environments — handle errors with `tracing::warn!` without propagating panics.
 
 ### `db/`
@@ -433,8 +519,8 @@ npm run dev
 
 # Production build (outputs installer + binary)
 npm run tauri build
-# Windows → .msi / NSIS installer in src-tauri/target/release/bundle/
-# macOS   → .dmg / .app in src-tauri/target/release/bundle/
+# Windows --> .msi / NSIS installer in src-tauri/target/release/bundle/
+# macOS   --> .dmg / .app in src-tauri/target/release/bundle/
 
 # Compile Rust only
 cd src-tauri && cargo build
@@ -460,9 +546,9 @@ TikTool requires an internet connection and an API key. For offline TikTok devel
 
 ## 12. Rules and Restrictions for Agents
 
-1. **Do not break the `ViewRouter` pattern**: every view goes in `src/views/`, exports `render<Name>()`, and is registered in `router.ts`.
+1. **Do not break the `ViewRouter` pattern**: every panel view goes in `src/views/`, exports `render<Name>()`, and is registered in `router.ts`. Exception: `src/views/overlay.ts` is the overlay entry point and is not a router view.
 2. **Do not add CSS frameworks** (Tailwind, Bootstrap, etc.) without explicit user approval. The project uses vanilla CSS.
-3. **Do not create additional DB connections** — all DB access goes through `AppState.db: Arc<RwLock<Connection>>`.
+3. **Do not create additional DB connections** — all DB access goes through `AppState.db: Arc<Mutex<Connection>>`.
 4. **Do not use `unwrap()`** in production Rust code. Use `?` with `anyhow::Result` or map errors to `CmdResult<T>` via `map_err`.
 5. **Do not store tokens/secrets in source code.** Tokens go in the `config` SQLite table.
 6. **Add `#[tauri::command]` to every new command** and register it in `lib.rs → tauri::generate_handler![]`.
@@ -470,7 +556,7 @@ TikTool requires an internet connection and an API key. For offline TikTok devel
 8. **For images in the overlay:** always use `convertFileSrc(path)` before assigning to `img.src` so Tauri can serve the local file via the asset protocol.
 9. **The Discord bot and chat clients are tolerant of empty config** — if the token/channel/username is empty, they return without error.
 10. **TikTok LIVE** has no official public API. The current integration depends on the external TikTool service (`wss://api.tik.tools`). If the service fails, the module must handle the error and retry with backoff — never crash the process.
-11. **NEVER use box-drawing characters** (`─`, `│`, `├`, `└`, `┌`, `┐`, `┘`, `┤`, `┬`, `┴`, `┼`, etc.) in code comments or section headers. These characters are invisible or corrupt on many terminals and editors. The only allowed section-separator style in TypeScript/Rust source files is:
+11. **NEVER use box-drawing characters** (`─`, `│`, `├`, `└`, `┌`, `┐`, `┘`, `┤`, `┬`, `┴`, `┼`, etc.) in code comments or section headers in new code you write. These characters are invisible or corrupt on many terminals and editors. The only allowed section-separator style in TypeScript/Rust source files is:
     ```typescript
     // =========================================================================================================
     // Section Name
@@ -478,8 +564,9 @@ TikTool requires an internet connection and an API key. For offline TikTok devel
     ```
     Violating this rule **will require a fix** before the code is accepted.
 12. **Overlay Lifecycle**: Do not destroy the overlay window. `lib.rs` intercepts `CloseRequested` and calls `hide()` instead. When showing the overlay, `toggle_overlay` emits `overlay-will-show` and delays 120ms so `overlay.ts` can set a black fade-cover to prevent bright chroma-key flashes.
-13. **Typed Arrays**: TypeScript 5.x makes typed arrays generic. Web Audio API methods like `getByteFrequencyData` require `Uint8Array<ArrayBuffer>`, not `Uint8Array` (which defaults to the wider `ArrayBufferLike`).
+13. **Motion v12 — use CSS transform strings**: Do NOT use shorthand properties (`x`, `y`, `scale`, `rotate`, etc.) as keyframe keys when calling `animate()` on an `HTMLElement`. Use CSS `transform` strings instead (see Section 3 for details). Opacity and filter properties work fine as shorthands.
 14. **Boolean Config Parsing**: SQLite config values are retrieved as strings. Do not use `Boolean(value)` since `Boolean("false") === true`. Use explicit string comparison: `String(value) === "true"`.
+15. **Animation config is saved atomically**: Use the `save_animation_config` command to persist all animation fields at once. Do not use `set_config_cmd` in a loop for animation settings — `save_animation_config` updates the cache, persists all keys, and emits `animation-config-changed` in one call.
 
 ---
 
@@ -489,29 +576,31 @@ TikTool requires an internet connection and an API key. For offline TikTok devel
 
 ```
 User runs /persona upload-open [image]
-  → Bot validates: PNG/JPG, ≤2MB
-  → Downloads image → resizes to 512×512 → saves as PNG
-  → Path: {app_data_dir}/personas/{discord_id}/mouth_open.png
-  → Inserts/updates personas table in SQLite
-  → Responds with a confirmation embed
+  --> Bot validates: PNG/JPG, <=2MB
+  --> Downloads image --> resizes to 512x512 --> saves as PNG
+  --> Path: {app_data_dir}/personas/{discord_id}/mouth_open.png
+  --> Inserts/updates personas table in SQLite
+  --> Responds with a confirmation embed
 
 User runs /persona set-username twitch:myuser tiktok:myuser2
-  → Updates users table (twitch_username, tiktok_username)
-  → Bot confirms
+  --> Updates users table (twitch_username, tiktok_username)
+  --> Bot confirms
 ```
 
-### Stream Message → Overlay
+### Stream Message --> Overlay
 
 ```
 Twitch/TikTok chat: message from "myuser"
-  → Rust looks up DB: users JOIN personas WHERE twitch_username = 'myuser' AND is_active = 1
-  → On match: builds ChatMessagePayload
-  → app_handle.emit("chat-message", payload)  →  WebView "overlay"
-  → overlay.ts: PersonaBubble.update(payload)
-      → img.src = convertFileSrc(mouth_open_path)   (300ms)
-      → img.src = convertFileSrc(mouth_closed_path)
-      → auto-exit after 6s of inactivity
-  → (parallel) TTS reads the message with the user's assigned voice
+  --> Rust looks up DB: users JOIN personas WHERE twitch_username = 'myuser' AND is_active = 1
+  --> On match: builds ChatMessagePayload
+  --> app_handle.emit("chat-message", payload)  -->  WebView "overlay"
+  --> overlay.ts: PersonaController created/updated via PersonaQueue
+      --> img.src = convertFileSrc(mouth_open_path)
+      --> img.src = convertFileSrc(mouth_closed_path)
+      --> AnimationEngine.playIn() --> visible for visibleDurationSecs --> AnimationEngine.playOut()
+  --> (parallel) TTS reads the message
+      --> tts-state { speaking: true }  --> overlay opens mouth + starts lip-sync simulation
+      --> tts-state { speaking: false } --> overlay closes mouth + stops simulation
 ```
 
 ---
@@ -527,21 +616,27 @@ Twitch/TikTok chat: message from "myuser"
 
 ## 15. MVP Scope & Implementation Status
 
-The project plan defines a phased roadmap. The table below tracks what is implemented vs. pending so agents do not accidentally treat TODO items as existing features.
-
 | Phase | Feature | Status |
 |---|---|---|
-| 0 | Project setup, SQLite, AppState, logging | ✅ Done |
-| 1 | Discord bot — `/persona` slash commands | ✅ Done |
-| 2 | Twitch IRC client — message detection & emit | ✅ Done |
-| 3 | TikTok LIVE client (TikTool WebSocket) | ✅ Done |
-| 4 | Overlay window — chroma key + PersonaBubble animation | ✅ Done |
-| 5 | TTS — read messages with per-user voice | ✅ Done |
-| 6 | Admin panel — config, users CRUD, preview, logs views | ✅ Done |
-| — | Discord `/admin` commands (streamer role) | ✅ Done |
-| — | `src/components/` refactor (persona-card, color-picker) | ✅ Done |
-| — | Configurable overlay display mode (parallel vs queue) | ✅ Done |
-| — | `ChatPlatform` trait abstraction | ✅ Done |
+| 0 | Project setup, SQLite, AppState, logging | Done |
+| 1 | Discord bot — `/persona` slash commands | Done |
+| 2 | Twitch IRC client — message detection & emit | Done |
+| 3 | TikTok LIVE client (TikTool WebSocket) | Done |
+| 4 | Overlay window — chroma key + PersonaController animation | Done |
+| 5 | TTS — read messages with per-user voice + tts-state events | Done |
+| 6 | Admin panel — config, users CRUD, preview, logs views | Done |
+| — | Discord `/admin` commands (streamer role) | Done |
+| — | `src/components/` refactor (persona-card, color-picker) | Done |
+| — | Configurable overlay display mode (parallel vs queue) | Done |
+| — | `ChatPlatform` trait abstraction | Done |
+| — | `AnimationEngine` — 10 entry/exit effects with motion v12 | Done |
+| — | `AudioLevelDetector` — Web Audio API lip-sync via Stereo Mix | Done |
+| — | Text-based lip-sync simulation (fallback when no Stereo Mix) | Done |
+| — | `/animations` view — full animation config panel | Done |
+| — | `save_animation_config` command + live `animation-config-changed` event | Done |
+| — | Overlay fade-cover (prevents chroma flashbang on window show) | Done |
+| — | Persona idle effects: wiggle, breathe, glow, outline (CSS classes) | Done |
+| — | Tamagotchi pet system — persistent chat-user pets walking on overlay floor | Done |
 
 ### Minimum Viable Product (MVP) Definition
 
@@ -551,8 +646,121 @@ The MVP required for a functional stream session:
 3. Overlay with chroma key + mouth open/closed animation
 4. Minimal config panel (set channel, view users)
 
-**All four MVP components are implemented.** TikTok, TTS, and the full admin panel are post-MVP enhancements that are also complete in the current codebase.
+**All four MVP components are implemented.** TikTok, TTS, full admin panel, and the complete animation system are post-MVP enhancements that are also complete in the current codebase.
 
 ---
 
-*Generated 2026-05-18 — Stream Persona Overlay v0.1*
+## 16. Tamagotchi Pet System
+
+Persistent chat-user pets that walk along the bottom of the overlay window. Each registered viewer who sends a chat message spawns a small pet (their persona images). Pets idle-walk across the floor, react to chat events, execute random or admin-triggered actions, sleep after inactivity, and eventually despawn.
+
+### Architecture
+
+```
+overlay.ts
+  --> PetManager.init(container)  (static singleton, src/overlay/tamagotchi/core/)
+        |
+        +-- listen("chat-message")  --> _onChatMessage  --> spawn / wake BasePet
+        +-- listen("tts-state")     --> _onTtsState     --> lip-sync mouth + returnToFloor
+        +-- listen("tama-action")   --> _onTamaAction   --> pet.executeAction()
+        |
+        +-- PetScheduler  (random action roll every 8 s at 15% probability)
+        +-- PetFloor      (floor Y + collision-free spawn X)
+```
+
+### Core modules (`src/overlay/tamagotchi/core/`)
+
+| File | Role |
+|---|---|
+| `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle ↔ approaching → talking → returning → idle, idle → action → idle, idle → sleeping → despawning |
+| `BaseAction.ts` | Abstract base for all actions. Uses `import type { BasePet }` (avoids circular dep). Provides `wait(ms)`, `cancelled` flag, `onCancel()` hook |
+| `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
+| `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) |
+| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop, mouth images, approach/return, sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state` |
+| `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool |
+| `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets |
+
+### Actions (`src/overlay/tamagotchi/actions/`)
+
+Each action file calls `ActionRegistry.register(MyAction)` at the bottom — importing the file triggers registration (side-effect import pattern).
+
+| Action ID | Class | Description |
+|---|---|---|
+| `idle_walk` | `IdleWalkAction` | No-op placeholder; excluded from random pool |
+| `jump` | `JumpAction` | Squash-and-stretch jump loop |
+| `popcorn` | `PopcornAction` | Pet holds a popcorn bucket and watches chat |
+| `fight` | `FightAction` | Two pets charge toward each other, shake, show a fight cloud, bounce away |
+| `explode` | `ExplodeAction` | Tremor, flash, particle burst, then respawn with spring |
+| `dance` | `DanceAction` | Rhythmic rotate + translateY loop |
+| `sleep` | `SleepAction` | Pet tilts + ZZZ props; cancelled on next chat message |
+
+To add a new action, copy `_template.ts`, implement `execute()`, set `meta.id` and `meta.probability`, and call `ActionRegistry.register()` at the bottom. Import the file in `PetManager.ts` to activate it.
+
+### Props (`src/overlay/tamagotchi/props/`)
+
+- **`PropRenderer`** — creates and animates DOM prop elements (ZZZ bubbles, speech bubbles, etc.). Constructor takes no arguments; `parentEl` is passed to each method.
+- **`PropAssetLoader`** — static blob-URL cache for external asset URLs.
+
+### Pet lifecycle
+
+```
+chat-message (new user)
+  --> BasePet constructed  (DOM element placed at floorY, initial X from PetFloor)
+  --> pet.spawn()          (pop-in animation, then FSM → "idle")
+  --> pet.onChatMessage()  (FSM → "approaching", pet moves to center + floatY - 60px, FSM → "talking")
+  --> tts-state speaking=false
+  --> pet.returnToFloor()  (FSM → "returning" → "idle", idle-walk resumes)
+
+5 min inactivity
+  --> FSM → "sleeping"  (PropRenderer shows ZZZ, DB persists is_sleeping=true)
+  --> 30 s later: FSM → "despawning"  (fade-out, el.remove(), DB row deleted)
+
+chat-message (returning user while sleeping)
+  --> _resetInactivityTimer(), onChatMessage() wakes the pet
+```
+
+### Admin panel (`src/views/tamagotchi.ts`)
+
+- ON/OFF toggle (`tama_set_enabled`)
+- Sliders for size, max pets, inactivity timeout, walk speed
+- Checkbox list of enabled actions (saved as JSON array to `tama_enabled_actions`)
+- Active pet list with manual action trigger (calls `tama_trigger_action`)
+- Refresh button re-fetches `tama_get_pet_states`
+
+### Motion v12 in actions
+
+All transform animations in actions **must** use CSS transform strings, same rule as the rest of the overlay (see Section 3). Springs use `{ type: "spring", stiffness, damping }` in the options object.
+
+### ⚠️ Critical: Never use `animate(el, { left })` for horizontal pet movement
+
+**DO NOT** use `animate(el, { left: "Xpx" })` from Motion v12/WAAPI to move a pet horizontally. This causes pets to teleport to a wrong position when the next action starts:
+
+- WAAPI may keep a `fill: "forwards"` on `left` that overrides the walk loop's `el.style.left` updates.
+- Motion v12 may internally convert `left` animations to `transform: translateX()` for GPU acceleration, leaving a residual `translateX` on the element after the animation ends. When the next action resets `transform`, the pet visually snaps to a different horizontal position.
+
+**The rule:** `el.style.left` and `pos.x` must ALWAYS be the sole source of truth for horizontal position and must be updated directly via `requestAnimationFrame` — never through WAAPI.
+
+`BasePet.moveTo()` is implemented as a RAF loop:
+```typescript
+// Each frame: update pos.x and el.style.left directly.
+// No WAAPI animation on `left` — avoids fill/commit race and translateX leakage.
+this.pos.x = startX + (targetX - startX) * t;
+this.el.style.left = `${this.pos.x}px`;
+```
+
+`BasePet` also holds a `moveToAbort` callback so any in-progress `moveTo()` is cleanly cancelled by `_stopCurrentAction()` when a new action starts or the pet is interrupted.
+
+### ⚠️ Critical: Clear inline styles after `spawn()`
+
+`spawn()` sets `el.style.transform = "translateY(40px) scale(0.8)"` before the animation to define the starting keyframe. After the animation completes, Motion v12 may or may not commit the final keyframe value back to the inline style. To guarantee a clean state, `spawn()` always explicitly resets both properties after the animation:
+
+```typescript
+this.el.style.opacity   = "1";
+this.el.style.transform = "";
+```
+
+Without this, subsequent action animations start from a polluted inline transform that corrupts squash/stretch or other keyframe interpolations.
+
+---
+
+*Updated 2026-05-21 — Stream Persona Overlay v0.1*

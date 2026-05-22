@@ -126,7 +126,6 @@ export async function renderConfig(): Promise<void> {
             </label>
           </div>
         </div>
-        <button id="btn-save-overlay" class="btn btn-primary">Guardar</button>
       </div>
     </section>
   `;
@@ -136,10 +135,15 @@ export async function renderConfig(): Promise<void> {
   // =========================================================================================================
 
   const chromaMount = container.querySelector<HTMLElement>("#cfg-chroma-mount")!;
-  const colorPicker = createColorPicker(cfg.chroma_color);
-  chromaMount.appendChild(colorPicker.el);
 
-  // Sync picker ↔ text is handled internally by the component.
+  let chromaDebounce: ReturnType<typeof setTimeout> | null = null;
+  const colorPicker = createColorPicker(cfg.chroma_color, (hex) => {
+    if (chromaDebounce) clearTimeout(chromaDebounce);
+    chromaDebounce = setTimeout(() => {
+      invoke("set_chroma_color", { color: hex }).catch(e => showToast(String(e), "error"));
+    }, 150);
+  });
+  chromaMount.appendChild(colorPicker.el);
 
   // Guardar Discord
   container.querySelector("#btn-save-discord")!.addEventListener("click", async () => {
@@ -207,7 +211,7 @@ export async function renderConfig(): Promise<void> {
     if (!channel) { showToast("Ingresá un canal de Twitch", "error"); return; }
     try {
       await invoke("connect_twitch", { channel });
-      showToast(`Conectando a #${channel}...`, "info");
+      showToast(`Conectando a @${channel}...`, "info");
     } catch (e) {
       showToast(String(e), "error");
     }
@@ -225,17 +229,21 @@ export async function renderConfig(): Promise<void> {
     }
   });
 
-  // Guardar overlay
-  container.querySelector("#btn-save-overlay")!.addEventListener("click", async () => {
-    const color       = colorPicker.getValue();
-    const ttsEl       = container.querySelector<HTMLInputElement>("#cfg-tts")!;
-    const displayMode = (container.querySelector<HTMLSelectElement>("#cfg-display-mode")!).value;
-
+  // TTS toggle — guarda al instante
+  container.querySelector<HTMLInputElement>("#cfg-tts")!.addEventListener("change", async (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
     try {
-      await invoke("set_chroma_color", { color });
-      await invoke("set_config_cmd", { key: "tts_enabled",          value: String(ttsEl.checked) });
-      await invoke("set_config_cmd", { key: "overlay_display_mode", value: displayMode });
-      showToast("Configuración del overlay guardada", "success");
+      await invoke("set_config_cmd", { key: "tts_enabled", value: String(checked) });
+    } catch (e) {
+      showToast(String(e), "error");
+    }
+  });
+
+  // Modo de display — guarda al instante
+  container.querySelector<HTMLSelectElement>("#cfg-display-mode")!.addEventListener("change", async (e) => {
+    const value = (e.target as HTMLSelectElement).value;
+    try {
+      await invoke("set_config_cmd", { key: "overlay_display_mode", value });
     } catch (e) {
       showToast(String(e), "error");
     }

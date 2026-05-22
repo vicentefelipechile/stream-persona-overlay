@@ -109,6 +109,16 @@ pub struct AppConfig {
     pub persona_size_px: u32,
     pub audio_threshold: u8,
     pub max_visible_personas: u32,
+    // ── Tamagotchi config ────────────────────────────────────────────────────
+    pub tama_enabled: bool,
+    pub tama_pet_size_px: u32,
+    pub tama_floor_y: u32,
+    pub tama_walk_speed: f64,
+    pub tama_inactivity_mins: u32,
+    pub tama_max_pets: u32,
+    pub tama_action_check_secs: u32,
+    pub tama_action_probability: f64,
+    pub tama_enabled_actions: String,
 }
 
 // ─── ChatMessagePayload ──────────────────────────────────────────────────────

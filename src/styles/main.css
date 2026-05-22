@@ -271,6 +271,8 @@ select {
 
 .badge-active   { background: rgba(0,200,150,0.15); color: var(--color-success); }
 .badge-inactive { background: rgba(122,128,153,0.15); color: var(--color-text-muted); }
+.badge-ok       { background: rgba(0,200,150,0.15); color: var(--color-success); }
+.badge-warn     { background: rgba(240,180,41,0.15); color: #f0b429; }
 .badge-twitch   { background: rgba(145,70,255,0.15); color: #9146ff; }
 .badge-tiktok   { background: rgba(255,0,80,0.15); color: #ff0050; }
 .badge-test     { background: rgba(97,150,245,0.15); color: var(--color-info); }

@@ -43,13 +43,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Twitch ──────────────────────────────────────────────────────────────────
   await listen<string>("twitch-connected", (event) => {
     const channel = event.payload;
-    updateConnectionStatus(true, `Twitch: #${channel}`);
-    showToast(`✓ Conectado a #${channel}`, "success");
+    updateConnectionStatus(true, `Twitch: @${channel}`);
+    showToast(`✓ Conectado a @${channel}`, "success");
   });
 
   await listen<string>("twitch-error", (event) => {
     updateConnectionStatus(false, "Twitch: error");
     showToast(`✗ Twitch: ${event.payload}`, "error");
+  });
+
+  const shownUnregistered = new Set<string>();
+  await listen<string>("twitch-unregistered-user", (event) => {
+    const username = event.payload;
+    if (shownUnregistered.has(username)) return;
+    shownUnregistered.add(username);
+    showToast(`@${username} escribió pero no está registrado — ignorando`, "info");
   });
 
   // ── TikTok ──────────────────────────────────────────────────────────────────

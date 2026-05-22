@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use tauri::{AppHandle, Emitter};
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::{ClientConfig, SecureTCPTransport, TwitchIRCClient};
@@ -48,8 +49,15 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
     let (mut incoming_messages, client) =
         TwitchIRCClient::<SecureTCPTransport, StaticLoginCredentials>::new(config);
 
-    client.join(channel.clone()).expect("No se pudo unir al canal de Twitch");
-    tracing::info!("Conectado al canal de Twitch: #{}", channel);
+    if let Err(e) = client.join(channel.clone()) {
+        tracing::error!("[twitch] No se pudo unir al canal @{}: {:?}", channel, e);
+        let _ = app_handle.emit("twitch-error", format!("No se pudo unir a @{}", channel));
+        return;
+    }
+    tracing::info!("[twitch] JOIN enviado a @{} — esperando RoomState...", channel);
+
+    // Usernames para los que ya se mostró el aviso de "no registrado" esta sesión
+    let mut notified_unregistered: HashSet<String> = HashSet::new();
 
     while let Some(message) = incoming_messages.recv().await {
         use twitch_irc::message::ServerMessage;
@@ -57,14 +65,18 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
         match message {
             // RoomState = el servidor confirmó que estamos dentro del canal
             ServerMessage::RoomState(room) => {
-                tracing::info!("[twitch] Unido al canal #{}", room.channel_login);
+                tracing::info!("[twitch] Unido a @{}", room.channel_login);
                 let _ = app_handle.emit("twitch-connected", &room.channel_login);
             }
 
             // Notice puede indicar error de autenticación o ban del bot
             ServerMessage::Notice(notice) => {
+                tracing::warn!("[twitch] Notice: {}", notice.message_text);
                 let msg = notice.message_text.to_lowercase();
-                if msg.contains("login authentication") || msg.contains("improperly formatted") {
+                if msg.contains("login authentication")
+                    || msg.contains("improperly formatted")
+                    || msg.contains("invalid nick")
+                {
                     tracing::error!("[twitch] Error de autenticación: {}", notice.message_text);
                     let _ = app_handle.emit("twitch-error", &notice.message_text);
                     break;
@@ -75,9 +87,9 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                 let username = msg.sender.login.clone();
                 let text = msg.message_text.clone();
 
-                tracing::debug!("[twitch] {}: {}", username, text);
+                tracing::debug!("[twitch] @{}: {}", username, text);
 
-                let payload_opt = {
+                let (payload_opt, is_unregistered) = {
                     let Ok(db) = state.db.lock() else {
                         tracing::error!("[twitch] DB mutex poisoned");
                         break;
@@ -85,7 +97,7 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                     match find_active_user_by_twitch(&db, &username) {
                         Ok(Some(user)) => {
                             let _ = log_message(&db, "twitch", &username, &text, Some(user.id));
-                            user.persona.as_ref().map(|persona| ChatMessagePayload {
+                            let payload = user.persona.as_ref().map(|persona| ChatMessagePayload {
                                 platform: "twitch".to_string(),
                                 username: username.clone(),
                                 message: text.clone(),
@@ -94,25 +106,32 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                                 mouth_open_path: persona.mouth_open_path.clone(),
                                 mouth_closed_path: persona.mouth_closed_path.clone(),
                                 voice_id: user.voice_id.clone(),
-                            })
+                            });
+                            (payload, false)
                         }
                         Ok(None) => {
                             let _ = log_message(&db, "twitch", &username, &text, None);
-                            None
+                            (None, true)
                         }
                         Err(e) => {
-                            tracing::error!("Error buscando usuario en DB: {}", e);
-                            None
+                            tracing::error!("[twitch] Error buscando usuario en DB: {}", e);
+                            (None, false)
                         }
                     }
                 };
 
+                // Notificar una sola vez por sesión cuando el usuario no está registrado
+                if is_unregistered && !notified_unregistered.contains(&username) {
+                    notified_unregistered.insert(username.clone());
+                    tracing::info!("[twitch] @{} no está registrado — ignorando mensaje", username);
+                    let _ = app_handle.emit("twitch-unregistered-user", &username);
+                }
+
                 if let Some(payload) = payload_opt {
                     if let Err(e) = app_handle.emit("chat-message", &payload) {
-                        tracing::error!("Error emitiendo evento chat-message: {}", e);
+                        tracing::error!("[twitch] Error emitiendo chat-message: {}", e);
                     }
 
-                    // TTS con eventos de lip-sync (si está habilitado)
                     let tts_enabled = state.config_cache.read()
                         .map(|c| c.tts_enabled)
                         .unwrap_or(false);
@@ -132,7 +151,16 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                 }
             }
 
-            _ => {}
+            ServerMessage::Reconnect(_) => {
+                tracing::warn!("[twitch] Servidor pidió reconexión — saliendo del loop");
+                break;
+            }
+
+            other => {
+                tracing::debug!("[twitch] Mensaje ignorado: {:?}", std::mem::discriminant(&other));
+            }
         }
     }
+
+    tracing::warn!("[twitch] Loop de mensajes terminó para @{}", channel);
 }

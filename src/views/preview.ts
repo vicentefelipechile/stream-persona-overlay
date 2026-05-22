@@ -62,7 +62,6 @@ export async function renderPreview(): Promise<void> {
             <input type="text" id="preview-chroma-text" value="${cfg.chroma_color}" style="width:90px; font-family:var(--font-mono);" maxlength="7" />
           </div>
         </div>
-        <button id="btn-apply-chroma" class="btn btn-secondary">Aplicar</button>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
           ${["#00FF00","#0000FF","#FF00FF","#000000"].map((c) =>
             `<button class="btn btn-secondary btn-sm preset-chroma" data-color="${c}"
@@ -90,14 +89,24 @@ export async function renderPreview(): Promise<void> {
   const chromaText  = container.querySelector<HTMLInputElement>("#preview-chroma-text")!;
   const previewBox  = container.querySelector<HTMLElement>("#preview-box")!;
 
+  let chromaDebounce: ReturnType<typeof setTimeout> | null = null;
+  function applyChroma(color: string): void {
+    if (chromaDebounce) clearTimeout(chromaDebounce);
+    chromaDebounce = setTimeout(() => {
+      invoke("set_chroma_color", { color }).catch(e => showToast(String(e), "error"));
+    }, 150);
+  }
+
   chromaInput.addEventListener("input", () => {
     chromaText.value = chromaInput.value;
     previewBox.style.background = chromaInput.value;
+    applyChroma(chromaInput.value);
   });
   chromaText.addEventListener("input", () => {
     if (/^#[0-9a-fA-F]{6}$/.test(chromaText.value)) {
       chromaInput.value = chromaText.value;
       previewBox.style.background = chromaText.value;
+      applyChroma(chromaText.value);
     }
   });
 
@@ -108,18 +117,8 @@ export async function renderPreview(): Promise<void> {
       chromaInput.value = color;
       chromaText.value  = color;
       previewBox.style.background = color;
+      invoke("set_chroma_color", { color }).catch(e => showToast(String(e), "error"));
     });
-  });
-
-  // Aplicar chroma al overlay real
-  container.querySelector("#btn-apply-chroma")!.addEventListener("click", async () => {
-    const color = chromaText.value;
-    try {
-      await invoke("set_chroma_color", { color });
-      showToast(`Color chroma aplicado: ${color}`, "success");
-    } catch (e) {
-      showToast(String(e), "error");
-    }
   });
 
   // Toggle ventana overlay

@@ -37,6 +37,16 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "persona_size_px"       => cfg.persona_size_px        = value.parse().unwrap_or(256),
             "audio_threshold"       => cfg.audio_threshold        = value.parse().unwrap_or(20),
             "max_visible_personas"  => cfg.max_visible_personas   = value.parse().unwrap_or(4),
+            // ── Tamagotchi config ─────────────────────────────────────────────
+            "tama_enabled"            => cfg.tama_enabled           = value == "true",
+            "tama_pet_size_px"        => cfg.tama_pet_size_px       = value.parse().unwrap_or(80),
+            "tama_floor_y"            => cfg.tama_floor_y           = value.parse().unwrap_or(900),
+            "tama_walk_speed"         => cfg.tama_walk_speed        = value.parse().unwrap_or(0.6),
+            "tama_inactivity_mins"    => cfg.tama_inactivity_mins   = value.parse().unwrap_or(5),
+            "tama_max_pets"           => cfg.tama_max_pets          = value.parse().unwrap_or(8),
+            "tama_action_check_secs"  => cfg.tama_action_check_secs = value.parse().unwrap_or(8),
+            "tama_action_probability" => cfg.tama_action_probability = value.parse().unwrap_or(0.15),
+            "tama_enabled_actions"    => cfg.tama_enabled_actions   = value,
             _ => {}
         }
     }

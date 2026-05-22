@@ -14,6 +14,7 @@ pub mod twitch;
 use commands::config::{get_available_voices_cmd, get_config_cmd, save_animation_config, set_chroma_color, set_config_cmd};
 use commands::control::{connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay, validate_twitch_token};
 use commands::users::{delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd, update_user_cmd};
+use commands::tamagotchi::{tama_get_pet_states, tama_remove_pet_state, tama_set_enabled, tama_trigger_action, tama_upsert_pet_state};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -122,6 +123,12 @@ pub fn run() {
             connect_tiktok,
             toggle_overlay,
             send_test_message,
+            // Tamagotchi
+            tama_trigger_action,
+            tama_set_enabled,
+            tama_get_pet_states,
+            tama_upsert_pet_state,
+            tama_remove_pet_state,
         ])
         .build(tauri::generate_context!())
         .expect("Error iniciando la aplicación Tauri")

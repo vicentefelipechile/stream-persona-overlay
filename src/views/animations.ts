@@ -217,13 +217,6 @@ export async function renderAnimations(): Promise<void> {
       </div>
     </section>
 
-    <!-- Save button -->
-    <section class="section">
-      <div class="card" style="display:flex;gap:12px;align-items:center;">
-        <button id="btn-save-animations" class="btn btn-primary">💾 Guardar configuración</button>
-        <span id="anim-save-status" style="font-size:13px;color:#8b8fa8;"></span>
-      </div>
-    </section>
   `;
 
   // =========================================================================================================
@@ -270,17 +263,22 @@ export async function renderAnimations(): Promise<void> {
     glowPreview.style.boxShadow   = `0 0 12px ${color}`;
   }
 
-  glowColorPicker.addEventListener("input", () => syncGlowColor(glowColorPicker.value));
+  let glowDebounce: ReturnType<typeof setTimeout> | null = null;
+  glowColorPicker.addEventListener("input", () => {
+    syncGlowColor(glowColorPicker.value);
+    if (glowDebounce) clearTimeout(glowDebounce);
+    glowDebounce = setTimeout(() => saveAnimConfig(), 150);
+  });
   glowColorText.addEventListener("input", () => {
     const val = glowColorText.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(val)) syncGlowColor(val);
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+      syncGlowColor(val);
+      if (glowDebounce) clearTimeout(glowDebounce);
+      glowDebounce = setTimeout(() => saveAnimConfig(), 150);
+    }
   });
 
-  // Save
-  container.querySelector<HTMLButtonElement>("#btn-save-animations")!.addEventListener("click", async () => {
-    const statusEl = container.querySelector<HTMLElement>("#anim-save-status")!;
-    statusEl.textContent = "Guardando...";
-
+  function saveAnimConfig(): void {
     const payload = {
       animation_in:          (container.querySelector<HTMLSelectElement>("#anim-in")!).value,
       animation_out:         (container.querySelector<HTMLSelectElement>("#anim-out")!).value,
@@ -294,16 +292,20 @@ export async function renderAnimations(): Promise<void> {
       audio_threshold:       parseInt(thresholdSlider.value),
       max_visible_personas:  parseInt(maxVisibleSlider.value),
     };
+    invoke("save_animation_config", { config: payload }).catch(e => showToast(String(e), "error"));
+  }
 
-    try {
-      await invoke("save_animation_config", { config: payload });
-      showToast("Configuración de animaciones guardada", "success");
-      statusEl.textContent = "";
-    } catch (e) {
-      showToast(String(e), "error");
-      statusEl.textContent = "";
-    }
+  // Auto-save on change (fires when user releases slider or toggles checkbox/select)
+  [durationSlider, maxVisibleSlider, sizeSlider, thresholdSlider].forEach(el => {
+    el.addEventListener("change", () => saveAnimConfig());
   });
+  ["#anim-in", "#anim-out"].forEach(id => {
+    container.querySelector(id)!.addEventListener("change", () => saveAnimConfig());
+  });
+  ["#anim-idle-wiggle", "#anim-idle-breathe", "#anim-outline"].forEach(id => {
+    container.querySelector(id)!.addEventListener("change", () => saveAnimConfig());
+  });
+  glowCheckbox.addEventListener("change", () => saveAnimConfig());
 
   // =========================================================================================================
   // Preview Button

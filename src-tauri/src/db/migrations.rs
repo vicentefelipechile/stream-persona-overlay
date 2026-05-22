@@ -41,6 +41,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             shown      INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS pet_state (
+            user_id      INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            floor_x      REAL NOT NULL DEFAULT 0,
+            is_sleeping  INTEGER NOT NULL DEFAULT 0
+        );
         ",
     )?;
 
@@ -70,6 +77,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("persona_size_px",       "256"),
         ("audio_threshold",       "20"),
         ("max_visible_personas",  "4"),
+        // ── Tamagotchi config ─────────────────────────────────────────────────
+        ("tama_enabled",            "true"),
+        ("tama_pet_size_px",        "80"),
+        ("tama_floor_y",            "900"),
+        ("tama_walk_speed",         "0.6"),
+        ("tama_inactivity_mins",    "5"),
+        ("tama_max_pets",           "8"),
+        ("tama_action_check_secs",  "8"),
+        ("tama_action_probability", "0.15"),
+        ("tama_enabled_actions",    r#"["jump","popcorn","dance","fight","explode"]"#),
     ];
 
     for (key, value) in &defaults {
