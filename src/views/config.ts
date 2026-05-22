@@ -112,13 +112,6 @@ export async function renderConfig(): Promise<void> {
             <div id="cfg-chroma-mount"></div>
           </div>
           <div class="form-group">
-            <label for="cfg-display-mode">Modo de display</label>
-            <select id="cfg-display-mode">
-              <option value="parallel" ${cfg.overlay_display_mode !== "queue" ? "selected" : ""}>Paralelo (todos a la vez)</option>
-              <option value="queue"    ${cfg.overlay_display_mode === "queue"    ? "selected" : ""}>Cola (uno por vez)</option>
-            </select>
-          </div>
-          <div class="form-group">
             <label>TTS (Voz)</label>
             <label class="switch" style="margin-top:8px;">
               <input type="checkbox" id="cfg-tts" ${cfg.tts_enabled ? "checked" : ""} />
@@ -239,13 +232,4 @@ export async function renderConfig(): Promise<void> {
     }
   });
 
-  // Modo de display — guarda al instante
-  container.querySelector<HTMLSelectElement>("#cfg-display-mode")!.addEventListener("change", async (e) => {
-    const value = (e.target as HTMLSelectElement).value;
-    try {
-      await invoke("set_config_cmd", { key: "overlay_display_mode", value });
-    } catch (e) {
-      showToast(String(e), "error");
-    }
-  });
 }

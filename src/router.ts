@@ -10,26 +10,22 @@
 
 import { renderConfig } from "./views/config";
 import { renderUsers } from "./views/users";
-import { renderPreview } from "./views/preview";
 import { renderLogs } from "./views/logs";
-import { renderAnimations } from "./views/animations";
 import { renderTamagotchi } from "./views/tamagotchi";
 
 // =========================================================================================================
 // Types & Configuration
 // =========================================================================================================
 
-export type ViewId = "config" | "users" | "preview" | "logs" | "animations" | "tamagotchi";
+export type ViewId = "config" | "users" | "logs" | "tamagotchi";
 
 type ViewRenderer = () => Promise<void>;
 
 const routes: Record<ViewId, ViewRenderer> = {
-  config:      renderConfig,
-  users:       renderUsers,
-  preview:     renderPreview,
-  logs:        renderLogs,
-  animations:  renderAnimations,
-  tamagotchi:  renderTamagotchi,
+  config:     renderConfig,
+  users:      renderUsers,
+  logs:       renderLogs,
+  tamagotchi: renderTamagotchi,
 };
 
 // =========================================================================================================

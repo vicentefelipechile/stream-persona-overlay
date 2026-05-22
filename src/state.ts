@@ -47,8 +47,6 @@ export interface AppConfig {
   discord_bot_token: string;
   discord_guild_id: string;
   discord_channel_id: string;
-  /** "parallel" (default) | "queue" */
-  overlay_display_mode: string;
 }
 
 export interface VoiceInfo {
@@ -96,7 +94,6 @@ class AppStateClass {
     discord_bot_token: "",
     discord_guild_id: "",
     discord_channel_id: "",
-    overlay_display_mode: "parallel",
   };
 
   public users: User[] = [];

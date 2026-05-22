@@ -133,12 +133,26 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Error iniciando la aplicación Tauri")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                // Abortar todas las tareas de background antes de salir
-                // para cerrar limpiamente la conexión con Discord, Twitch y TikTok
-                let state = app_handle.state::<AppState>();
-                state.abort_all();
-                tracing::info!("Todas las tareas de background detenidas — cerrando");
+            match event {
+                // ExitRequested fires only when all windows are truly gone.
+                // Abort background tasks so tokio threads don't outlive the process.
+                tauri::RunEvent::ExitRequested { .. } => {
+                    let state = app_handle.state::<AppState>();
+                    state.abort_all();
+                    tracing::info!("Todas las tareas de background detenidas — cerrando");
+                }
+                // The overlay window is only *hidden* on close (never destroyed), so
+                // Tauri never sees zero open windows and ExitRequested never fires.
+                // Detect the main window being destroyed and force a clean exit here.
+                tauri::RunEvent::WindowEvent { label, event: win_event, .. } if label == "main" => {
+                    if let tauri::WindowEvent::Destroyed = win_event {
+                        let state = app_handle.state::<AppState>();
+                        state.abort_all();
+                        tracing::info!("Ventana principal cerrada — abortando tareas y cerrando proceso");
+                        app_handle.exit(0);
+                    }
+                }
+                _ => {}
             }
         });
 }
