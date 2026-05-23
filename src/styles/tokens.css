@@ -1,0 +1,60 @@
+/* =========================================================================================================
+   Design Tokens — CSS Custom Properties
+   Accent: #00c896 | Font: IBM Plex Sans / IBM Plex Mono | Radius: <= 4px
+   ========================================================================================================= */
+
+:root {
+  /* Colores principales */
+  --color-bg:          #0d0f14;
+  --color-bg-alt:      #13161e;
+  --color-bg-card:     #181c26;
+  --color-bg-input:    #1e2230;
+  --color-bg-hover:    #222638;
+  --color-border:      #252a38;
+  --color-border-focus:#00c896;
+
+  /* Accent */
+  --color-accent:      #00c896;
+  --color-accent-dim:  rgba(0, 200, 150, 0.15);
+  --color-accent-glow: rgba(0, 200, 150, 0.3);
+
+  /* Texto */
+  --color-text:        #e8eaf0;
+  --color-text-muted:  #7a8099;
+  --color-text-dim:    #4a5168;
+
+  /* Semáforo */
+  --color-success:     #00c896;
+  --color-warning:     #f5a623;
+  --color-danger:      #f05252;
+  --color-info:        #6196f5;
+
+  /* Tipografía */
+  --font-sans:  'IBM Plex Sans',  system-ui, sans-serif;
+  --font-mono:  'IBM Plex Mono',  'Cascadia Code', monospace;
+
+  /* Espaciado */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Radios */
+  --radius-sm: 2px;
+  --radius:    4px;
+  --radius-md: 4px;
+
+  /* Sombras */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+  --shadow-accent: 0 0 20px var(--color-accent-glow);
+
+  /* Transiciones */
+  --transition: 150ms ease;
+  --transition-slow: 300ms ease;
+}

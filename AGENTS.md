@@ -141,7 +141,6 @@ stream-persona-overlay/
 |   +-- main.ts                   # Panel entry point (index.html)
 |   +-- router.ts                 # Manual hash-based ViewRouter
 |   +-- state.ts                  # AppState singleton + TS types + showToast()
-|   +-- styles.css                # Global panel styles
 |   +-- views/
 |   |   +-- config.ts             # /config view — global settings (includes OBS Browser Source URL)
 |   |   +-- users.ts              # /users view — user CRUD
@@ -159,7 +158,21 @@ stream-persona-overlay/
 |   |   +-- color-picker.ts       # Chroma color selector component
 |   +-- assets/                   # Static frontend assets
 |   +-- styles/
-|       +-- overlay.css           # Overlay window styles (chroma key, tamagotchi pets)
+|       +-- entry-panel.css       # Entry point for admin panel (imports design system + panel modules)
+|       +-- entry-overlay.css     # Entry point for overlay windows (imports overlay modules)
+|       +-- tokens.css            # CSS custom properties (colors, fonts, spacing, shadows)
+|       +-- reset.css             # Reset + base typography + links + scrollbar
+|       +-- buttons.css           # Button styles (.btn and variants)
+|       +-- forms.css             # Form elements (inputs, selects, textarea)
+|       +-- components.css        # Cards, badges, spinner, loading, toasts, divider, empty-state, utilities
+|       +-- layout.css            # Sidebar, navigation, main content structure
+|       +-- users.css             # Users table, avatars, config-grid
+|       +-- modal.css             # Modal, backdrop, preview, persona preview
+|       +-- logs.css              # Log entries
+|       +-- switch.css            # Switch/toggle component
+|       +-- tamagotchi-panel.css  # Tamagotchi admin panel styles (.tama-* prefix)
+|       +-- overlay-base.css      # Overlay window base reset + fade-cover
+|       +-- pets.css              # Pet styles (.tamagotchi-pet, .pet-*)
 |
 +-- src-tauri/
 |   +-- tauri.conf.json           # Window config, bundle, CSP
@@ -693,12 +706,26 @@ chat-message (returning user while sleeping)
 
 ### Admin panel (`src/views/tamagotchi.ts`)
 
-- ON/OFF toggle (`tama_set_enabled`)
-- Sliders for size, max pets, inactivity timeout, walk speed
-- **"Saltar al hablar" toggle** (`tama_jump_on_speak`) — when enabled, pets jump in place on chat message instead of walking to center
-- Checkbox list of enabled actions (saved as JSON array to `tama_enabled_actions`)
-- Active pet list with manual action trigger (calls `tama_trigger_action`)
-- Refresh button re-fetches `tama_get_pet_states`
+**Layout & Components:**
+- **Header** — Tamagotchi title with system ON/OFF toggle (teal accent, status text)
+- **Config card** — 2-column grid of custom-styled range sliders (pet size, max visible, walk speed, inactivity, action interval, probability)
+  - Each slider has `.tama-slider-item` with label + teal value display
+  - Custom range input styling (`.tama-range`) with teal thumb and glow on focus
+  - **"Saltar al hablar" toggle** (`.tama-setting-row`) — pets jump in place instead of walking to chat message
+- **Actions card** — 2-column grid of action cards (`.tama-action-card`)
+  - Each card shows: emoji icon + name + description (wraps to 2 lines) + checkmark
+  - Teal border/background when enabled (`tama-action-card--on`)
+  - Resets inherited `label` styles (no uppercase, proper text color)
+  - Grid items have `min-width: 0` to prevent overflow
+  - Live badge count shows enabled actions
+- **Fire action card** — flexbox row: user select + action select + fire button
+- **Active pets card** — list of `.tama-pet-row` with avatar (🐾), name, position, status badge, delete button
+
+**Styling notes:**
+- CSS classes use `tama-` prefix for all tamagotchi-specific styles
+- Design tokens: IBM Plex Sans, teal accent (#00c896), ≤4px radius
+- No text-transform on action cards (resets global label styles)
+- Description text uses `-webkit-line-clamp: 2` for proper wrapping instead of truncation
 
 ### Motion v12 in actions
 

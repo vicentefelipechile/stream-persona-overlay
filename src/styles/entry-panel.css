@@ -1,0 +1,15 @@
+/* =========================================================================================================
+   entry-panel.css — Entry point for the admin panel (index.html)
+   ========================================================================================================= */
+
+@import './tokens.css';
+@import './reset.css';
+@import './buttons.css';
+@import './forms.css';
+@import './components.css';
+@import './layout.css';
+@import './users.css';
+@import './modal.css';
+@import './logs.css';
+@import './switch.css';
+@import './tamagotchi-panel.css';

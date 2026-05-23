@@ -59,14 +59,14 @@ export async function renderTamagotchi(): Promise<void> {
     return;
   }
 
-  const enabled          = String(cfg["tama_enabled"])           === "true";
-  const petSizePx        = Number(cfg["tama_pet_size_px"])       || 80;
-  const maxPets          = Number(cfg["tama_max_pets"])          || 8;
-  const walkSpeed        = Number(cfg["tama_walk_speed"])        || 0.6;
-  const inactivityMins   = Number(cfg["tama_inactivity_mins"])   || 5;
-  const actionCheckSecs  = Number(cfg["tama_action_check_secs"]) || 8;
-  const actionProb       = Number(cfg["tama_action_probability"])|| 0.15;
-  const jumpOnSpeak      = String(cfg["tama_jump_on_speak"])     === "true";
+  const enabled         = String(cfg["tama_enabled"])           === "true";
+  const petSizePx       = Number(cfg["tama_pet_size_px"])       || 80;
+  const maxPets         = Number(cfg["tama_max_pets"])          || 8;
+  const walkSpeed       = Number(cfg["tama_walk_speed"])        || 0.6;
+  const inactivityMins  = Number(cfg["tama_inactivity_mins"])   || 5;
+  const actionCheckSecs = Number(cfg["tama_action_check_secs"]) || 8;
+  const actionProb      = Number(cfg["tama_action_probability"])|| 0.15;
+  const jumpOnSpeak     = String(cfg["tama_jump_on_speak"])     === "true";
 
   let enabledActions: string[] = [];
   try {
@@ -84,15 +84,13 @@ export async function renderTamagotchi(): Promise<void> {
 
   container.innerHTML = `
     <div class="view-header">
-      <h1 class="view-title">Tamagotchi</h1>
-      <p class="view-subtitle">Mascotas persistentes de los usuarios del chat</p>
-    </div>
-
-    <div class="tama-section card">
-      <div class="tama-row-header">
-        <h2 class="section-title">Sistema Tamagotchi</h2>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <span id="tama-status-text" style="font-size:13px;color:${enabled ? "var(--color-success)" : "var(--color-text-muted)"};">${enabled ? "Activo" : "Inactivo"}</span>
+      <div class="tama-view-header-row">
+        <div>
+          <h1 class="view-title">Tamagotchi</h1>
+          <p class="view-subtitle">Mascotas persistentes de los usuarios del chat</p>
+        </div>
+        <div class="tama-system-toggle">
+          <span id="tama-status-text" class="tama-system-status${enabled ? " tama-system-status--on" : ""}">${enabled ? "Activo" : "Inactivo"}</span>
           <label class="switch">
             <input type="checkbox" id="tama-enabled" ${enabled ? "checked" : ""}/>
             <span class="switch-track"></span>
@@ -101,102 +99,77 @@ export async function renderTamagotchi(): Promise<void> {
       </div>
     </div>
 
-    <div class="tama-grid">
-
-      <div class="card">
+    <div class="card">
+      <div class="card-header">
         <h2 class="section-title">Configuración Global</h2>
-        <div class="form-group">
-          <label>Tamaño mascota (px)</label>
-          <div class="range-row">
-            <input type="range" id="cfg-size" min="40" max="200" step="10" value="${petSizePx}"/>
-            <span id="cfg-size-val">${petSizePx}px</span>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Máx. mascotas visibles</label>
-          <div class="range-row">
-            <input type="range" id="cfg-max-pets" min="1" max="20" value="${maxPets}"/>
-            <span id="cfg-max-pets-val">${maxPets}</span>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Velocidad de caminata (px/frame)</label>
-          <div class="range-row">
-            <input type="range" id="cfg-walk" min="0.1" max="3" step="0.1" value="${walkSpeed}"/>
-            <span id="cfg-walk-val">${walkSpeed}</span>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Inactividad antes de dormir (min)</label>
-          <div class="range-row">
-            <input type="range" id="cfg-inactivity" min="1" max="30" value="${inactivityMins}"/>
-            <span id="cfg-inactivity-val">${inactivityMins} min</span>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Intervalo de acciones aleatorias (seg)</label>
-          <div class="range-row">
-            <input type="range" id="cfg-check" min="3" max="30" value="${actionCheckSecs}"/>
-            <span id="cfg-check-val">${actionCheckSecs}s</span>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Probabilidad por check (0–1)</label>
-          <div class="range-row">
-            <input type="range" id="cfg-prob" min="0" max="1" step="0.05" value="${actionProb}"/>
-            <span id="cfg-prob-val">${actionProb}</span>
-          </div>
-        </div>
-        <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;">
-          <label style="margin:0;">Saltar al hablar</label>
-          <label class="switch">
-            <input type="checkbox" id="cfg-jump-on-speak" ${jumpOnSpeak ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-        </div>
       </div>
-
-      <div class="card">
-        <h2 class="section-title">Acciones habilitadas (pool aleatorio)</h2>
-        <div id="action-toggles">
-          ${allActionMeta.map(m => `
-            <label class="action-toggle-row" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
-              <input type="checkbox" class="action-checkbox" data-id="${m.id}" ${enabledActions.includes(m.id) ? "checked" : ""}/>
-              <span style="font-size:16px;">${m.icon}</span>
-              <span style="flex:1;">${m.label}</span>
-              <span style="font-size:11px;color:var(--text-muted)">${m.description}</span>
-            </label>
-          `).join("")}
-        </div>
+      <div class="tama-sliders-grid">
+        ${_slider("cfg-size",       "cfg-size-val",       "Tamaño mascota",              petSizePx,       "px",   40,   200, 10)}
+        ${_slider("cfg-max-pets",   "cfg-max-pets-val",   "Máx. mascotas visibles",       maxPets,         "",     1,    20,  1)}
+        ${_slider("cfg-walk",       "cfg-walk-val",       "Velocidad de caminata",        walkSpeed,       "",     0.1,  3,   0.1)}
+        ${_slider("cfg-inactivity", "cfg-inactivity-val", "Inactividad antes de dormir",  inactivityMins,  " min", 1,    30,  1)}
+        ${_slider("cfg-check",      "cfg-check-val",      "Intervalo acciones aleatorias",actionCheckSecs, "s",    3,    30,  1)}
+        ${_slider("cfg-prob",       "cfg-prob-val",       "Probabilidad por intervalo",   actionProb,      "",     0,    1,   0.05)}
       </div>
-
+      <div class="tama-setting-row">
+        <div>
+          <div class="tama-setting-label">Saltar al hablar</div>
+          <div class="tama-setting-desc">La mascota salta en lugar cuando su dueño escribe en el chat</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="cfg-jump-on-speak" ${jumpOnSpeak ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
+      </div>
     </div>
 
-    <div class="card" style="margin-top:16px;">
-      <h2 class="section-title">Disparar Acción Manual</h2>
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header">
+        <h2 class="section-title">Pool de Acciones Aleatorias</h2>
+        <span id="tama-actions-badge" class="badge badge-active">${enabledActions.length} activa${enabledActions.length !== 1 ? "s" : ""}</span>
+      </div>
+      <div class="tama-actions-grid" id="action-toggles">
+        ${allActionMeta.map(m => `
+          <label class="tama-action-card${enabledActions.includes(m.id) ? " tama-action-card--on" : ""}">
+            <input type="checkbox" class="action-checkbox" data-id="${m.id}" ${enabledActions.includes(m.id) ? "checked" : ""}/>
+            <span class="tama-action-icon">${m.icon}</span>
+            <div class="tama-action-info">
+              <span class="tama-action-name">${m.label}</span>
+              <span class="tama-action-desc">${m.description}</span>
+            </div>
+            <span class="tama-action-check">✓</span>
+          </label>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header">
+        <h2 class="section-title">Disparar Acción Manual</h2>
+      </div>
       <div class="tama-fire-row">
-        <div class="form-group" style="flex:1;">
+        <div class="form-group">
           <label>Usuario</label>
-          <select id="fire-user" class="input-field">
-            <option value="">-- Seleccionar usuario --</option>
+          <select id="fire-user">
+            <option value="">— Seleccionar usuario —</option>
             ${activeUsers.map(u => `<option value="${u.id}">${u.display_name}</option>`).join("")}
           </select>
         </div>
-        <div class="form-group" style="flex:1;">
+        <div class="form-group">
           <label>Acción</label>
-          <select id="fire-action" class="input-field">
-            <option value="">-- Seleccionar acción --</option>
+          <select id="fire-action">
+            <option value="">— Seleccionar acción —</option>
             ${allActionMeta.map(m => `<option value="${m.id}">${m.icon} ${m.label}</option>`).join("")}
           </select>
         </div>
-        <button class="btn btn-primary" id="btn-fire" style="align-self:flex-end;">Disparar</button>
+        <button class="btn btn-primary" id="btn-fire">Disparar</button>
       </div>
     </div>
 
-    <div class="card" style="margin-top:16px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <h2 class="section-title" style="margin:0;">Mascotas Activas</h2>
-        <button class="btn btn-outline btn-sm" id="btn-refresh-pets">Actualizar</button>
+    <div class="card" style="margin-top:var(--space-5);margin-bottom:var(--space-8);">
+      <div class="card-header">
+        <h2 class="section-title">Mascotas Activas</h2>
+        <button class="btn btn-outline btn-sm" id="btn-refresh-pets">↻ Actualizar</button>
       </div>
       <div id="pets-list">
         ${_renderPetsList(pets)}
@@ -214,7 +187,7 @@ export async function renderTamagotchi(): Promise<void> {
       await invoke("tama_set_enabled", { enabled: tamaToggle.checked });
       const statusEl = container.querySelector<HTMLSpanElement>("#tama-status-text")!;
       statusEl.textContent = tamaToggle.checked ? "Activo" : "Inactivo";
-      statusEl.style.color = tamaToggle.checked ? "var(--color-success)" : "var(--color-text-muted)";
+      statusEl.className = `tama-system-status${tamaToggle.checked ? " tama-system-status--on" : ""}`;
       showToast(`Tamagotchi ${tamaToggle.checked ? "activado" : "desactivado"}`, "success");
     } catch (e) {
       showToast(`Error: ${String(e)}`, "error");
@@ -233,7 +206,6 @@ export async function renderTamagotchi(): Promise<void> {
     invoke("set_config_cmd", { key: "tama_jump_on_speak", value }).catch(err => showToast(String(err), "error"));
   });
 
-  // Auto-save each slider on release
   const sliderMap: Array<[string, string]> = [
     ["cfg-size",       "tama_pet_size_px"],
     ["cfg-max-pets",   "tama_max_pets"],
@@ -249,11 +221,21 @@ export async function renderTamagotchi(): Promise<void> {
     });
   });
 
-  // Auto-save action checkboxes on toggle
-  container.querySelector("#action-toggles")!.addEventListener("change", () => {
+  const actionTogglesEl = container.querySelector("#action-toggles")!;
+  actionTogglesEl.addEventListener("change", (e) => {
+    const cb = (e.target as HTMLElement).closest<HTMLInputElement>(".action-checkbox");
+    if (cb) {
+      const card = cb.closest<HTMLElement>(".tama-action-card");
+      card?.classList.toggle("tama-action-card--on", cb.checked);
+    }
+
     const checked = Array.from(
       container.querySelectorAll<HTMLInputElement>(".action-checkbox:checked")
     ).map(el => el.dataset["id"]!);
+
+    const badge = container.querySelector("#tama-actions-badge")!;
+    badge.textContent = `${checked.length} activa${checked.length !== 1 ? "s" : ""}`;
+
     invoke("set_config_cmd", { key: "tama_enabled_actions", value: JSON.stringify(checked) })
       .catch(err => showToast(String(err), "error"));
   });
@@ -279,7 +261,6 @@ export async function renderTamagotchi(): Promise<void> {
     }
   });
 
-  // Delegate remove-pet button clicks
   container.querySelector("#pets-list")!.addEventListener("click", async (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-pet]");
     if (!btn) return;
@@ -299,16 +280,41 @@ export async function renderTamagotchi(): Promise<void> {
 // Helpers
 // =========================================================================================================
 
+function _slider(
+  inputId: string,
+  labelId: string,
+  label: string,
+  value: number,
+  suffix: string,
+  min: number,
+  max: number,
+  step: number,
+): string {
+  return `
+    <div class="tama-slider-item">
+      <div class="tama-slider-header">
+        <span class="tama-slider-label">${label}</span>
+        <span class="tama-slider-value" id="${labelId}">${value}${suffix}</span>
+      </div>
+      <input type="range" id="${inputId}" class="tama-range"
+             min="${min}" max="${max}" step="${step}" value="${value}"/>
+    </div>
+  `;
+}
+
 function _renderPetsList(pets: PetStateRow[]): string {
   if (!pets.length) {
-    return `<p style="color:var(--text-muted);font-size:13px;">No hay mascotas activas en este momento.</p>`;
+    return `<p style="color:var(--color-text-muted);font-size:13px;padding:var(--space-4) 0;">No hay mascotas activas en este momento.</p>`;
   }
   return pets.map(p => `
-    <div class="pet-row" style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
-      <span style="flex:1;font-weight:500;">${p.display_name}</span>
+    <div class="tama-pet-row">
+      <div class="tama-pet-avatar">🐾</div>
+      <div class="tama-pet-info">
+        <div class="tama-pet-name">${p.display_name}</div>
+        <div class="tama-pet-meta">x: ${Math.round(p.floor_x)}</div>
+      </div>
       <span class="badge ${p.is_sleeping ? "badge-warn" : "badge-ok"}">${p.is_sleeping ? "durmiendo" : "activo"}</span>
-      <span style="font-size:11px;color:var(--text-muted);">x:${Math.round(p.floor_x)}</span>
-      <button class="btn btn-outline btn-sm" style="color:#e05252;border-color:#e05252;" data-remove-pet="${p.user_id}">Eliminar</button>
+      <button class="btn btn-danger btn-sm" data-remove-pet="${p.user_id}">Eliminar</button>
     </div>
   `).join("");
 }

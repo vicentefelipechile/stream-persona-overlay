@@ -1,0 +1,44 @@
+/* =========================================================================================================
+   Overlay Window — Base Styles and Fade Cover
+   ========================================================================================================= */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Background color is applied dynamically by JS */
+#overlay-body {
+  background-color: #00FF00; /* chroma key default — overridden at runtime */
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* =========================================================================================================
+   Fade-in cover — prevents the bright chroma-key flashbang when the window opens.
+   Starts opaque black; JS adds .fade-out after the chroma color is set, triggering
+   a 2-second CSS transition to transparent. pointer-events:none keeps it non-blocking.
+   ========================================================================================================= */
+#fade-cover {
+  position: fixed;
+  inset: 0;
+  background: #000000;
+  opacity: 1;
+  z-index: 99999;
+  pointer-events: none;
+  transition: opacity 2s ease;
+}
+
+#fade-cover.fade-out {
+  opacity: 0;
+}
