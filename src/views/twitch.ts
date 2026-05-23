@@ -9,6 +9,7 @@
 // =========================================================================================================
 
 import { invoke } from "@tauri-apps/api/core";
+import { once } from "@tauri-apps/api/event";
 import { showToast } from "../state";
 import { Icons } from "../icons";
 
@@ -107,6 +108,16 @@ export async function renderTwitch(): Promise<void> {
 
   const isConnected = channel.length > 0 && token.length > 0;
 
+  const msLabel = (ms: number) => ms === 0 ? "Desactivado" : `${ms / 1000}s`;
+  const sRow = (id: string, value: number, min: number, max: number, step: number, label: string, fmt: (v: number) => string) =>
+    `<div class="form-group" style="gap:4px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <label style="margin:0;">${label}</label>
+        <span id="${id}-val" style="font-size:0.9rem;font-weight:600;color:var(--accent);min-width:72px;text-align:right;">${fmt(value)}</span>
+      </div>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}" style="width:100%;margin-top:4px;"/>
+    </div>`;
+
   const presetRadios = (name: string, current: string, options: string[], hasCustom = true) =>
     [...options, ...(hasCustom ? ["custom"] : [])].map(v => {
       const labels: Record<string, string> = {
@@ -122,7 +133,7 @@ export async function renderTwitch(): Promise<void> {
 
   container.innerHTML = `
     <div class="view-header">
-      <h1 class="view-title">Twitch</h1>
+      <h1 class="view-title">${Icons.twitch(20)} Twitch</h1>
       <p class="view-subtitle">Configuración de eventos y filtros de chat</p>
     </div>
 
@@ -136,16 +147,37 @@ export async function renderTwitch(): Promise<void> {
         <input type="text" id="twitch-channel" value="${channel}" placeholder="nombre_canal"/>
       </div>
       <div class="form-group">
-        <label>Token OAuth</label>
+        <label style="display:flex;align-items:center;gap:8px;">
+          Access Token
+          <a href="https://twitchapps.com/tmi/" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;">${Icons.externalLink(12)} Obtener Access Token</a>
+        </label>
         <div style="display: flex; gap: 8px; align-items: flex-start;">
           <input type="password" id="twitch-token" value="${token}" placeholder="oauth:..."/>
-          <button id="btn-validate-token" class="btn btn-secondary btn-sm">Validar</button>
+          <button id="btn-validate-token" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">${Icons.check(14)} Validar</button>
+        </div>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:0.8rem;color:var(--text-muted);">
+          <div>
+            <span style="display:block;margin-bottom:3px;font-weight:600;">Scopes mínimos (chat)</span>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">
+              <code style="background:var(--bg-3);padding:2px 6px;border-radius:4px;">chat:read</code>
+              <code style="background:var(--bg-3);padding:2px 6px;border-radius:4px;">chat:edit</code>
+            </div>
+          </div>
+          <div>
+            <span style="display:block;margin-bottom:3px;font-weight:600;">Para EventSub (subs, raids, follows, bits)</span>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">
+              <code style="background:var(--bg-3);padding:2px 6px;border-radius:4px;">bits:read</code>
+              <code style="background:var(--bg-3);padding:2px 6px;border-radius:4px;">channel:read:subscriptions</code>
+              <code style="background:var(--bg-3);padding:2px 6px;border-radius:4px;">channel:read:raids</code>
+              <code style="background:var(--bg-3);padding:2px 6px;border-radius:4px;">moderator:read:followers</code>
+            </div>
+          </div>
         </div>
         <div id="twitch-scopes" style="margin-top: 8px; font-size: 0.85rem;"></div>
       </div>
       <div style="display: flex; gap: 8px; margin-top: 16px;">
-        <button id="btn-connect-twitch" class="btn btn-primary">${isConnected ? "Reconectar" : "Conectar"}</button>
-        ${isConnected ? '<button id="btn-disconnect-twitch" class="btn btn-outline">Desconectar</button>' : ""}
+        <button id="btn-connect-twitch" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.zap(14)} ${isConnected ? "Reconectar" : "Conectar"}</button>
+        ${isConnected ? `<button id="btn-disconnect-twitch" class="btn btn-outline" style="display:inline-flex;align-items:center;gap:6px;">${Icons.unplug(14)} Desconectar</button>` : ""}
       </div>
     </div>
 
@@ -193,24 +225,12 @@ export async function renderTwitch(): Promise<void> {
       </div>
       <p id="chat-preset-desc" style="font-size:0.85rem;color:var(--text-muted);margin:8px 0 0;">${chatPresetDescription(chatPreset)}</p>
       <details id="chat-advanced" ${chatPreset === "custom" ? "open" : ""} style="margin-top:12px;">
-        <summary style="cursor:pointer;font-weight:500;color:var(--accent);">Avanzado</summary>
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px;">
-          <div class="form-group">
-            <label>Espera entre mensajes por usuario (ms, 0 = desactivado)</label>
-            <input type="number" id="twitch-chat-cooldown" value="${chatCooldown}" min="0" step="500"/>
-          </div>
-          <div class="form-group">
-            <label>Ventana para ignorar duplicados (ms, 0 = desactivado)</label>
-            <input type="number" id="twitch-chat-dedup" value="${chatDedup}" min="0" step="500"/>
-          </div>
-          <div class="form-group">
-            <label>Máx. mensajes por ventana (0 = desactivado)</label>
-            <input type="number" id="twitch-chat-rate-max" value="${chatRateMax}" min="0"/>
-          </div>
-          <div class="form-group">
-            <label>Ventana de tiempo (segundos)</label>
-            <input type="number" id="twitch-chat-rate-window" value="${chatRateWindow}" min="1"/>
-          </div>
+        <summary class="details-toggle">Avanzado</summary>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:16px;">
+          ${sRow("twitch-chat-cooldown",   chatCooldown,   0, 60000, 500,  "Espera entre mensajes por usuario", msLabel)}
+          ${sRow("twitch-chat-dedup",      chatDedup,      0, 60000, 1000, "Ventana para ignorar duplicados",   msLabel)}
+          ${sRow("twitch-chat-rate-max",   chatRateMax,    0, 20,    1,    "Máx. mensajes por ventana",         v => v === 0 ? "Desactivado" : `${v} msg`)}
+          ${sRow("twitch-chat-rate-window",chatRateWindow, 1, 60,    1,    "Ventana de tiempo",                 v => `${v}s`)}
         </div>
       </details>
     </div>
@@ -224,24 +244,12 @@ export async function renderTwitch(): Promise<void> {
       </div>
       <p id="event-preset-desc" style="font-size:0.85rem;color:var(--text-muted);margin:8px 0 0;">${eventPresetDescription(eventPreset)}</p>
       <details id="event-advanced" ${eventPreset === "custom" ? "open" : ""} style="margin-top:12px;">
-        <summary style="cursor:pointer;font-weight:500;color:var(--accent);">Avanzado</summary>
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px;">
-          <div class="form-group">
-            <label>Cooldown Bits/Cheers por usuario (ms)</label>
-            <input type="number" id="twitch-event-cheer-cooldown" value="${eventCheerCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Suscripciones por usuario (ms)</label>
-            <input type="number" id="twitch-event-sub-cooldown" value="${eventSubCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Raids (global canal, ms)</label>
-            <input type="number" id="twitch-event-raid-cooldown" value="${eventRaidCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Follows por usuario (ms)</label>
-            <input type="number" id="twitch-event-follow-cooldown" value="${eventFollowCooldown}" min="0" step="1000"/>
-          </div>
+        <summary class="details-toggle">Avanzado</summary>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:16px;">
+          ${sRow("twitch-event-cheer-cooldown",  eventCheerCooldown,  0, 120000, 1000, "Cooldown Bits/Cheers por usuario",    msLabel)}
+          ${sRow("twitch-event-sub-cooldown",    eventSubCooldown,    0, 120000, 1000, "Cooldown Suscripciones por usuario",  msLabel)}
+          ${sRow("twitch-event-raid-cooldown",   eventRaidCooldown,   0, 120000, 1000, "Cooldown Raids (global canal)",       msLabel)}
+          ${sRow("twitch-event-follow-cooldown", eventFollowCooldown, 0, 120000, 1000, "Cooldown Follows por usuario",        msLabel)}
         </div>
       </details>
     </div>
@@ -254,12 +262,9 @@ export async function renderTwitch(): Promise<void> {
         ${presetRadios("twitch-global-preset", globalPreset, ["off", "calm", "normal", "busy"], false)}
       </div>
       <details id="global-advanced" style="margin-top:12px;">
-        <summary style="cursor:pointer;font-weight:500;color:var(--accent);">Avanzado</summary>
+        <summary class="details-toggle">Avanzado</summary>
         <div style="margin-top:12px;">
-          <div class="form-group">
-            <label>Máx. mensajes por segundo (global, 0 = desactivado)</label>
-            <input type="number" id="twitch-global-cap" value="${globalCap}" min="0"/>
-          </div>
+          ${sRow("twitch-global-cap", globalCap, 0, 50, 1, "Máx. mensajes por segundo (global)", v => v === 0 ? "Desactivado" : `${v}/s`)}
         </div>
       </details>
     </div>
@@ -328,12 +333,8 @@ export async function renderTwitch(): Promise<void> {
       <div class="card-header">
         <h2 class="section-title">EventSub</h2>
       </div>
-      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
-        Recibe subs, raids, follows y bits en tiempo real sin depender del chat IRC.
-      </p>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-        <strong>Scopes requeridos en el token OAuth:</strong><br/>
-        <code>bits:read</code> · <code>channel:read:subscriptions</code> · <code>channel:read:raids</code> · <code>moderator:read:followers</code>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">
+        Recibe subs, raids, follows y bits en tiempo real sin depender del chat IRC. Requiere los scopes de EventSub listados arriba en el Access Token.
       </p>
       <div class="tama-setting-row">
         <div>
@@ -352,6 +353,13 @@ export async function renderTwitch(): Promise<void> {
   // Event handlers
   // =========================================================================================================
 
+  const channelInput = document.getElementById("twitch-channel") as HTMLInputElement;
+  channelInput?.addEventListener("input", () => {
+    const pos = channelInput.selectionStart;
+    channelInput.value = channelInput.value.toLowerCase();
+    channelInput.setSelectionRange(pos, pos);
+  });
+
   document.getElementById("btn-validate-token")?.addEventListener("click", async () => {
     const tokenVal = (document.getElementById("twitch-token") as HTMLInputElement)?.value;
     if (!tokenVal) return showToast("Token requerido", "error");
@@ -369,12 +377,31 @@ export async function renderTwitch(): Promise<void> {
     const ch = (document.getElementById("twitch-channel") as HTMLInputElement)?.value;
     const tk = (document.getElementById("twitch-token") as HTMLInputElement)?.value;
     if (!ch || !tk) return showToast("Canal y token requeridos", "error");
+
+    const btn = document.getElementById("btn-connect-twitch") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Conectando…";
+
     try {
       await invoke("connect_twitch", { channel: ch });
       await saveConfig();
-      showToast("Conectado a Twitch", "success");
+
+      const timeout   = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Tiempo de espera agotado — verifica que el canal existe")), 5500)
+      );
+      const connected = new Promise<void>(resolve =>
+        once("twitch-connected", () => resolve())
+      );
+      const error     = new Promise<never>((_, reject) =>
+        once<string>("twitch-error", e => reject(new Error(e.payload)))
+      );
+
+      await Promise.race([connected, error, timeout]);
     } catch (e) {
       showToast(String(e), "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${Icons.zap(14)} Reconectar`;
     }
   });
 
@@ -392,6 +419,28 @@ export async function renderTwitch(): Promise<void> {
   // Preset radio handlers
   // =========================================================================================================
 
+  // Init slider fills on load
+  [
+    ["twitch-chat-cooldown",    msLabel],
+    ["twitch-chat-dedup",       msLabel],
+    ["twitch-chat-rate-max",    (v: number) => v === 0 ? "Desactivado" : `${v} msg`],
+    ["twitch-chat-rate-window", (v: number) => `${v}s`],
+    ["twitch-event-cheer-cooldown",  msLabel],
+    ["twitch-event-sub-cooldown",    msLabel],
+    ["twitch-event-raid-cooldown",   msLabel],
+    ["twitch-event-follow-cooldown", msLabel],
+    ["twitch-global-cap",       (v: number) => v === 0 ? "Desactivado" : `${v}/s`],
+  ].forEach(([id, fmt]) => syncSlider(id as string, fmt as (v: number) => string));
+
+  function syncSlider(id: string, fmt: (v: number) => string) {
+    const el = document.getElementById(id) as HTMLInputElement;
+    const lbl = document.getElementById(`${id}-val`);
+    if (!el) return;
+    if (lbl) lbl.textContent = fmt(Number(el.value));
+    const pct = ((Number(el.value) - Number(el.min)) / (Number(el.max) - Number(el.min))) * 100;
+    el.style.setProperty("--slider-fill", `${pct}%`);
+  }
+
   function applyPresetValues(preset: string, table: Record<string, ChatPreset>, keys: {
     cooldown: string; dedup: string; rateMax: string; rateWindow: string;
   }) {
@@ -401,22 +450,28 @@ export async function renderTwitch(): Promise<void> {
     (document.getElementById(keys.dedup) as HTMLInputElement).value = String(p.dedup);
     (document.getElementById(keys.rateMax) as HTMLInputElement).value = String(p.rateMax);
     (document.getElementById(keys.rateWindow) as HTMLInputElement).value = String(p.rateWindow);
+    syncSlider(keys.cooldown,   msLabel);
+    syncSlider(keys.dedup,      msLabel);
+    syncSlider(keys.rateMax,    v => v === 0 ? "Desactivado" : `${v} msg`);
+    syncSlider(keys.rateWindow, v => `${v}s`);
   }
 
   function applyEventPresetValues(preset: string) {
     const p = EVENT_PRESETS[preset];
     if (!p) return;
-    const ms = p.cooldownMs;
-    (document.getElementById("twitch-event-cheer-cooldown") as HTMLInputElement).value = String(ms);
-    (document.getElementById("twitch-event-sub-cooldown") as HTMLInputElement).value = String(ms);
-    (document.getElementById("twitch-event-raid-cooldown") as HTMLInputElement).value = String(ms);
-    (document.getElementById("twitch-event-follow-cooldown") as HTMLInputElement).value = String(ms);
+    const ms = String(p.cooldownMs);
+    ["twitch-event-cheer-cooldown", "twitch-event-sub-cooldown",
+     "twitch-event-raid-cooldown",  "twitch-event-follow-cooldown"].forEach(id => {
+      (document.getElementById(id) as HTMLInputElement).value = ms;
+      syncSlider(id, msLabel);
+    });
   }
 
   function applyGlobalPreset(preset: string) {
     const p = GLOBAL_PRESETS[preset];
     if (!p) return;
     (document.getElementById("twitch-global-cap") as HTMLInputElement).value = String(p.cap);
+    syncSlider("twitch-global-cap", v => v === 0 ? "Desactivado" : `${v}/s`);
   }
 
   function updateRadioLabels(name: string, value: string) {
@@ -462,22 +517,37 @@ export async function renderTwitch(): Promise<void> {
     });
   });
 
-  // Advanced inputs: flip preset to "custom" on edit
-  ["twitch-chat-cooldown", "twitch-chat-dedup", "twitch-chat-rate-max", "twitch-chat-rate-window"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", async () => {
+  // Sliders: update label live, flip preset to "custom" and save on release
+  const chatSliders: [string, (v: number) => string][] = [
+    ["twitch-chat-cooldown",    msLabel],
+    ["twitch-chat-dedup",       msLabel],
+    ["twitch-chat-rate-max",    v => v === 0 ? "Desactivado" : `${v} msg`],
+    ["twitch-chat-rate-window", v => `${v}s`],
+  ];
+  chatSliders.forEach(([id, fmt]) => {
+    const el = document.getElementById(id);
+    el?.addEventListener("input", () => syncSlider(id, fmt));
+    el?.addEventListener("change", async () => {
       const radio = document.querySelector('input[name="twitch-chat-preset"][value="custom"]') as HTMLInputElement;
       if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("twitch-chat-preset", "custom"); }
       await saveConfig();
     });
   });
 
-  ["twitch-event-cheer-cooldown", "twitch-event-sub-cooldown", "twitch-event-raid-cooldown", "twitch-event-follow-cooldown"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", async () => {
+  const eventSliders = ["twitch-event-cheer-cooldown", "twitch-event-sub-cooldown",
+                        "twitch-event-raid-cooldown",  "twitch-event-follow-cooldown"];
+  eventSliders.forEach(id => {
+    const el = document.getElementById(id);
+    el?.addEventListener("input", () => syncSlider(id, msLabel));
+    el?.addEventListener("change", async () => {
       const radio = document.querySelector('input[name="twitch-event-preset"][value="custom"]') as HTMLInputElement;
       if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("twitch-event-preset", "custom"); }
       await saveConfig();
     });
   });
+
+  document.getElementById("twitch-global-cap")?.addEventListener("input",
+    () => syncSlider("twitch-global-cap", v => v === 0 ? "Desactivado" : `${v}/s`));
 
   // =========================================================================================================
   // Save config

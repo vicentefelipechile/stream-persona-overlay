@@ -48,6 +48,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 | `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` — used by Tauri windows only |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
 | `simple-icons` | Brand SVG icons (Twitch, TikTok, Discord). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
+| `lucide` | UI SVG icons (stroke + fill). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
 | `ws-transport.ts` (internal) | Drop-in replacement for Tauri API used by the OBS Browser Source overlay |
 
 ### Frontend Design System
@@ -536,13 +537,13 @@ Icons.discord(18)    // Discord logo, brand color
 Icons.twitchMono(16)
 Icons.tiktokMono(16)
 
-// UI icons (stroke, inherit currentColor):
+// UI icons — stroke-based (lucide), inherit currentColor:
 Icons.settings(20)   Icons.users(20)   Icons.person(16)
 Icons.logs(20)       Icons.warning(48) Icons.pencil()
-Icons.play()         Icons.pause()     Icons.trash()     Icons.refresh()
+Icons.pause()        Icons.trash()     Icons.refresh()
 
-// Fill icon:
-Icons.paw(20)
+// UI icons — fill-based (lucide), inherit currentColor:
+Icons.paw(20)        Icons.play()
 ```
 
 All functions accept an optional `size` parameter (px). Default sizes are set per icon type (16 for nav/inline, 14 for button icons). Nav icons are injected by `injectNavIcons()` called from `main.ts` — HTML uses `<span class="nav-icon" data-icon="twitch"></span>` and is never hardcoded with emoji.

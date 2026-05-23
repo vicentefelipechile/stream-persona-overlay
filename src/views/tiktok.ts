@@ -97,6 +97,16 @@ export async function renderTiktok(): Promise<void> {
 
   const isConnected = username.length > 0;
 
+  const msLabel = (ms: number) => ms === 0 ? "Desactivado" : `${ms / 1000}s`;
+  const sRow = (id: string, value: number, min: number, max: number, step: number, label: string, fmt: (v: number) => string) =>
+    `<div class="form-group" style="gap:4px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <label style="margin:0;">${label}</label>
+        <span id="${id}-val" style="font-size:0.9rem;font-weight:600;color:var(--accent);min-width:72px;text-align:right;">${fmt(value)}</span>
+      </div>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}" style="width:100%;margin-top:4px;"/>
+    </div>`;
+
   const presetRadios = (name: string, current: string, options: string[]) =>
     [...options, "custom"].map(v => {
       const labels: Record<string, string> = {
@@ -111,7 +121,7 @@ export async function renderTiktok(): Promise<void> {
 
   container.innerHTML = `
     <div class="view-header">
-      <h1 class="view-title">TikTok</h1>
+      <h1 class="view-title">${Icons.tiktok(20)} TikTok</h1>
       <p class="view-subtitle">Configuración de eventos en directo</p>
     </div>
 
@@ -125,19 +135,25 @@ export async function renderTiktok(): Promise<void> {
         <input type="text" id="tiktok-username" value="${username}" placeholder="@nombre_usuario"/>
       </div>
       <div class="form-group">
-        <label>API Key (TikTool)</label>
+        <label style="display:flex;align-items:center;gap:8px;">
+          API Key
+          <a href="https://eulerstream.com/" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;">${Icons.externalLink(12)} Obtener en EulerStream</a>
+        </label>
         <input type="password" id="tiktok-api-key" value="${api_key}" placeholder="API key"/>
+        <p style="margin:6px 0 0;font-size:0.8rem;color:var(--text-muted);">
+          <strong>Opcional.</strong> Sin ella solo recibes mensajes de chat. Con ella también recibes regalos, likes, follows y suscripciones en directo (vía EulerStream, servicio de pago).
+        </p>
       </div>
       <details style="margin-top: 12px;">
-        <summary style="cursor: pointer; font-weight: 500; margin-bottom: 8px;">Avanzado</summary>
+        <summary class="details-toggle">Avanzado</summary>
         <div class="form-group">
           <label>Endpoint WebSocket</label>
           <input type="text" id="tiktok-ws-endpoint" value="${ws_endpoint}" placeholder="wss://..."/>
         </div>
       </details>
       <div style="display: flex; gap: 8px; margin-top: 16px;">
-        <button id="btn-connect-tiktok" class="btn btn-primary">${isConnected ? "Reconectar" : "Conectar"}</button>
-        ${isConnected ? '<button id="btn-disconnect-tiktok" class="btn btn-outline">Desconectar</button>' : ""}
+        <button id="btn-connect-tiktok" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.zap(14)} ${isConnected ? "Reconectar" : "Conectar"}</button>
+        ${isConnected ? `<button id="btn-disconnect-tiktok" class="btn btn-outline" style="display:inline-flex;align-items:center;gap:6px;">${Icons.unplug(14)} Desconectar</button>` : ""}
       </div>
     </div>
 
@@ -164,24 +180,12 @@ export async function renderTiktok(): Promise<void> {
       </div>
       <p id="tiktok-chat-preset-desc" style="font-size:0.85rem;color:var(--text-muted);margin:8px 0 0;">${chatPresetDescription(chatPreset)}</p>
       <details id="tiktok-chat-advanced" ${chatPreset === "custom" ? "open" : ""} style="margin-top:12px;">
-        <summary style="cursor:pointer;font-weight:500;color:var(--accent);">Avanzado</summary>
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px;">
-          <div class="form-group">
-            <label>Espera entre mensajes por usuario (ms, 0 = desactivado)</label>
-            <input type="number" id="tiktok-chat-cooldown" value="${chatCooldown}" min="0" step="500"/>
-          </div>
-          <div class="form-group">
-            <label>Ventana para ignorar duplicados (ms, 0 = desactivado)</label>
-            <input type="number" id="tiktok-chat-dedup" value="${chatDedup}" min="0" step="500"/>
-          </div>
-          <div class="form-group">
-            <label>Máx. mensajes por ventana (0 = desactivado)</label>
-            <input type="number" id="tiktok-chat-rate-max" value="${chatRateMax}" min="0"/>
-          </div>
-          <div class="form-group">
-            <label>Ventana de tiempo (segundos)</label>
-            <input type="number" id="tiktok-chat-rate-window" value="${chatRateWindow}" min="1"/>
-          </div>
+        <summary class="details-toggle">Avanzado</summary>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:16px;">
+          ${sRow("tiktok-chat-cooldown",    chatCooldown,   0, 60000, 500,  "Espera entre mensajes por usuario", msLabel)}
+          ${sRow("tiktok-chat-dedup",       chatDedup,      0, 60000, 1000, "Ventana para ignorar duplicados",   msLabel)}
+          ${sRow("tiktok-chat-rate-max",    chatRateMax,    0, 20,    1,    "Máx. mensajes por ventana",         v => v === 0 ? "Desactivado" : `${v} msg`)}
+          ${sRow("tiktok-chat-rate-window", chatRateWindow, 1, 60,    1,    "Ventana de tiempo",                 v => `${v}s`)}
         </div>
       </details>
     </div>
@@ -195,32 +199,14 @@ export async function renderTiktok(): Promise<void> {
       </div>
       <p id="tiktok-event-preset-desc" style="font-size:0.85rem;color:var(--text-muted);margin:8px 0 0;">${eventPresetDescription(eventPreset)}</p>
       <details id="tiktok-event-advanced" ${eventPreset === "custom" ? "open" : ""} style="margin-top:12px;">
-        <summary style="cursor:pointer;font-weight:500;color:var(--accent);">Avanzado</summary>
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px;">
-          <div class="form-group">
-            <label>Cooldown Regalos por usuario (ms)</label>
-            <input type="number" id="tiktok-event-gift-cooldown" value="${eventGiftCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Likes por usuario (ms)</label>
-            <input type="number" id="tiktok-event-like-cooldown" value="${eventLikeCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Follows por usuario (ms)</label>
-            <input type="number" id="tiktok-event-follow-cooldown" value="${eventFollowCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Comparticiones por usuario (ms)</label>
-            <input type="number" id="tiktok-event-share-cooldown" value="${eventShareCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Suscripciones por usuario (ms)</label>
-            <input type="number" id="tiktok-event-subscribe-cooldown" value="${eventSubscribeCooldown}" min="0" step="1000"/>
-          </div>
-          <div class="form-group">
-            <label>Cooldown Sobres por usuario (ms)</label>
-            <input type="number" id="tiktok-event-envelope-cooldown" value="${eventEnvelopeCooldown}" min="0" step="1000"/>
-          </div>
+        <summary class="details-toggle">Avanzado</summary>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:16px;">
+          ${sRow("tiktok-event-gift-cooldown",      eventGiftCooldown,      0, 120000, 1000, "Cooldown Regalos por usuario",        msLabel)}
+          ${sRow("tiktok-event-like-cooldown",      eventLikeCooldown,      0, 120000, 1000, "Cooldown Likes por usuario",          msLabel)}
+          ${sRow("tiktok-event-follow-cooldown",    eventFollowCooldown,    0, 120000, 1000, "Cooldown Follows por usuario",        msLabel)}
+          ${sRow("tiktok-event-share-cooldown",     eventShareCooldown,     0, 120000, 1000, "Cooldown Comparticiones por usuario", msLabel)}
+          ${sRow("tiktok-event-subscribe-cooldown", eventSubscribeCooldown, 0, 120000, 1000, "Cooldown Suscripciones por usuario",  msLabel)}
+          ${sRow("tiktok-event-envelope-cooldown",  eventEnvelopeCooldown,  0, 120000, 1000, "Cooldown Sobres por usuario",         msLabel)}
         </div>
       </details>
     </div>
@@ -293,11 +279,34 @@ export async function renderTiktok(): Promise<void> {
   // Preset radio handlers
   // =========================================================================================================
 
+  // Init slider fills on load
+  [
+    ["tiktok-chat-cooldown",    msLabel],
+    ["tiktok-chat-dedup",       msLabel],
+    ["tiktok-chat-rate-max",    (v: number) => v === 0 ? "Desactivado" : `${v} msg`],
+    ["tiktok-chat-rate-window", (v: number) => `${v}s`],
+    ["tiktok-event-gift-cooldown",      msLabel],
+    ["tiktok-event-like-cooldown",      msLabel],
+    ["tiktok-event-follow-cooldown",    msLabel],
+    ["tiktok-event-share-cooldown",     msLabel],
+    ["tiktok-event-subscribe-cooldown", msLabel],
+    ["tiktok-event-envelope-cooldown",  msLabel],
+  ].forEach(([id, fmt]) => syncSlider(id as string, fmt as (v: number) => string));
+
   function updateRadioLabels(name: string, value: string) {
     document.querySelectorAll(`input[name="${name}"]`).forEach(radio => {
       const label = (radio as HTMLElement).closest(".preset-radio");
       if (label) label.classList.toggle("active", (radio as HTMLInputElement).value === value);
     });
+  }
+
+  function syncSlider(id: string, fmt: (v: number) => string) {
+    const el = document.getElementById(id) as HTMLInputElement;
+    const lbl = document.getElementById(`${id}-val`);
+    if (!el) return;
+    if (lbl) lbl.textContent = fmt(Number(el.value));
+    const pct = ((Number(el.value) - Number(el.min)) / (Number(el.max) - Number(el.min))) * 100;
+    el.style.setProperty("--slider-fill", `${pct}%`);
   }
 
   function applyTiktokChatPreset(preset: string) {
@@ -307,6 +316,10 @@ export async function renderTiktok(): Promise<void> {
     (document.getElementById("tiktok-chat-dedup") as HTMLInputElement).value = String(p.dedup);
     (document.getElementById("tiktok-chat-rate-max") as HTMLInputElement).value = String(p.rateMax);
     (document.getElementById("tiktok-chat-rate-window") as HTMLInputElement).value = String(p.rateWindow);
+    syncSlider("tiktok-chat-cooldown",    msLabel);
+    syncSlider("tiktok-chat-dedup",       msLabel);
+    syncSlider("tiktok-chat-rate-max",    v => v === 0 ? "Desactivado" : `${v} msg`);
+    syncSlider("tiktok-chat-rate-window", v => `${v}s`);
   }
 
   function applyTiktokEventPreset(preset: string) {
@@ -315,7 +328,10 @@ export async function renderTiktok(): Promise<void> {
     const ms = String(p.cooldownMs);
     ["tiktok-event-gift-cooldown", "tiktok-event-like-cooldown", "tiktok-event-follow-cooldown",
      "tiktok-event-share-cooldown", "tiktok-event-subscribe-cooldown", "tiktok-event-envelope-cooldown"]
-      .forEach(id => { (document.getElementById(id) as HTMLInputElement).value = ms; });
+      .forEach(id => {
+        (document.getElementById(id) as HTMLInputElement).value = ms;
+        syncSlider(id, msLabel);
+      });
   }
 
   document.querySelectorAll('input[name="tiktok-chat-preset"]').forEach(radio => {
@@ -340,9 +356,17 @@ export async function renderTiktok(): Promise<void> {
     });
   });
 
-  // Advanced inputs flip preset to "custom"
-  ["tiktok-chat-cooldown", "tiktok-chat-dedup", "tiktok-chat-rate-max", "tiktok-chat-rate-window"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", async () => {
+  // Sliders: update label live, flip preset to "custom" and save on release
+  const chatSliders: [string, (v: number) => string][] = [
+    ["tiktok-chat-cooldown",    msLabel],
+    ["tiktok-chat-dedup",       msLabel],
+    ["tiktok-chat-rate-max",    v => v === 0 ? "Desactivado" : `${v} msg`],
+    ["tiktok-chat-rate-window", v => `${v}s`],
+  ];
+  chatSliders.forEach(([id, fmt]) => {
+    const el = document.getElementById(id);
+    el?.addEventListener("input", () => syncSlider(id, fmt));
+    el?.addEventListener("change", async () => {
       const radio = document.querySelector('input[name="tiktok-chat-preset"][value="custom"]') as HTMLInputElement;
       if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("tiktok-chat-preset", "custom"); }
       await saveConfig();
@@ -351,7 +375,9 @@ export async function renderTiktok(): Promise<void> {
 
   ["tiktok-event-gift-cooldown", "tiktok-event-like-cooldown", "tiktok-event-follow-cooldown",
    "tiktok-event-share-cooldown", "tiktok-event-subscribe-cooldown", "tiktok-event-envelope-cooldown"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", async () => {
+    const el = document.getElementById(id);
+    el?.addEventListener("input", () => syncSlider(id, msLabel));
+    el?.addEventListener("change", async () => {
       const radio = document.querySelector('input[name="tiktok-event-preset"][value="custom"]') as HTMLInputElement;
       if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("tiktok-event-preset", "custom"); }
       await saveConfig();

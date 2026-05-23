@@ -58,7 +58,7 @@ export async function renderTamagotchi(): Promise<void> {
       invoke<PetStateRow[]>("tama_get_pet_states"),
     ]);
   } catch (e) {
-    container.innerHTML = `<div class="empty-state"><span class="empty-state-icon">⚠</span><p>${String(e)}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><span class="empty-state-icon">${Icons.warning(48)}</span><p>${String(e)}</p></div>`;
     return;
   }
 
@@ -89,7 +89,7 @@ export async function renderTamagotchi(): Promise<void> {
     <div class="view-header">
       <div class="tama-view-header-row">
         <div>
-          <h1 class="view-title">Tamagotchi</h1>
+          <h1 class="view-title">${Icons.paw(20)} Tamagotchi</h1>
           <p class="view-subtitle">Mascotas persistentes de los usuarios del chat</p>
         </div>
         <div class="tama-system-toggle">
@@ -140,7 +140,7 @@ export async function renderTamagotchi(): Promise<void> {
               <span class="tama-action-name">${m.label}</span>
               <span class="tama-action-desc">${m.description}</span>
             </div>
-            <span class="tama-action-check">✓</span>
+            <span class="tama-action-check">${Icons.check(14)}</span>
           </label>
         `).join("")}
       </div>
@@ -165,14 +165,14 @@ export async function renderTamagotchi(): Promise<void> {
             ${allActionMeta.map(m => `<option value="${m.id}">${m.icon} ${m.label}</option>`).join("")}
           </select>
         </div>
-        <button class="btn btn-primary" id="btn-fire">Disparar</button>
+        <button class="btn btn-primary" id="btn-fire" style="display:inline-flex;align-items:center;gap:6px;">${Icons.zap(14)} Disparar</button>
       </div>
     </div>
 
     <div class="card" style="margin-top:var(--space-5);margin-bottom:var(--space-8);">
       <div class="card-header">
         <h2 class="section-title">Mascotas Activas</h2>
-        <button class="btn btn-outline btn-sm" id="btn-refresh-pets">↻ Actualizar</button>
+        <button class="btn btn-outline btn-sm" id="btn-refresh-pets" style="display:inline-flex;align-items:center;gap:4px;">${Icons.refresh()} Actualizar</button>
       </div>
       <div id="pets-list">
         ${_renderPetsList(pets)}
@@ -317,7 +317,7 @@ function _renderPetsList(pets: PetStateRow[]): string {
         <div class="tama-pet-meta">x: ${Math.round(p.floor_x)}</div>
       </div>
       <span class="badge ${p.is_sleeping ? "badge-warn" : "badge-ok"}">${p.is_sleeping ? "durmiendo" : "activo"}</span>
-      <button class="btn btn-danger btn-sm" data-remove-pet="${p.user_id}">Eliminar</button>
+      <button class="btn btn-danger btn-sm" data-remove-pet="${p.user_id}" style="display:inline-flex;align-items:center;gap:4px;">${Icons.trash()} Eliminar</button>
     </div>
   `).join("");
 }

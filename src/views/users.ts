@@ -196,7 +196,7 @@ function openEditModal(user: User): void {
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-header">
         <h2 id="modal-title">Editar — ${escHtml(user.display_name)}</h2>
-        <button class="modal-close" id="modal-close-btn" aria-label="Cerrar">✕</button>
+        <button class="modal-close" id="modal-close-btn" aria-label="Cerrar">${Icons.close(16)}</button>
       </div>
 
       <div class="form-group">
@@ -222,7 +222,7 @@ function openEditModal(user: User): void {
 
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel-btn">Cancelar</button>
-        <button class="btn btn-primary" id="modal-save-btn">Guardar cambios</button>
+        <button class="btn btn-primary" id="modal-save-btn" style="display:inline-flex;align-items:center;gap:6px;">${Icons.save()} Guardar cambios</button>
       </div>
     </div>
   `;

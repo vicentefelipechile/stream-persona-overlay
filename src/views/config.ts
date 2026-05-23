@@ -30,7 +30,7 @@ export async function renderConfig(): Promise<void> {
 
     <!-- Discord -->
     <section class="section">
-      <div class="section-title">Bot de Discord</div>
+      <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.discord(16)} Bot de Discord</div>
       <div class="card">
         <div class="form-group">
           <label for="cfg-discord-token">Token del Bot</label>
@@ -53,8 +53,8 @@ export async function renderConfig(): Promise<void> {
           </div>
         </div>
         <div style="display:flex; gap:12px;">
-          <button id="btn-save-discord" class="btn btn-primary">Guardar</button>
-          <button id="btn-restart-discord" class="btn btn-secondary">Reiniciar Bot</button>
+          <button id="btn-save-discord" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.save(14)} Guardar</button>
+          <button id="btn-restart-discord" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.bot(14)} Reiniciar Bot</button>
         </div>
       </div>
     </section>
@@ -84,7 +84,7 @@ export async function renderConfig(): Promise<void> {
 
     <!-- OBS Browser Source -->
     <section class="section">
-      <div class="section-title">OBS Browser Source</div>
+      <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
       <div class="card">
         <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px;">
           Alternativa sin chroma key. Agregá esta URL como <strong>Browser Source</strong> en OBS
@@ -96,7 +96,7 @@ export async function renderConfig(): Promise<void> {
             <input type="text" id="obs-browser-url" readonly
               value="http://localhost:6767/overlay"
               style="flex:1;" />
-            <button id="btn-copy-obs-url" class="btn btn-secondary">Copiar</button>
+            <button id="btn-copy-obs-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
           </div>
         </div>
       </div>

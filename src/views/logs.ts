@@ -29,8 +29,8 @@ export async function renderLogs(): Promise<void> {
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btn-refresh-logs" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;">${Icons.refresh()} Refrescar</button>
           <button id="btn-clear-filter"   class="btn btn-secondary btn-sm log-filter-btn active" data-filter="">Todos</button>
-          <button id="btn-filter-shown"   class="btn btn-secondary btn-sm log-filter-btn" data-filter="shown">Mostrados</button>
-          <button id="btn-filter-blocked" class="btn btn-secondary btn-sm log-filter-btn" data-filter="blocked" style="color:#ff6b6b;border-color:#ff6b6b;">Bloqueados</button>
+          <button id="btn-filter-shown"   class="btn btn-secondary btn-sm log-filter-btn" data-filter="shown"   style="display:inline-flex;align-items:center;gap:4px;">${Icons.eye()} Mostrados</button>
+          <button id="btn-filter-blocked" class="btn btn-secondary btn-sm log-filter-btn" data-filter="blocked" style="display:inline-flex;align-items:center;gap:4px;color:#ff6b6b;border-color:#ff6b6b;">${Icons.shieldOff()} Bloqueados</button>
           <button id="btn-filter-twitch"  class="btn btn-secondary btn-sm log-filter-btn" style="display:inline-flex;align-items:center;gap:4px;color:#9146ff;border-color:#9146ff;" data-filter="twitch">${Icons.twitchMono()} Twitch</button>
           <button id="btn-filter-tiktok"  class="btn btn-secondary btn-sm log-filter-btn" style="display:inline-flex;align-items:center;gap:4px;color:#ff0050;border-color:#ff0050;" data-filter="tiktok">${Icons.tiktokMono()} TikTok</button>
         </div>
