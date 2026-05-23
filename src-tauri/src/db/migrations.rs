@@ -53,6 +53,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    // Columnas añadidas a message_log tras la creación inicial — ignorar error si ya existen
+    let _ = conn.execute(
+        "ALTER TABLE message_log ADD COLUMN event_kind TEXT NOT NULL DEFAULT 'chat'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE message_log ADD COLUMN amount INTEGER",
+        [],
+    );
+
     // Insertar valores de configuración por defecto si no existen
     let defaults = [
         ("chroma_color", "#00FF00"),

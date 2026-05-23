@@ -47,6 +47,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 | `motion` (v12+) | Animation engine for Tamagotchi pet actions (DOM animate API) |
 | `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` — used by Tauri windows only |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
+| `simple-icons` | Brand SVG icons (Twitch, TikTok, Discord). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
 | `ws-transport.ts` (internal) | Drop-in replacement for Tauri API used by the OBS Browser Source overlay |
 
 ### Frontend Design System
@@ -141,6 +142,7 @@ stream-persona-overlay/
 |   +-- main.ts                   # Panel entry point (index.html)
 |   +-- router.ts                 # Manual hash-based ViewRouter
 |   +-- state.ts                  # AppState singleton + TS types + showToast()
+|   +-- icons.ts                  # Centralized icon catalog — brand icons (simple-icons) + inline SVG UI icons
 |   +-- views/
 |   |   +-- config.ts             # /config view — global settings + platform shortcut cards
 |   |   +-- users.ts              # /users view — user CRUD
@@ -244,7 +246,7 @@ PRAGMA foreign_keys=ON;     -- Enforces FK constraints (ON DELETE CASCADE on per
 users        -- discord_id (UNIQUE), display_name, twitch_username, tiktok_username, voice_id, is_active
 personas     -- user_id (UNIQUE FK), mouth_open_path, mouth_closed_path
 config       -- key TEXT PRIMARY KEY, value TEXT  (key-value store)
-message_log  -- platform, username, message, user_id (nullable FK), shown
+message_log  -- platform, username, message, user_id (nullable FK), shown, event_kind (DEFAULT 'chat'), amount (nullable)
 pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x, is_sleeping
 ```
 
@@ -459,6 +461,37 @@ interface TtsStatePayload {
 ---
 
 ## 9. Frontend — Patterns and Conventions
+
+### Icons
+
+All icons used in the admin panel come from `src/icons.ts`. **Never import `simple-icons` directly in a view file.**
+
+```typescript
+import { Icons } from "../icons";
+
+// Brand icons (colored — use in cards and labels):
+Icons.twitch(18)     // Twitch logo, brand color #9146ff
+Icons.tiktok(18)     // TikTok logo, brand color
+Icons.discord(18)    // Discord logo, brand color
+
+// Brand icons (monochrome — use in nav where active/hover color must inherit):
+Icons.twitchMono(16)
+Icons.tiktokMono(16)
+
+// UI icons (stroke, inherit currentColor):
+Icons.settings(20)   Icons.users(20)   Icons.person(16)
+Icons.logs(20)       Icons.warning(48) Icons.pencil()
+Icons.play()         Icons.pause()     Icons.trash()     Icons.refresh()
+
+// Fill icon:
+Icons.paw(20)
+```
+
+All functions accept an optional `size` parameter (px). Default sizes are set per icon type (16 for nav/inline, 14 for button icons). Nav icons are injected by `injectNavIcons()` called from `main.ts` — HTML uses `<span class="nav-icon" data-icon="twitch"></span>` and is never hardcoded with emoji.
+
+Do **not** use emoji or Unicode symbol characters (⚙ 👤 📋 ▶ ✕ etc.) in the admin panel. Use `Icons.*` instead.
+
+---
 
 ### ViewRouter
 

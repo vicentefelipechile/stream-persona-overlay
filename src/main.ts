@@ -14,6 +14,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import { AppState, showToast } from "./state";
 import { initRouter } from "./router";
+import { injectNavIcons } from "./icons";
 
 // =========================================================================================================
 // Initialization
@@ -26,6 +27,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     AppState.loadUsers(),
     AppState.loadVoices(),
   ]);
+
+  // Inyectar iconos SVG en el sidebar
+  injectNavIcons();
 
   // Inicializar router (renderiza la vista inicial)
   initRouter();

@@ -66,6 +66,13 @@
   font-size: 12px;
 }
 
+.btn-icon {
+  padding: var(--space-2);
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+}
+
 .btn-lg {
   padding: var(--space-3) var(--space-6);
   font-size: 15px;

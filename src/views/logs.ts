@@ -10,6 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { LogEntry, showToast } from "../state";
+import { Icons } from "../icons";
 
 // =========================================================================================================
 // Render Function
@@ -22,14 +23,14 @@ export async function renderLogs(): Promise<void> {
     <div class="view-header">
       <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
-          <h1>📋 Logs</h1>
+          <h1>${Icons.logs(20)} Logs</h1>
           <p>Historial de mensajes recibidos de Twitch y TikTok (últimos 100).</p>
         </div>
         <div style="display:flex; gap:8px;">
-          <button id="btn-refresh-logs" class="btn btn-secondary btn-sm">↻ Refrescar</button>
+          <button id="btn-refresh-logs" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;">${Icons.refresh()} Refrescar</button>
           <button id="btn-clear-filter" class="btn btn-secondary btn-sm">Todos</button>
-          <button id="btn-filter-twitch" class="btn btn-secondary btn-sm" style="color:#9146ff; border-color:#9146ff;">Twitch</button>
-          <button id="btn-filter-tiktok" class="btn btn-secondary btn-sm" style="color:#ff0050; border-color:#ff0050;">TikTok</button>
+          <button id="btn-filter-twitch" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;color:#9146ff;border-color:#9146ff;">${Icons.twitchMono()} Twitch</button>
+          <button id="btn-filter-tiktok" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;color:#ff0050;border-color:#ff0050;">${Icons.tiktokMono()} TikTok</button>
         </div>
       </div>
     </div>
@@ -82,7 +83,7 @@ async function loadLogs(container: HTMLElement, filter: string | null): Promise<
       content.style.display = "flex";
       content.innerHTML = `
         <div class="empty-state" style="padding:40px;">
-          <span class="empty-state-icon">📭</span>
+          <span class="empty-state-icon">${Icons.logs(48)}</span>
           <p>Sin mensajes${filter ? ` de ${filter}` : ""} aún.</p>
         </div>
       `;
@@ -100,12 +101,17 @@ async function loadLogs(container: HTMLElement, filter: string | null): Promise<
 
 function logEntryHtml(log: LogEntry): string {
   const date = new Date(log.created_at + "Z");
-  const time = date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const time = date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+  const platformIcon =
+    log.platform === "twitch" ? Icons.twitchMono(11) :
+    log.platform === "tiktok" ? Icons.tiktokMono(11) :
+    "";
 
   return `
-    <div class="log-entry">
+    <div class="log-entry log-entry--${log.platform}">
       <span class="log-time">${time}</span>
-      <span class="log-platform ${log.platform}">${log.platform}</span>
+      <span class="log-platform ${log.platform}">${platformIcon}${log.platform}</span>
       <span class="log-username">${escHtml(log.username)}</span>
       <span class="log-message">${escHtml(log.message)}</span>
     </div>

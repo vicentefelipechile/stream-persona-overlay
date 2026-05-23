@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { showToast } from "../state";
+import { Icons } from "../icons";
 
 export async function renderTiktok(): Promise<void> {
   const container = document.getElementById("view-container")!;
@@ -8,7 +9,7 @@ export async function renderTiktok(): Promise<void> {
   try {
     cfg = await invoke<Record<string, unknown>>("get_config_cmd");
   } catch (e) {
-    container.innerHTML = `<div class="empty-state"><span class="empty-state-icon">⚠</span><p>${String(e)}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><span class="empty-state-icon">${Icons.warning(48)}</span><p>${String(e)}</p></div>`;
     return;
   }
 

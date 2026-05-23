@@ -8,6 +8,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { showToast } from "../state";
+import { Icons } from "../icons";
 import { ActionRegistry } from "../overlay/tamagotchi/core/ActionRegistry";
 
 // Import all actions so ActionRegistry is populated (needed for the panel's action list)
@@ -310,7 +311,7 @@ function _renderPetsList(pets: PetStateRow[]): string {
   }
   return pets.map(p => `
     <div class="tama-pet-row">
-      <div class="tama-pet-avatar">🐾</div>
+      <div class="tama-pet-avatar">${Icons.paw(20)}</div>
       <div class="tama-pet-info">
         <div class="tama-pet-name">${p.display_name}</div>
         <div class="tama-pet-meta">x: ${Math.round(p.floor_x)}</div>

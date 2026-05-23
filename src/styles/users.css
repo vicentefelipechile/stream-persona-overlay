@@ -41,10 +41,14 @@
 }
 
 .users-table td.actions {
-  display: flex;
-  gap: var(--space-2);
   padding-top: var(--space-2);
   padding-bottom: var(--space-2);
+}
+
+.actions-cell {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
 }
 
 /* Avatar */

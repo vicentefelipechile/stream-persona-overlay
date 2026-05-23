@@ -5,29 +5,87 @@
 .log-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .log-entry {
-  display: flex;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: 58px 76px 140px 1fr;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 7px var(--space-5);
+  border-left: 3px solid transparent;
   transition: background var(--transition);
 }
 
-.log-entry:hover { background: var(--color-bg-hover); }
-
-.log-time    { color: var(--color-text-dim); flex-shrink: 0; width: 85px; }
-.log-platform {
-  flex-shrink: 0;
-  width: 50px;
-  font-weight: 600;
+.log-entry:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
-.log-platform.twitch { color: #9146ff; }
-.log-platform.tiktok { color: #ff0050; }
-.log-platform.test   { color: var(--color-info); }
-.log-username { color: var(--color-accent); flex-shrink: 0; min-width: 100px; }
-.log-message  { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.log-entry:hover {
+  background: var(--color-bg-hover);
+}
+
+.log-entry--twitch { border-left-color: #9146ff; }
+.log-entry--tiktok { border-left-color: #ff0050; }
+.log-entry--test   { border-left-color: var(--color-info); }
+
+.log-time {
+  color: var(--color-text-dim);
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+.log-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: 3px;
+  width: fit-content;
+}
+
+.log-platform.twitch {
+  color: #9146ff;
+  background: rgba(145, 70, 255, 0.12);
+  border: 1px solid rgba(145, 70, 255, 0.25);
+}
+
+.log-platform.tiktok {
+  color: #ff0050;
+  background: rgba(255, 0, 80, 0.12);
+  border: 1px solid rgba(255, 0, 80, 0.25);
+}
+
+.log-platform.test {
+  color: var(--color-info);
+  background: rgba(97, 150, 245, 0.12);
+  border: 1px solid rgba(97, 150, 245, 0.25);
+}
+
+.log-username {
+  color: var(--color-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.log-message {
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-entry:hover .log-message {
+  color: var(--color-text);
+}

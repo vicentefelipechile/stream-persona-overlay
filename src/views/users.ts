@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { AppState, User, showToast } from "../state";
+import { Icons } from "../icons";
 
 // =========================================================================================================
 // Render Function
@@ -27,7 +28,7 @@ export async function renderUsers(): Promise<void> {
     <div class="view-header">
       <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
-          <h1>👥 Usuarios</h1>
+          <h1>${Icons.users(20)} Usuarios</h1>
           <p>Gestiona los usuarios registrados y sus personas del overlay.</p>
         </div>
         <span id="user-count" class="badge badge-active">${AppState.users.length} usuario${AppState.users.length !== 1 ? "s" : ""}</span>
@@ -37,7 +38,7 @@ export async function renderUsers(): Promise<void> {
     <div class="card" style="padding:0; overflow:hidden;">
       ${AppState.users.length === 0
         ? `<div class="empty-state">
-             <span class="empty-state-icon">👤</span>
+             <span class="empty-state-icon">${Icons.person(48)}</span>
              <h3>Sin usuarios registrados</h3>
              <p>Los usuarios se registran usando el bot de Discord con /persona upload-open y /persona set-username.</p>
            </div>`
@@ -71,8 +72,8 @@ function userRow(user: User): string {
 
   const avatarEl = user.persona
     ? `<img class="avatar-img" ${imgSrc} alt="${user.display_name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-       <div class="avatar-placeholder" style="display:none;">👤</div>`
-    : `<div class="avatar-placeholder">👤</div>`;
+       <div class="avatar-placeholder" style="display:none;">${Icons.person(16)}</div>`
+    : `<div class="avatar-placeholder">${Icons.person(16)}</div>`;
 
   return `
     <tr data-user-id="${user.id}">
@@ -96,7 +97,7 @@ function userRow(user: User): string {
           : `<span class="text-muted" style="font-size:12px;">—</span>`}
       </td>
       <td>
-        <span class="text-mono" style="font-size:12px; color:var(--color-text-muted);">${escHtml(user.voice_id)}</span>
+        <span class="text-mono" style="font-size:12px; color:var(--color-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; display:block;" title="${escHtml(AppState.voices.find(v => v.id === user.voice_id)?.name ?? user.voice_id)}">${escHtml(AppState.voices.find(v => v.id === user.voice_id)?.name ?? user.voice_id)}</span>
       </td>
       <td>
         <span class="badge ${user.is_active ? "badge-active" : "badge-inactive"}">
@@ -104,12 +105,12 @@ function userRow(user: User): string {
         </span>
       </td>
       <td class="actions">
-        <button class="btn btn-secondary btn-sm btn-edit" data-id="${user.id}" title="Editar">✎</button>
-        <button class="btn btn-outline btn-sm btn-preview-user" data-id="${user.id}" title="Preview en overlay">▶</button>
-        <button class="btn btn-secondary btn-sm btn-toggle" data-id="${user.id}" title="${user.is_active ? "Desactivar" : "Activar"}">
-          ${user.is_active ? "⏸" : "▶"}
-        </button>
-        <button class="btn btn-danger btn-sm btn-delete" data-id="${user.id}" title="Eliminar">✕</button>
+        <div class="actions-cell">
+          <button class="btn btn-secondary btn-icon btn-edit" data-id="${user.id}" title="Editar">${Icons.pencil()}</button>
+          <button class="btn btn-outline btn-icon btn-preview-user" data-id="${user.id}" title="Preview en overlay">${Icons.play()}</button>
+          <button class="btn btn-secondary btn-icon btn-toggle" data-id="${user.id}" title="${user.is_active ? "Desactivar" : "Activar"}">${user.is_active ? Icons.pause() : Icons.play()}</button>
+          <button class="btn btn-danger btn-icon btn-delete" data-id="${user.id}" title="Eliminar">${Icons.trash()}</button>
+        </div>
       </td>
     </tr>
   `;

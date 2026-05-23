@@ -11,6 +11,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { AppState, showToast } from "../state";
 import { createColorPicker } from "../components/color-picker";
+import { Icons } from "../icons";
 
 // =========================================================================================================
 // Render Function
@@ -23,7 +24,7 @@ export async function renderConfig(): Promise<void> {
   const container = document.getElementById("view-container")!;
   container.innerHTML = `
     <div class="view-header">
-      <h1>⚙ Configuración</h1>
+      <h1>${Icons.settings(20)} Configuración</h1>
       <p>Configura los tokens, canales y opciones del overlay.</p>
     </div>
 
@@ -64,7 +65,7 @@ export async function renderConfig(): Promise<void> {
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <span style="font-size: 1.1rem; font-weight: 500;">📺 Twitch</span>
+            <span style="font-size: 1.1rem; font-weight: 500; display:flex; align-items:center; gap:6px;">${Icons.twitch(18)} Twitch</span>
             <span class="badge ${cfg.twitch_channel ? "badge-ok" : "badge-warn"}">${cfg.twitch_channel ? "Configurado" : "Pendiente"}</span>
           </div>
           <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 8px;">Eventos, filtros y mapeos de recompensas</p>
@@ -72,7 +73,7 @@ export async function renderConfig(): Promise<void> {
         </div>
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <span style="font-size: 1.1rem; font-weight: 500;">🎵 TikTok</span>
+            <span style="font-size: 1.1rem; font-weight: 500; display:flex; align-items:center; gap:6px;">${Icons.tiktok(18)} TikTok</span>
             <span class="badge ${cfg.tiktok_username ? "badge-ok" : "badge-warn"}">${cfg.tiktok_username ? "Configurado" : "Pendiente"}</span>
           </div>
           <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 8px;">Eventos en directo y filtros de chat</p>
