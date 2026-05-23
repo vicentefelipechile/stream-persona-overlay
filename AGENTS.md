@@ -215,7 +215,7 @@ stream-persona-overlay/
 |       +-- commands/
 |           +-- mod.rs
 |           +-- users.rs          # get_users, get_user, update_user_cmd, delete_user_cmd, toggle_user_active_cmd, get_recent_logs_cmd
-|           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config
+|           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config, disconnect_twitch, disconnect_tiktok
 |           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
 |
 +-- index.html                    # Admin panel HTML
@@ -273,7 +273,9 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `twitch_eventsub_enabled` | `"false"` | Enable EventSub WebSocket client on connect |
 | `twitch_chat_min_length` | `"0"` | Minimum chat message length (chars) |
 | `twitch_chat_max_length` | `"500"` | Maximum chat message length (chars) |
-| `twitch_chat_ignore_commands` | `"false"` | Ignore messages starting with `!` |
+| `twitch_chat_ignore_commands` | `"true"` | Ignore messages starting with `!` |
+| `twitch_chat_ignore_users` | `"[]"` | JSON array of Twitch usernames to silently ignore |
+| `twitch_chat_allowed_badges` | `"[]"` | JSON array of badge IDs to allowlist (empty = all badges allowed) |
 | `twitch_chat_followers_only` | `"false"` | Only process followers |
 | `twitch_chat_subs_only` | `"false"` | Only process subscribers |
 | `twitch_event_cheer_enabled` | `"true"` | Enable cheer (bits) events |
@@ -281,27 +283,45 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `twitch_event_sub_enabled` | `"true"` | Enable subscription events |
 | `twitch_event_raid_enabled` | `"true"` | Enable raid events |
 | `twitch_event_follow_enabled` | `"true"` | Enable follow events |
+| `twitch_event_redemption_enabled` | `"true"` | Enable channel point redemption events |
+| `twitch_redemption_action_map` | `"{}"` | JSON map of redemption ID → tama action ID |
 | `twitch_event_hype_train_enabled` | `"true"` | Enable hype train events |
 | `twitch_event_stream_status_enabled` | `"true"` | Enable online/offline events |
-| `twitch_tts_event_announcements` | `"false"` | Announce events via TTS |
+| `twitch_tts_event_announcements` | `"true"` | Announce events via TTS |
 | `tiktok_username` | `""` | TikTok LIVE username |
 | `tiktok_api_key` | `""` | TikTool API key |
 | `tiktok_ws_endpoint` | `"wss://ws.eulerstream.com"` | TikTool WebSocket endpoint |
 | `tiktok_chat_min_length` | `"0"` | Minimum chat message length |
 | `tiktok_chat_max_length` | `"300"` | Maximum chat message length |
+| `tiktok_chat_ignore_users` | `"[]"` | JSON array of TikTok usernames to silently ignore |
 | `tiktok_event_gift_enabled` | `"true"` | Enable gift events |
 | `tiktok_event_gift_min_coins` | `"10"` | Minimum diamond value to trigger gift |
 | `tiktok_event_gift_big_coins` | `"100"` | Diamond threshold for "big gift" event kind |
+| `tiktok_gift_action_map` | `"{}"` | JSON map of gift name → tama action ID |
 | `tiktok_event_like_enabled` | `"true"` | Enable like events |
-| `tiktok_event_like_throttle_ms` | `"4000"` | Minimum ms between like events per user |
+| `tiktok_event_like_throttle_ms` | `"4000"` | **Legacy** — per-user like throttle (kept for compatibility; superseded by `tiktok_event_like_user_cooldown_ms` in the event cooldown system) |
 | `tiktok_event_follow_enabled` | `"true"` | Enable follow events |
 | `tiktok_event_share_enabled` | `"true"` | Enable share events |
 | `tiktok_event_subscribe_enabled` | `"true"` | Enable subscribe events |
+| `tiktok_event_member_enabled` | `"false"` | Enable member join events |
 | `tiktok_event_envelope_enabled` | `"true"` | Enable red envelope events |
-| `tiktok_tts_event_announcements` | `"false"` | Announce events via TTS |
+| `tiktok_tts_event_announcements` | `"true"` | Announce events via TTS |
 | `discord_bot_token` | `""` | Discord bot token |
 | `discord_guild_id` | `""` | Discord server ID |
 | `discord_channel_id` | `""` | Discord channel ID |
+| `overlay_display_mode` | `"parallel"` | Overlay persona layout mode (`"parallel"` = all visible at once) |
+| **Animation / Overlay display** | | |
+| `animation_in` | `"bounce"` | Persona entry animation |
+| `animation_out` | `"slide-up"` | Persona exit animation |
+| `visible_duration_secs` | `"8"` | Seconds a persona stays on screen before exit animation |
+| `idle_wiggle` | `"true"` | Enable idle wiggle animation |
+| `idle_breathe` | `"false"` | Enable idle breathe animation |
+| `glow_effect` | `"false"` | Enable glow filter on persona |
+| `glow_color` | `"#00c896"` | Glow color (hex) |
+| `outline_effect` | `"true"` | Enable outline filter on persona |
+| `persona_size_px` | `"256"` | Persona sprite display size in pixels |
+| `audio_threshold` | `"20"` | Audio level threshold for mouth open/close detection |
+| `max_visible_personas` | `"4"` | Maximum simultaneous personas on overlay |
 | `tama_enabled` | `"true"` | Enable/disable Tamagotchi pet system |
 | `tama_pet_size_px` | `"80"` | Pet sprite size in pixels |
 | `tama_floor_y` | `"900"` | Y pixel position of the pet floor |
@@ -403,6 +423,9 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `set_config_cmd` | `invoke("set_config_cmd", { key, value })` | Save a single key-value pair |
 | `get_available_voices_cmd` | `invoke<VoiceInfo[]>("get_available_voices_cmd")` | System TTS voices |
 | `set_chroma_color` | `invoke("set_chroma_color", { color })` | Update color and emit `chroma-color-changed` |
+| `save_animation_config` | `invoke("save_animation_config", { animation_in, animation_out, visible_duration_secs, idle_wiggle, idle_breathe, glow_effect, glow_color, outline_effect, persona_size_px, audio_threshold, max_visible_personas })` | Persist all animation fields at once and emit `animation-config-changed` |
+| `disconnect_twitch` | `invoke("disconnect_twitch")` | Abort Twitch IRC + EventSub clients |
+| `disconnect_tiktok` | `invoke("disconnect_tiktok")` | Abort TikTok WS client |
 
 ### Tamagotchi (`commands/tamagotchi.rs`)
 
@@ -420,10 +443,8 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 |---|---|---|
 | `restart_discord_bot` | `invoke("restart_discord_bot")` | Re-spawn the Discord bot |
 | `connect_twitch` | `invoke("connect_twitch", { channel })` | Save channel and reconnect IRC + EventSub clients |
-| `disconnect_twitch` | `invoke("disconnect_twitch")` | Abort Twitch IRC + EventSub clients |
 | `validate_twitch_token` | `invoke<{ username: string, scopes: string[] }>("validate_twitch_token", { token })` | Validates OAuth token against Twitch API. Returns `{ username, scopes }`. Saves `twitch_bot_token`, `twitch_bot_username`, `twitch_client_id`, `twitch_bot_user_id` to DB. |
 | `connect_tiktok` | `invoke("connect_tiktok", { username })` | Save username and reconnect WS |
-| `disconnect_tiktok` | `invoke("disconnect_tiktok")` | Abort TikTok WS client |
 | `toggle_overlay` | `invoke("toggle_overlay")` | Show / hide the overlay window |
 | `send_test_message` | `invoke("send_test_message", { display_name, mouth_open_path, mouth_closed_path })` | Emit a test `chat-message` to spawn a test pet |
 
@@ -439,6 +460,7 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 |---|---|---|---|---|
 | `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (overlay.ts) | Yes |
 | `chat-event` | `ChatEventPayload` | `twitch/eventsub.rs`, `tiktok/mod.rs` | `eventReactions.ts` (overlay.ts) | Yes |
+| `animation-config-changed` | `AppConfig` (full) | `commands/config.rs` (`save_animation_config`) | overlay — reload animation params | No |
 | `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
@@ -752,34 +774,7 @@ Twitch/TikTok chat: message from "myuser"
 
 ---
 
-## 15. Implementation Status
-
-| Feature | Status |
-|---|---|
-| Project setup, SQLite, AppState, logging | Done |
-| Discord bot — `/persona` slash commands | Done |
-| Twitch IRC client — message detection & emit | Done |
-| TikTok LIVE client (TikTool WebSocket) | Done |
-| TTS — read messages with per-user voice + tts-state events | Done |
-| Admin panel — config, users CRUD, logs views | Done |
-| Discord `/admin` commands (streamer role) | Done |
-| `color-picker` component | Done |
-| `ChatPlatform` trait abstraction | Done |
-| Overlay fade-cover (prevents chroma flashbang on window show) | Done |
-| Tamagotchi pet system — persistent chat-user pets walking on overlay floor | Done |
-| Proper process exit when main window closes | Done |
-| OBS Browser Source — axum HTTP+WS server, no chroma key required | Done |
-| Dedicated `/twitch` view — connection, chat filters, events, EventSub toggle | Done |
-| Dedicated `/tiktok` view — connection, chat filters, events | Done |
-| TikTok expanded events — gift, like, follow, share, subscribe, envelope | Done |
-| Twitch EventSub client — WS + Helix subscription registration | Done |
-| Overlay event reactions — `chat-event` → pet actions (ConfettiAction, HypeTrainAction) | Done |
-| Anti-spam / rate-limiting — per-user cooldown, dedup, rate window, global cap, event cooldowns (Twitch + TikTok) | Done |
-| Dropped-message audit log — `dropped_reason` column in `message_log`, badge in logs view, Mostrados/Bloqueados filters | Done |
-
----
-
-## 16. Tamagotchi Pet System
+## 15. Tamagotchi Pet System
 
 Persistent chat-user pets that walk along the bottom of the overlay window. Each registered viewer who sends a chat message spawns a small pet (their persona images). Pets idle-walk across the floor, react to chat events, execute random or admin-triggered actions, sleep after inactivity, and eventually despawn.
 
@@ -925,7 +920,7 @@ Without this, subsequent action animations start from a polluted inline transfor
 
 ---
 
-## 17. OBS Browser Source
+## 16. OBS Browser Source
 
 An alternative to the chroma-key Window Capture workflow. The streamer adds `http://localhost:6767/overlay` as a **Browser Source** in OBS — the background is natively transparent, no chroma key or filters needed.
 
@@ -1013,13 +1008,7 @@ No build step is required in dev — the server adapts automatically based on `c
 2. Immediately after, broadcast: `state.broadcast_ws("my-event", &payload)`
 3. In `overlay-browser.ts` or wherever needed: `wsListen("my-event", handler)`
 
----
-
-*Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views*
-
----
-
-## 18. Focus Animation (chat-message response)
+## 17. Focus Animation (chat-message response)
 
 When a user sends a chat message and TTS is enabled, the pet executes a "focus" cycle:
 
@@ -1041,3 +1030,9 @@ If `tts-state { speaking: false }` arrives before the pet finishes walking to ce
 ### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
 
 `PetManager` reads this config at `init()`. When set, `_onChatMessage` calls `pet.executeAction("jump")` instead of `pet.onChatMessage()`. The pet jumps in place — no approach, no center movement. The `jumpOnSpeak` flag is stored as a static property on `PetManager`; changes take effect only after the overlay reloads.
+
+---
+
+*Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views; corrected config-key table (defaults, missing keys: overlay_display_mode, animation group, twitch_chat_ignore_users/allowed_badges/redemption, tiktok_chat_ignore_users/member/gift_action_map); moved disconnect_twitch/disconnect_tiktok to commands/config.rs in directory map and API reference; added animation-config-changed event to §8*
+
+---
