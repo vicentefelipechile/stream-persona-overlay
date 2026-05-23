@@ -552,6 +552,70 @@ Do **not** use emoji or Unicode symbol characters (⚙ 👤 📋 ▶ ✕ etc.) i
 
 ---
 
+### Slider inputs for millisecond/numeric config
+
+Use `sRow()` (defined locally inside each render function) instead of `<input type="number">` for ms/numeric config values. The pattern:
+
+```typescript
+const msLabel = (ms: number) => ms === 0 ? "Desactivado" : `${ms / 1000}s`;
+const sRow = (id, value, min, max, step, label, fmt) =>
+  `<div class="form-group" style="gap:4px;">
+     <div style="display:flex;justify-content:space-between;align-items:center;">
+       <label style="margin:0;">${label}</label>
+       <span id="${id}-val" ...>${fmt(value)}</span>
+     </div>
+     <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}" style="width:100%;margin-top:4px;"/>
+   </div>`;
+```
+
+After rendering, call `syncSlider(id, fmt)` for every slider to set the initial fill. On every `input` event, call `syncSlider` to update label + fill. `syncSlider` sets `--slider-fill` as a CSS custom property on the element — `forms.css` reads it via a `linear-gradient` background to colour the track left of the thumb.
+
+```typescript
+function syncSlider(id: string, fmt: (v: number) => string) {
+  const el = document.getElementById(id) as HTMLInputElement;
+  const lbl = document.getElementById(`${id}-val`);
+  if (!el) return;
+  if (lbl) lbl.textContent = fmt(Number(el.value));
+  const pct = ((Number(el.value) - Number(el.min)) / (Number(el.max) - Number(el.min))) * 100;
+  el.style.setProperty("--slider-fill", `${pct}%`);
+}
+```
+
+---
+
+### `<details>` / `<summary>` toggle button
+
+Use `<summary class="details-toggle">` for all collapsible "Avanzado" sections. Never use inline styles on `<summary>`. The `.details-toggle` class (defined in `buttons.css`) renders it as a secondary button with a rotating triangle indicator.
+
+---
+
+### Connecting to Twitch — async result via events
+
+`invoke("connect_twitch", { channel })` returns immediately (`Ok(())`). The actual IRC connection result arrives as a Tauri event. After invoking, race three promises with a 10 s timeout:
+
+```typescript
+import { once } from "@tauri-apps/api/event";
+
+const timeout   = new Promise<never>((_, reject) =>
+  setTimeout(() => reject(new Error("Tiempo de espera agotado")), 10000)
+);
+const connected = new Promise<void>(resolve => once("twitch-connected", () => resolve()));
+const error     = new Promise<never>((_, reject) =>
+  once<string>("twitch-error", e => reject(new Error(e.payload)))
+);
+await Promise.race([connected, error, timeout]);
+```
+
+Disable the connect button and show "Conectando…" while waiting; re-enable in `finally`. Do NOT show a success toast in the frontend — the global `main.ts` listener already does it when `twitch-connected` fires.
+
+---
+
+### Section titles (`.section-title`)
+
+`.section-title` renders at **20 px / bold / `var(--color-text)`**. Do not revert to uppercase + muted color — that pattern was removed for readability.
+
+---
+
 ### ViewRouter
 
 The router in `router.ts` is manual, hash-based (`#/config`, `#/users`, etc.).
@@ -1034,6 +1098,6 @@ If `tts-state { speaking: false }` arrives before the pet finishes walking to ce
 
 ---
 
-*Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views; corrected config-key table (defaults, missing keys: overlay_display_mode, animation group, twitch_chat_ignore_users/allowed_badges/redemption, tiktok_chat_ignore_users/member/gift_action_map); moved disconnect_twitch/disconnect_tiktok to commands/config.rs in directory map and API reference; added animation-config-changed event to §8*
+*Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views; corrected config-key table; moved disconnect_twitch/disconnect_tiktok to commands/config.rs; added animation-config-changed event to §8. UX pass: slider inputs for all ms/numeric advanced config (sRow + syncSlider + --slider-fill pattern), .details-toggle class for summary elements, section-title now 20px/bold/full-color, Twitch connect uses Promise.race with once() + 10s timeout, channel input auto-lowercases, duplicate connect toast removed from frontend, Access Token label + twitchapps.com/tmi link, TikTok API Key optional note + eulerstream.com link, required OAuth scopes shown as chips inline.*
 
 ---
