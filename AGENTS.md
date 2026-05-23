@@ -83,6 +83,7 @@ TAURI PROCESS (Rust — single binary)
 |
 +-- AppState --- Arc<Mutex<Connection>>              (SQLite — std::sync::Mutex)
              --- Arc<RwLock<AppConfig>>              (in-memory cache — std::sync::RwLock)
+             --- Arc<Mutex<ChatFilters>>             (anti-spam rate-limiter — std::sync::Mutex)
              --- broadcast::Sender<String> (ws_tx)   (fan-out to all WS clients)
 
 Tauri Events    --> WebView "main"      (Admin panel — index.html)
@@ -190,11 +191,13 @@ stream-persona-overlay/
 |       +-- chat_platform.rs      # ChatPlatform trait abstraction for providers
 |       +-- server/
 |       |   +-- mod.rs            # axum HTTP+WS server on port 6767 (OBS Browser Source)
+|       +-- chat_filters/
+|       |   +-- mod.rs            # ChatFilters — per-user cooldown, dedup, rate window, global cap, event cooldowns
 |       +-- db/
 |       |   +-- mod.rs
 |       |   +-- migrations.rs     # run_migrations() — creates tables and inserts defaults
 |       |   +-- users.rs          # Full CRUD for users + personas + logs
-|       |   +-- config.rs         # get_config() / set_config_value()
+|       |   +-- config.rs         # get_config() / set_config_value() / log_message_dropped()
 |       +-- discord/
 |       |   +-- mod.rs            # spawn_discord_bot() — reads token, starts poise::Framework
 |       |   +-- commands/
@@ -246,9 +249,11 @@ PRAGMA foreign_keys=ON;     -- Enforces FK constraints (ON DELETE CASCADE on per
 users        -- discord_id (UNIQUE), display_name, twitch_username, tiktok_username, voice_id, is_active
 personas     -- user_id (UNIQUE FK), mouth_open_path, mouth_closed_path
 config       -- key TEXT PRIMARY KEY, value TEXT  (key-value store)
-message_log  -- platform, username, message, user_id (nullable FK), shown, event_kind (DEFAULT 'chat'), amount (nullable)
+message_log  -- platform, username, message, user_id (nullable FK), shown, event_kind (DEFAULT 'chat'), amount (nullable), dropped_reason (nullable TEXT)
 pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x, is_sleeping
 ```
+
+> **`message_log.dropped_reason`**: When a chat message is filtered by the anti-spam system, `log_message_dropped()` inserts a row with `dropped_reason` set to one of `"cooldown"`, `"duplicate"`, `"rate_window"`, or `"global_rate"`. Allowed messages use the standard `log_message()` function and have `dropped_reason = NULL`. The logs view displays dropped messages with a badge and reduced opacity.
 
 > **`personas.user_id` is UNIQUE** — there is exactly one persona per user. Uploading a new image must use an **upsert** (`INSERT OR REPLACE` / `ON CONFLICT DO UPDATE`), not a plain `INSERT`. A duplicate insert will raise a constraint violation.
 
@@ -307,6 +312,35 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_action_probability` | `"0.15"` | Probability per interval of triggering a random action |
 | `tama_enabled_actions` | `'["jump","popcorn","dance","fight","explode"]'` | JSON array of action IDs in the random pool |
 | `tama_jump_on_speak` | `"false"` | When `"true"`, pets execute a `jump` action in place when their owner sends a chat message instead of walking to the center |
+| **Anti-spam — Twitch chat** | | |
+| `twitch_chat_antispam_preset` | `"off"` | Named preset: `off`, `light`, `normal`, `strict`, `lockdown`, `custom` |
+| `twitch_chat_user_cooldown_ms` | `"0"` | Min ms between two messages from the same Twitch user (0 = disabled) |
+| `twitch_chat_dedup_window_ms` | `"0"` | Suppress exact duplicate messages within this window in ms (0 = disabled) |
+| `twitch_chat_rate_max_msgs` | `"0"` | Max messages per user within the rate window (0 = disabled) |
+| `twitch_chat_rate_window_secs` | `"10"` | Sliding window size in seconds for per-user Twitch rate limit |
+| **Anti-spam — TikTok chat** | | |
+| `tiktok_chat_antispam_preset` | `"off"` | Named preset: same options as Twitch |
+| `tiktok_chat_user_cooldown_ms` | `"0"` | Min ms between two messages from the same TikTok user |
+| `tiktok_chat_dedup_window_ms` | `"0"` | Duplicate suppression window in ms |
+| `tiktok_chat_rate_max_msgs` | `"0"` | Max messages per user within the rate window |
+| `tiktok_chat_rate_window_secs` | `"10"` | Sliding window size in seconds for per-user TikTok rate limit |
+| **Anti-spam — Global throughput** | | |
+| `chat_global_throughput_preset` | `"off"` | Named preset controlling global cap |
+| `chat_global_rate_max_per_sec` | `"0"` | Max total chat messages per second across all platforms (0 = disabled) |
+| **Event cooldowns — Twitch** | | |
+| `twitch_event_cooldown_preset` | `"off"` | Named preset for Twitch event cooldowns |
+| `twitch_event_cheer_user_cooldown_ms` | `"0"` | Min ms between cheer events from the same user |
+| `twitch_event_sub_user_cooldown_ms` | `"0"` | Min ms between sub events from the same user |
+| `twitch_event_raid_global_cooldown_ms` | `"0"` | Global cooldown between any two raid events (keyed on `""` not user) |
+| `twitch_event_follow_user_cooldown_ms` | `"0"` | Min ms between follow events from the same user |
+| **Event cooldowns — TikTok** | | |
+| `tiktok_event_cooldown_preset` | `"off"` | Named preset for TikTok event cooldowns |
+| `tiktok_event_gift_user_cooldown_ms` | `"0"` | Min ms between gift events from the same user |
+| `tiktok_event_like_user_cooldown_ms` | `"0"` | Min ms between like events from the same user |
+| `tiktok_event_follow_user_cooldown_ms` | `"0"` | Min ms between follow events from the same user |
+| `tiktok_event_share_user_cooldown_ms` | `"0"` | Min ms between share events from the same user |
+| `tiktok_event_subscribe_user_cooldown_ms` | `"0"` | Min ms between subscribe events from the same user |
+| `tiktok_event_envelope_user_cooldown_ms` | `"0"` | Min ms between envelope events from the same user |
 
 > **Important:** The bot token and API keys are stored in the local SQLite `config` table. Never hardcode them in source code or plain-text files.
 >
@@ -331,6 +365,7 @@ pub struct AppState {
     pub tiktok_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub ws_tx: broadcast::Sender<String>,                   // tokio broadcast — fan-out to WS clients
     pub server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    pub chat_filters: Arc<Mutex<ChatFilters>>,              // std::sync::Mutex — anti-spam state
 }
 ```
 
@@ -338,6 +373,7 @@ pub struct AppState {
 - **`db` uses `std::sync::Mutex`** (not `tokio::sync::Mutex` and not `RwLock`). Lock with `state.db.lock().map_err(map_err)?`. Do not `.await` it — it is synchronous.
 - **Do not create additional connections.** All DB access goes through this single `Arc<Mutex<Connection>>`.
 - **`config_cache` uses `std::sync::RwLock`** — this is intentional so it can be written in `setup()` before the Tokio runtime starts. Use `.read().map_err(...)` / `.write().map_err(...)`.
+- **`chat_filters` uses `std::sync::Mutex`** — holds `ChatFilters` (per-user cooldown, dedup, rate window, global cap, event cooldowns). Lock order is always: `config_cache` read lock → `chat_filters` mutex. **Never reverse this order** to avoid deadlock. Accept `&AppConfig` in `check_chat` / `check_event` so the config lock is already held before acquiring `chat_filters`.
 - **`ws_tx`** is a `tokio::sync::broadcast::Sender<String>`. Call `state.broadcast_ws(event, &payload)` every time you call `app.emit(event, &payload)` so the OBS Browser Source receives the same data. It's safe to ignore if there are no receivers.
 - Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, `abort_twitch_eventsub()`, `abort_tiktok()`, `abort_server()`, `abort_all()`.
 - Always update `config_cache` after every `set_config_value` call. The `set_config_cmd` command does this for individual keys.
@@ -531,6 +567,14 @@ await AppState.setConfig(key, value); // Save and reload cache
 ---
 
 ## 10. Rust Modules — Responsibilities
+
+### `chat_filters/`
+
+- `ChatFilters` is a plain `struct` with `#[derive(Default)]` — no async, no `Arc` inside.
+- **`check_chat(platform, user, text, cfg)`** applies four filters in order: global throughput cap → per-user cooldown → duplicate suppression (case-insensitive, whitespace-normalised) → sliding-window rate limit. Returns `FilterDecision::Allow` or `FilterDecision::Drop(DropReason)`.
+- **`check_event(platform, user, event_kind, cfg)`** applies a per-event cooldown keyed on `(platform, user, event_kind)`. Raids use `""` as user to share a single global cooldown slot.
+- **Call site pattern**: read `config_cache` first, then lock `chat_filters`, call `check_*`, release both. If `Drop(reason)` → call `log_message_dropped()` and skip emit. If `Allow` → proceed with DB lookup and emit.
+- All timekeeping uses `std::time::Instant` — no allocations, no OS timer overhead.
 
 ### `discord/`
 
@@ -730,6 +774,8 @@ Twitch/TikTok chat: message from "myuser"
 | TikTok expanded events — gift, like, follow, share, subscribe, envelope | Done |
 | Twitch EventSub client — WS + Helix subscription registration | Done |
 | Overlay event reactions — `chat-event` → pet actions (ConfettiAction, HypeTrainAction) | Done |
+| Anti-spam / rate-limiting — per-user cooldown, dedup, rate window, global cap, event cooldowns (Twitch + TikTok) | Done |
+| Dropped-message audit log — `dropped_reason` column in `message_log`, badge in logs view, Mostrados/Bloqueados filters | Done |
 
 ---
 
@@ -969,7 +1015,7 @@ No build step is required in dev — the server adapts automatically based on `c
 
 ---
 
-*Updated 2026-05-22 — Stream Persona Overlay v0.1 — added dedicated Twitch/TikTok views, EventSub, expanded TikTok events, overlay event reactions*
+*Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views*
 
 ---
 
