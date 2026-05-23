@@ -18,6 +18,8 @@ import "../overlay/tamagotchi/actions/FightAction";
 import "../overlay/tamagotchi/actions/ExplodeAction";
 import "../overlay/tamagotchi/actions/DanceAction";
 import "../overlay/tamagotchi/actions/SleepAction";
+import "../overlay/tamagotchi/actions/ConfettiAction";
+import "../overlay/tamagotchi/actions/HypeTrainAction";
 
 // =========================================================================================================
 // Types

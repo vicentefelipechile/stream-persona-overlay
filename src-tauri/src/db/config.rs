@@ -20,6 +20,8 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "twitch_channel"        => cfg.twitch_channel         = value,
             "twitch_bot_username"   => cfg.twitch_bot_username    = value,
             "twitch_bot_token"      => cfg.twitch_bot_token       = value,
+            "twitch_client_id"      => cfg.twitch_client_id       = value,
+            "twitch_bot_user_id"    => cfg.twitch_bot_user_id     = value,
             "tiktok_username"       => cfg.tiktok_username        = value,
             "discord_bot_token"     => cfg.discord_bot_token      = value,
             "discord_guild_id"      => cfg.discord_guild_id       = value,
@@ -48,6 +50,43 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_action_probability" => cfg.tama_action_probability = value.parse().unwrap_or(0.15),
             "tama_enabled_actions"    => cfg.tama_enabled_actions   = value,
             "tama_jump_on_speak"      => cfg.tama_jump_on_speak     = value == "true",
+            // ── Twitch config ─────────────────────────────────────────────────
+            "twitch_eventsub_enabled"       => cfg.twitch_eventsub_enabled = value == "true",
+            "twitch_chat_min_length"        => cfg.twitch_chat_min_length = value.parse().unwrap_or(0),
+            "twitch_chat_max_length"        => cfg.twitch_chat_max_length = value.parse().unwrap_or(500),
+            "twitch_chat_ignore_commands"   => cfg.twitch_chat_ignore_commands = value == "true",
+            "twitch_chat_ignore_users"      => cfg.twitch_chat_ignore_users = value,
+            "twitch_chat_followers_only"    => cfg.twitch_chat_followers_only = value == "true",
+            "twitch_chat_subs_only"         => cfg.twitch_chat_subs_only = value == "true",
+            "twitch_chat_allowed_badges"    => cfg.twitch_chat_allowed_badges = value,
+            "twitch_event_cheer_enabled"    => cfg.twitch_event_cheer_enabled = value == "true",
+            "twitch_event_cheer_min_bits"   => cfg.twitch_event_cheer_min_bits = value.parse().unwrap_or(100),
+            "twitch_event_sub_enabled"      => cfg.twitch_event_sub_enabled = value == "true",
+            "twitch_event_raid_enabled"     => cfg.twitch_event_raid_enabled = value == "true",
+            "twitch_event_follow_enabled"   => cfg.twitch_event_follow_enabled = value == "true",
+            "twitch_event_redemption_enabled" => cfg.twitch_event_redemption_enabled = value == "true",
+            "twitch_redemption_action_map"  => cfg.twitch_redemption_action_map = value,
+            "twitch_event_hype_train_enabled" => cfg.twitch_event_hype_train_enabled = value == "true",
+            "twitch_event_stream_status_enabled" => cfg.twitch_event_stream_status_enabled = value == "true",
+            "twitch_tts_event_announcements" => cfg.twitch_tts_event_announcements = value == "true",
+            // ── TikTok config ─────────────────────────────────────────────────
+            "tiktok_api_key"                => cfg.tiktok_api_key = value,
+            "tiktok_ws_endpoint"            => cfg.tiktok_ws_endpoint = value,
+            "tiktok_chat_min_length"        => cfg.tiktok_chat_min_length = value.parse().unwrap_or(0),
+            "tiktok_chat_max_length"        => cfg.tiktok_chat_max_length = value.parse().unwrap_or(300),
+            "tiktok_chat_ignore_users"      => cfg.tiktok_chat_ignore_users = value,
+            "tiktok_event_gift_enabled"     => cfg.tiktok_event_gift_enabled = value == "true",
+            "tiktok_event_gift_min_coins"   => cfg.tiktok_event_gift_min_coins = value.parse().unwrap_or(10),
+            "tiktok_event_gift_big_coins"   => cfg.tiktok_event_gift_big_coins = value.parse().unwrap_or(100),
+            "tiktok_event_like_enabled"     => cfg.tiktok_event_like_enabled = value == "true",
+            "tiktok_event_like_throttle_ms" => cfg.tiktok_event_like_throttle_ms = value.parse().unwrap_or(4000),
+            "tiktok_event_follow_enabled"   => cfg.tiktok_event_follow_enabled = value == "true",
+            "tiktok_event_share_enabled"    => cfg.tiktok_event_share_enabled = value == "true",
+            "tiktok_event_subscribe_enabled" => cfg.tiktok_event_subscribe_enabled = value == "true",
+            "tiktok_event_member_enabled"   => cfg.tiktok_event_member_enabled = value == "true",
+            "tiktok_event_envelope_enabled" => cfg.tiktok_event_envelope_enabled = value == "true",
+            "tiktok_gift_action_map"        => cfg.tiktok_gift_action_map = value,
+            "tiktok_tts_event_announcements" => cfg.tiktok_tts_event_announcements = value == "true",
             _ => {}
         }
     }
@@ -83,17 +122,30 @@ pub fn log_message(
     message: &str,
     user_id: Option<i64>,
 ) -> Result<()> {
+    log_message_with_event(conn, platform, username, message, user_id, "chat", None)
+}
+
+/// Log con event_kind y amount
+pub fn log_message_with_event(
+    conn: &Connection,
+    platform: &str,
+    username: &str,
+    message: &str,
+    user_id: Option<i64>,
+    event_kind: &str,
+    amount: Option<i64>,
+) -> Result<()> {
     conn.execute(
-        "INSERT INTO message_log (platform, username, message, user_id)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![platform, username, message, user_id],
+        "INSERT INTO message_log (platform, username, message, user_id, event_kind, amount)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![platform, username, message, user_id, event_kind, amount],
     )?;
     Ok(())
 }
 
 pub fn get_recent_logs(conn: &Connection, limit: u32) -> Result<Vec<serde_json::Value>> {
     let mut stmt = conn.prepare(
-        "SELECT id, platform, username, message, user_id, shown, created_at
+        "SELECT id, platform, username, message, user_id, shown, event_kind, amount, created_at
          FROM message_log
          ORDER BY created_at DESC
          LIMIT ?1",
@@ -106,7 +158,9 @@ pub fn get_recent_logs(conn: &Connection, limit: u32) -> Result<Vec<serde_json::
             "message": row.get::<_, String>(3)?,
             "user_id": row.get::<_, Option<i64>>(4)?,
             "shown": row.get::<_, i64>(5)? != 0,
-            "created_at": row.get::<_, String>(6)?,
+            "event_kind": row.get::<_, String>(6)?,
+            "amount": row.get::<_, Option<i64>>(7)?,
+            "created_at": row.get::<_, String>(8)?,
         }))
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())

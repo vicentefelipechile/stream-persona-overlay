@@ -12,12 +12,14 @@ import { renderConfig } from "./views/config";
 import { renderUsers } from "./views/users";
 import { renderLogs } from "./views/logs";
 import { renderTamagotchi } from "./views/tamagotchi";
+import { renderTwitch } from "./views/twitch";
+import { renderTiktok } from "./views/tiktok";
 
 // =========================================================================================================
 // Types & Configuration
 // =========================================================================================================
 
-export type ViewId = "config" | "users" | "logs" | "tamagotchi";
+export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok";
 
 type ViewRenderer = () => Promise<void>;
 
@@ -26,6 +28,8 @@ const routes: Record<ViewId, ViewRenderer> = {
   users:      renderUsers,
   logs:       renderLogs,
   tamagotchi: renderTamagotchi,
+  twitch:     renderTwitch,
+  tiktok:     renderTiktok,
 };
 
 // =========================================================================================================
@@ -54,6 +58,12 @@ class ViewRouter {
     const hash = window.location.hash.replace("#/", "") as ViewId;
     const initialView = hash in routes ? hash : "config";
     this.navigate(initialView);
+
+    // Escuchar cambios de hash (e.g. <a href="#/twitch">)
+    window.addEventListener("hashchange", () => {
+      const view = window.location.hash.replace("#/", "") as ViewId;
+      if (view in routes && view !== this.current) this.navigate(view);
+    });
   }
 
   async navigate(view: ViewId): Promise<void> {

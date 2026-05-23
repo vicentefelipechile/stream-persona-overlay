@@ -28,6 +28,8 @@ pub struct AppState {
     pub discord_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Handle de la tarea del cliente de Twitch.
     pub twitch_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    /// Handle de la tarea del cliente de Twitch EventSub.
+    pub twitch_eventsub_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Handle de la tarea del cliente de TikTok.
     pub tiktok_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Broadcast channel sender for the OBS Browser Source WebSocket.
@@ -47,6 +49,7 @@ impl AppState {
             app_data_dir: Arc::new(app_data_dir),
             discord_handle: Arc::new(Mutex::new(None)),
             twitch_handle: Arc::new(Mutex::new(None)),
+            twitch_eventsub_handle: Arc::new(Mutex::new(None)),
             tiktok_handle: Arc::new(Mutex::new(None)),
             ws_tx,
             server_handle: Arc::new(Mutex::new(None)),
@@ -84,6 +87,16 @@ impl AppState {
         }
     }
 
+    /// Aborta la tarea del cliente de Twitch EventSub si está corriendo.
+    pub fn abort_twitch_eventsub(&self) {
+        if let Ok(mut guard) = self.twitch_eventsub_handle.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+                tracing::info!("Tarea de Twitch EventSub abortada");
+            }
+        }
+    }
+
     /// Aborta la tarea del cliente de TikTok si está corriendo.
     pub fn abort_tiktok(&self) {
         if let Ok(mut guard) = self.tiktok_handle.lock() {
@@ -108,6 +121,7 @@ impl AppState {
     pub fn abort_all(&self) {
         self.abort_discord();
         self.abort_twitch();
+        self.abort_twitch_eventsub();
         self.abort_tiktok();
         self.abort_server();
     }
@@ -125,6 +139,8 @@ pub struct AppConfig {
     pub twitch_channel: String,
     pub twitch_bot_username: String,
     pub twitch_bot_token: String,
+    pub twitch_client_id: String,
+    pub twitch_bot_user_id: String,
     pub tiktok_username: String,
     pub discord_bot_token: String,
     pub discord_guild_id: String,
@@ -154,6 +170,43 @@ pub struct AppConfig {
     pub tama_action_probability: f64,
     pub tama_enabled_actions: String,
     pub tama_jump_on_speak: bool,
+    // ── Twitch config ────────────────────────────────────────────────────────
+    pub twitch_eventsub_enabled: bool,
+    pub twitch_chat_min_length: u32,
+    pub twitch_chat_max_length: u32,
+    pub twitch_chat_ignore_commands: bool,
+    pub twitch_chat_ignore_users: String,
+    pub twitch_chat_followers_only: bool,
+    pub twitch_chat_subs_only: bool,
+    pub twitch_chat_allowed_badges: String,
+    pub twitch_event_cheer_enabled: bool,
+    pub twitch_event_cheer_min_bits: u32,
+    pub twitch_event_sub_enabled: bool,
+    pub twitch_event_raid_enabled: bool,
+    pub twitch_event_follow_enabled: bool,
+    pub twitch_event_redemption_enabled: bool,
+    pub twitch_redemption_action_map: String,
+    pub twitch_event_hype_train_enabled: bool,
+    pub twitch_event_stream_status_enabled: bool,
+    pub twitch_tts_event_announcements: bool,
+    // ── TikTok config ────────────────────────────────────────────────────────
+    pub tiktok_api_key: String,
+    pub tiktok_ws_endpoint: String,
+    pub tiktok_chat_min_length: u32,
+    pub tiktok_chat_max_length: u32,
+    pub tiktok_chat_ignore_users: String,
+    pub tiktok_event_gift_enabled: bool,
+    pub tiktok_event_gift_min_coins: u32,
+    pub tiktok_event_gift_big_coins: u32,
+    pub tiktok_event_like_enabled: bool,
+    pub tiktok_event_like_throttle_ms: u32,
+    pub tiktok_event_follow_enabled: bool,
+    pub tiktok_event_share_enabled: bool,
+    pub tiktok_event_subscribe_enabled: bool,
+    pub tiktok_event_member_enabled: bool,
+    pub tiktok_event_envelope_enabled: bool,
+    pub tiktok_gift_action_map: String,
+    pub tiktok_tts_event_announcements: bool,
 }
 
 // ─── ChatMessagePayload ──────────────────────────────────────────────────────
@@ -178,4 +231,19 @@ pub struct ChatMessagePayload {
 pub struct TtsStatePayload {
     pub user_id: i64,
     pub speaking: bool,
+}
+
+// ─── ChatEventPayload ────────────────────────────────────────────────────────
+
+/// Payload emitido para eventos no-chat (cheer, sub, raid, gift, follow, etc)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChatEventPayload {
+    pub platform: String,
+    pub event_kind: String,
+    pub username: String,
+    pub user_id: Option<i64>,
+    pub display_name: String,
+    pub amount: Option<i64>,
+    pub text: Option<String>,
+    pub extra: serde_json::Value,
 }

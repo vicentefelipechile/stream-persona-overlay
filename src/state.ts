@@ -75,6 +75,17 @@ export interface LogEntry {
   created_at: string;
 }
 
+export interface ChatEventPayload {
+  platform: string;
+  event_kind: string;
+  username: string;
+  user_id: number | null;
+  display_name: string;
+  amount: number | null;
+  text: string | null;
+  extra: Record<string, unknown>;
+}
+
 // =========================================================================================================
 // AppState Singleton
 // =========================================================================================================

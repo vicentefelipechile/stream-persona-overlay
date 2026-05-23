@@ -12,7 +12,7 @@ pub mod tiktok;
 pub mod tts;
 pub mod twitch;
 
-use commands::config::{get_available_voices_cmd, get_config_cmd, save_animation_config, set_chroma_color, set_config_cmd};
+use commands::config::{get_available_voices_cmd, get_config_cmd, save_animation_config, set_chroma_color, set_config_cmd, disconnect_twitch, disconnect_tiktok};
 use commands::control::{connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay, validate_twitch_token};
 use commands::users::{delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd, update_user_cmd};
 use commands::tamagotchi::{tama_get_pet_states, tama_remove_pet_state, tama_set_enabled, tama_trigger_action, tama_upsert_pet_state};
@@ -135,6 +135,8 @@ pub fn run() {
             get_available_voices_cmd,
             set_chroma_color,
             save_animation_config,
+            disconnect_twitch,
+            disconnect_tiktok,
             // Control
             restart_discord_bot,
             connect_twitch,

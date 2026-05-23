@@ -44,26 +44,35 @@ pub async fn connect_twitch(
 
     let inner = state.inner().clone();
     let app_clone = app.clone();
-    // Abortar cliente anterior antes de reconectar
+    // Abortar clientes anteriores antes de reconectar
     inner.abort_twitch();
+    inner.abort_twitch_eventsub();
     let handle = tauri::async_runtime::spawn(async move {
         crate::twitch::spawn_twitch_client(inner, app_clone).await;
     });
     if let Ok(mut h) = state.twitch_handle.lock() { *h = Some(handle); }
 
-    // twitch-connected se emite desde twitch/mod.rs al recibir RoomState
+    let inner2 = state.inner().clone();
+    let app_clone2 = app.clone();
+    let eventsub_handle = tauri::async_runtime::spawn(async move {
+        crate::twitch::eventsub::spawn_twitch_eventsub(inner2, app_clone2).await;
+    });
+    if let Ok(mut h) = state.twitch_eventsub_handle.lock() { *h = Some(eventsub_handle); }
+
     tracing::info!("Iniciando cliente Twitch para canal: {}", channel);
     Ok(())
 }
 
-/// Valida un token OAuth de Twitch contra la API oficial y devuelve el username.
+/// Valida un token OAuth de Twitch contra la API oficial y devuelve el username y scopes.
 /// El token puede incluir o no el prefijo "oauth:" — se normaliza automáticamente.
 /// Guarda `twitch_bot_token` (con prefijo) y `twitch_bot_username` en la DB.
 #[tauri::command]
 pub async fn validate_twitch_token(
     token: String,
     state: State<'_, AppState>,
-) -> CmdResult<String> {
+) -> CmdResult<serde_json::Value> {
+    use serde::Deserialize;
+
     // Normalizar: quitar prefijo si existe, luego volver a agregar
     let raw_token = token.trim().trim_start_matches("oauth:").to_string();
     if raw_token.is_empty() {
@@ -71,9 +80,12 @@ pub async fn validate_twitch_token(
     }
     let bearer = format!("OAuth {}", raw_token);
 
-    #[derive(serde::Deserialize)]
+    #[derive(Deserialize)]
     struct ValidateResponse {
         login: String,
+        user_id: String,
+        client_id: String,
+        scopes: Vec<String>,
     }
 
     let resp = reqwest::Client::new()
@@ -85,23 +97,29 @@ pub async fn validate_twitch_token(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        return Err(format!("Token inválido (HTTP {}). Verificá que el token sea correcto y tenga el scope chat:read.", status));
+        return Err(format!("Token inválido (HTTP {}). Verificá que el token sea correcto y tenga los scopes necesarios.", status));
     }
 
     let data: ValidateResponse = resp.json().await
         .map_err(|e| format!("Respuesta inesperada de Twitch: {}", e))?;
 
     let username = data.login.clone();
+    let scopes = data.scopes.clone();
     let stored_token = format!("oauth:{}", raw_token);
 
     {
         let db = state.db.lock().map_err(map_err)?;
         crate::db::config::set_config_value(&db, "twitch_bot_username", &username).map_err(map_err)?;
         crate::db::config::set_config_value(&db, "twitch_bot_token",    &stored_token).map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_client_id",    &data.client_id).map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_bot_user_id",  &data.user_id).map_err(map_err)?;
     }
 
-    tracing::info!("[twitch] Token validado para @{}", username);
-    Ok(username)
+    tracing::info!("[twitch] Token validado para @{} con scopes: {:?}", username, scopes);
+    Ok(serde_json::json!({
+        "username": username,
+        "scopes": scopes
+    }))
 }
 
 /// Conecta al LIVE de TikTok del username especificado.

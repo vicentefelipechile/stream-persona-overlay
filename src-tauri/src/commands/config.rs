@@ -159,3 +159,20 @@ pub async fn save_animation_config(
     tracing::info!("[config] Configuración de animaciones guardada");
     Ok(())
 }
+
+// ─── Platform Disconnect Commands ───────────────────────────────────────────
+
+#[tauri::command]
+pub async fn disconnect_twitch(state: State<'_, AppState>) -> CmdResult<()> {
+    state.abort_twitch();
+    state.abort_twitch_eventsub();
+    tracing::info!("[twitch] Desconectado");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disconnect_tiktok(state: State<'_, AppState>) -> CmdResult<()> {
+    state.abort_tiktok();
+    tracing::info!("[tiktok] Desconectado");
+    Ok(())
+}

@@ -142,18 +142,21 @@ stream-persona-overlay/
 |   +-- router.ts                 # Manual hash-based ViewRouter
 |   +-- state.ts                  # AppState singleton + TS types + showToast()
 |   +-- views/
-|   |   +-- config.ts             # /config view — global settings (includes OBS Browser Source URL)
+|   |   +-- config.ts             # /config view — global settings + platform shortcut cards
 |   |   +-- users.ts              # /users view — user CRUD
 |   |   +-- logs.ts               # /logs view — message history
 |   |   +-- tamagotchi.ts         # /tamagotchi view — pet admin panel
+|   |   +-- twitch.ts             # /twitch view — Twitch connection, chat filters, events, EventSub
+|   |   +-- tiktok.ts             # /tiktok view — TikTok connection, chat filters, events
 |   |   +-- overlay.ts            # Entry point for overlay.html (NOT a panel view)
 |   |   +-- overlay-browser.ts    # Entry point for overlay-browser.html (OBS Browser Source)
 |   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
 |   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
 |   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
 |   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, PetFloor, BasePet, PetScheduler, PetManager
-|   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, _template
+|   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, ConfettiAction, HypeTrainAction, _template
 |   |       +-- props/            # PropRenderer, PropAssetLoader
+|   |       +-- eventReactions.ts # chat-event listener → maps event_kind to pet action
 |   +-- components/               # Reusable frontend components
 |   |   +-- color-picker.ts       # Chroma color selector component
 |   +-- assets/                   # Static frontend assets
@@ -197,9 +200,10 @@ stream-persona-overlay/
 |       |       +-- admin.rs      # /admin commands (streamer role only): get-user, toggle-active, delete-user
 |       +-- twitch/
 |       |   +-- mod.rs            # spawn_twitch_client() — TwitchIRC, on_message --> emit "chat-message"
+|       |   +-- eventsub.rs       # spawn_twitch_eventsub() — WS to Twitch EventSub, registers subs via Helix, emits "chat-event"
 |       |   +-- handler.rs        # User lookup logic in DB
 |       +-- tiktok/
-|       |   +-- mod.rs            # spawn_tiktok_client() — WS to TikTool, on_chat_event --> emit
+|       |   +-- mod.rs            # spawn_tiktok_client() — WS to TikTool, chat+gift+like+follow+share+subscribe+envelope --> emit "chat-message"/"chat-event"
 |       |   +-- handler.rs        # TikTok event parsing
 |       +-- tts/
 |       |   +-- mod.rs            # TTS wrapper (tts crate)
@@ -257,7 +261,37 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `twitch_channel` | `""` | Twitch channel to listen to |
 | `twitch_bot_username` | `""` | Authenticated Twitch bot username |
 | `twitch_bot_token` | `""` | Twitch OAuth token (format: `oauth:xxx`) |
+| `twitch_client_id` | `""` | Twitch Client-ID (auto-saved by `validate_twitch_token`) |
+| `twitch_bot_user_id` | `""` | Twitch broadcaster user ID (auto-saved by `validate_twitch_token`) |
+| `twitch_eventsub_enabled` | `"false"` | Enable EventSub WebSocket client on connect |
+| `twitch_chat_min_length` | `"0"` | Minimum chat message length (chars) |
+| `twitch_chat_max_length` | `"500"` | Maximum chat message length (chars) |
+| `twitch_chat_ignore_commands` | `"false"` | Ignore messages starting with `!` |
+| `twitch_chat_followers_only` | `"false"` | Only process followers |
+| `twitch_chat_subs_only` | `"false"` | Only process subscribers |
+| `twitch_event_cheer_enabled` | `"true"` | Enable cheer (bits) events |
+| `twitch_event_cheer_min_bits` | `"100"` | Minimum bits to trigger cheer event |
+| `twitch_event_sub_enabled` | `"true"` | Enable subscription events |
+| `twitch_event_raid_enabled` | `"true"` | Enable raid events |
+| `twitch_event_follow_enabled` | `"true"` | Enable follow events |
+| `twitch_event_hype_train_enabled` | `"true"` | Enable hype train events |
+| `twitch_event_stream_status_enabled` | `"true"` | Enable online/offline events |
+| `twitch_tts_event_announcements` | `"false"` | Announce events via TTS |
 | `tiktok_username` | `""` | TikTok LIVE username |
+| `tiktok_api_key` | `""` | TikTool API key |
+| `tiktok_ws_endpoint` | `"wss://ws.eulerstream.com"` | TikTool WebSocket endpoint |
+| `tiktok_chat_min_length` | `"0"` | Minimum chat message length |
+| `tiktok_chat_max_length` | `"300"` | Maximum chat message length |
+| `tiktok_event_gift_enabled` | `"true"` | Enable gift events |
+| `tiktok_event_gift_min_coins` | `"10"` | Minimum diamond value to trigger gift |
+| `tiktok_event_gift_big_coins` | `"100"` | Diamond threshold for "big gift" event kind |
+| `tiktok_event_like_enabled` | `"true"` | Enable like events |
+| `tiktok_event_like_throttle_ms` | `"4000"` | Minimum ms between like events per user |
+| `tiktok_event_follow_enabled` | `"true"` | Enable follow events |
+| `tiktok_event_share_enabled` | `"true"` | Enable share events |
+| `tiktok_event_subscribe_enabled` | `"true"` | Enable subscribe events |
+| `tiktok_event_envelope_enabled` | `"true"` | Enable red envelope events |
+| `tiktok_tts_event_announcements` | `"false"` | Announce events via TTS |
 | `discord_bot_token` | `""` | Discord bot token |
 | `discord_guild_id` | `""` | Discord server ID |
 | `discord_channel_id` | `""` | Discord channel ID |
@@ -286,13 +320,14 @@ Migrations are inline in `db/migrations.rs` via `run_migrations(&conn)`. They us
 
 ```rust
 pub struct AppState {
-    pub db: Arc<Mutex<Connection>>,                    // std::sync::Mutex (NOT tokio::sync::Mutex)
-    pub config_cache: Arc<RwLock<AppConfig>>,          // std::sync::RwLock
+    pub db: Arc<Mutex<Connection>>,                         // std::sync::Mutex (NOT tokio::sync::Mutex)
+    pub config_cache: Arc<RwLock<AppConfig>>,               // std::sync::RwLock
     pub app_data_dir: Arc<PathBuf>,
     pub discord_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub twitch_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    pub twitch_eventsub_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub tiktok_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    pub ws_tx: broadcast::Sender<String>,              // tokio broadcast — fan-out to WS clients
+    pub ws_tx: broadcast::Sender<String>,                   // tokio broadcast — fan-out to WS clients
     pub server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 ```
@@ -302,7 +337,7 @@ pub struct AppState {
 - **Do not create additional connections.** All DB access goes through this single `Arc<Mutex<Connection>>`.
 - **`config_cache` uses `std::sync::RwLock`** — this is intentional so it can be written in `setup()` before the Tokio runtime starts. Use `.read().map_err(...)` / `.write().map_err(...)`.
 - **`ws_tx`** is a `tokio::sync::broadcast::Sender<String>`. Call `state.broadcast_ws(event, &payload)` every time you call `app.emit(event, &payload)` so the OBS Browser Source receives the same data. It's safe to ignore if there are no receivers.
-- Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, `abort_tiktok()`, `abort_server()`, `abort_all()`.
+- Background tasks can be safely aborted via `state.abort_discord()`, `abort_twitch()`, `abort_twitch_eventsub()`, `abort_tiktok()`, `abort_server()`, `abort_all()`.
 - Always update `config_cache` after every `set_config_value` call. The `set_config_cmd` command does this for individual keys.
 
 ---
@@ -346,9 +381,11 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | Command | TS Signature | Description |
 |---|---|---|
 | `restart_discord_bot` | `invoke("restart_discord_bot")` | Re-spawn the Discord bot |
-| `connect_twitch` | `invoke("connect_twitch", { channel })` | Save channel and reconnect IRC client |
-| `validate_twitch_token` | `invoke<string>("validate_twitch_token", { token })` | Validates OAuth token against Twitch API and returns username. Also saves `twitch_bot_token` and `twitch_bot_username` to DB. |
+| `connect_twitch` | `invoke("connect_twitch", { channel })` | Save channel and reconnect IRC + EventSub clients |
+| `disconnect_twitch` | `invoke("disconnect_twitch")` | Abort Twitch IRC + EventSub clients |
+| `validate_twitch_token` | `invoke<{ username: string, scopes: string[] }>("validate_twitch_token", { token })` | Validates OAuth token against Twitch API. Returns `{ username, scopes }`. Saves `twitch_bot_token`, `twitch_bot_username`, `twitch_client_id`, `twitch_bot_user_id` to DB. |
 | `connect_tiktok` | `invoke("connect_tiktok", { username })` | Save username and reconnect WS |
+| `disconnect_tiktok` | `invoke("disconnect_tiktok")` | Abort TikTok WS client |
 | `toggle_overlay` | `invoke("toggle_overlay")` | Show / hide the overlay window |
 | `send_test_message` | `invoke("send_test_message", { display_name, mouth_open_path, mouth_closed_path })` | Emit a test `chat-message` to spawn a test pet |
 
@@ -363,6 +400,7 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | Event | Payload | Emitter | Tauri Listener | WS |
 |---|---|---|---|---|
 | `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (overlay.ts) | Yes |
+| `chat-event` | `ChatEventPayload` | `twitch/eventsub.rs`, `tiktok/mod.rs` | `eventReactions.ts` (overlay.ts) | Yes |
 | `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
@@ -390,6 +428,23 @@ interface ChatMessagePayload {
 }
 ```
 
+### `ChatEventPayload`
+
+```typescript
+interface ChatEventPayload {
+  platform: string;       // "twitch" | "tiktok"
+  event_kind: string;     // "cheer" | "sub" | "raid" | "follow" | "tiktok_gift" | "tiktok_gift_big" | "tiktok_like" | "tiktok_follow" | "tiktok_share" | "tiktok_subscribe" | "tiktok_envelope"
+  username: string;
+  user_id: number | null; // null if user not in DB
+  display_name: string;
+  amount: number | null;  // bits for cheer, viewers for raid, diamonds for gift
+  text: string | null;    // cheer message
+  extra: Record<string, unknown>;
+}
+```
+
+> `eventReactions.ts` maps `event_kind` to a tama action via `ACTION_MAP` and calls `pet.executeAction()`. Raid and hype_train fire on a random pet regardless of user_id.
+
 ### `TtsStatePayload`
 
 ```typescript
@@ -410,7 +465,7 @@ interface TtsStatePayload {
 The router in `router.ts` is manual, hash-based (`#/config`, `#/users`, etc.).
 
 ```typescript
-export type ViewId = "config" | "users" | "logs" | "tamagotchi";
+export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok";
 ```
 
 - To add a new view: add an entry in `routes`, create the file under `src/views/`, and add `data-view="new-view"` to the sidebar in `index.html`.
@@ -461,19 +516,32 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 - `spawn_twitch_client(state, app_handle)`: connects via `twitch-irc` to the configured channel.
 - Uses **authenticated** connection if `twitch_bot_username` and `twitch_bot_token` are set (required to receive messages when the stream is offline). If empty, falls back to an anonymous connection (only works when the channel is live).
-- `twitch_bot_token` is validated against Twitch's API (`id.twitch.tv/oauth2/validate`) via `validate_twitch_token` command before saving to automatically fetch the `twitch_bot_username`.
-- For each incoming message: looks up in DB whether the `twitch_username` is registered and active.
+- `validate_twitch_token` calls `id.twitch.tv/oauth2/validate`, saves `twitch_bot_token`, `twitch_bot_username`, `twitch_client_id`, and `twitch_bot_user_id` to the DB. Returns `{ username, scopes }` to the frontend.
+- For each incoming IRC message: looks up in DB whether the `twitch_username` is registered and active.
 - Emits `twitch-connected` to the frontend only upon receiving a successful `RoomState` from the server.
 - On match: emits `chat-message` to the frontend with the `ChatMessagePayload`.
 - Logs the message in `message_log`.
 
+**EventSub (`twitch/eventsub.rs`)**
+- `spawn_twitch_eventsub(state, app_handle)`: spawned alongside the IRC client by `connect_twitch`. Skips immediately if `twitch_eventsub_enabled = false` or if `twitch_client_id` / `twitch_bot_user_id` are empty (must validate token first).
+- Connects to `wss://eventsub.wss.twitch.tv/ws`.
+- On `session_welcome`: calls `register_subscriptions()` which POSTs to `https://api.twitch.tv/helix/eventsub/subscriptions` for each event type (`channel.cheer`, `channel.subscribe`, `channel.raid`, `channel.follow`).
+- Required OAuth scopes: `bits:read`, `channel:read:subscriptions`, `channel:read:raids`, `moderator:read:followers`.
+- On `notification`: calls `handle_twitch_event()` which emits `chat-event` + `broadcast_ws` using `ChatEventPayload`.
+
 ### `tiktok/`
 
-- `spawn_tiktok_client(state, app_handle)`: connects via WebSocket to `wss://api.tik.tools?uniqueId={username}&apiKey={key}`.
-- Same pipeline as Twitch: parse `chat` event → user lookup → emit `chat-message`.
-- **Risk:** TikTool's free sandbox is limited (50 req/day, 1 WS connection). Production requires a paid plan (~$7/week).
+- `spawn_tiktok_client(state, app_handle)`: connects via WebSocket to `wss://ws.tiktok.eulerstream.com/chat?uniqueId={username}`.
 - If `tiktok_username` is empty, returns without connecting.
-- **Architecture:** Abstracted behind the `ChatPlatform` trait (`chat_platform.rs`). This trait standardizes event handling and message parsing across all chat providers (Twitch, TikTok, etc.).
+- Handles multiple event types with per-event config gates:
+  - `chat` → user lookup → emit `chat-message` (with min/max length filter + TTS)
+  - `gift` → emit `chat-event` with `event_kind: "tiktok_gift"` or `"tiktok_gift_big"` (only when `repeatEnd = true`)
+  - `like` → emit `chat-event` with `event_kind: "tiktok_like"`
+  - `social` → emit `chat-event` with `event_kind: "tiktok_follow"` or `"tiktok_share"` (based on `displayType`)
+  - `subscribe` → emit `chat-event` with `event_kind: "tiktok_subscribe"`
+  - `envelope` → emit `chat-event` with `event_kind: "tiktok_envelope"`
+- All non-chat events also call `state.broadcast_ws("chat-event", &payload)`.
+- **Risk:** TikTool's free sandbox is limited (50 req/day, 1 WS connection). Production requires a paid plan (~$7/week).
 - **Local dev/testing:** When TikTool is unavailable, simulate chat events with a local WebSocket mock server that emits the same JSON structure as TikTool's `chat` events.
 
 ### `server/`
@@ -624,6 +692,11 @@ Twitch/TikTok chat: message from "myuser"
 | Tamagotchi pet system — persistent chat-user pets walking on overlay floor | Done |
 | Proper process exit when main window closes | Done |
 | OBS Browser Source — axum HTTP+WS server, no chroma key required | Done |
+| Dedicated `/twitch` view — connection, chat filters, events, EventSub toggle | Done |
+| Dedicated `/tiktok` view — connection, chat filters, events | Done |
+| TikTok expanded events — gift, like, follow, share, subscribe, envelope | Done |
+| Twitch EventSub client — WS + Helix subscription registration | Done |
+| Overlay event reactions — `chat-event` → pet actions (ConfettiAction, HypeTrainAction) | Done |
 
 ---
 
@@ -643,6 +716,12 @@ overlay.ts
         |
         +-- PetScheduler  (random action roll every 8 s at 15% probability)
         +-- PetFloor      (floor Y + collision-free spawn X)
+
+  --> setupEventReactions()  (src/overlay/tamagotchi/eventReactions.ts)
+        |
+        +-- listen("chat-event")  --> ACTION_MAP[event_kind] --> pet.executeAction()
+              raid / hype_train   --> PetManager.getRandomPet(-1).executeAction("jump")
+              other events        --> PetManager.get(user_id).executeAction(ACTION_MAP[event_kind])
 ```
 
 ### Core modules (`src/overlay/tamagotchi/core/`)
@@ -670,6 +749,8 @@ Each action file calls `ActionRegistry.register(MyAction)` at the bottom — imp
 | `explode` | `ExplodeAction` | Tremor, flash, particle burst, then respawn with spring |
 | `dance` | `DanceAction` | Rhythmic rotate + translateY loop |
 | `sleep` | `SleepAction` | Pet tilts + ZZZ props; cancelled on next chat message |
+| `confetti` | `ConfettiAction` | 10 colored DOM particles burst from pet position; probability 0 (event-triggered only) |
+| `hype_train` | `HypeTrainAction` | 🚂 emoji text scrolls across the floor from left to right; probability 0 (event-triggered only) |
 
 To add a new action, copy `_template.ts`, implement `execute()`, set `meta.id` and `meta.probability`, and call `ActionRegistry.register()` at the bottom. Import the file in `PetManager.ts` to activate it.
 
@@ -855,7 +936,7 @@ No build step is required in dev — the server adapts automatically based on `c
 
 ---
 
-*Updated 2026-05-22 — Stream Persona Overlay v0.1*
+*Updated 2026-05-22 — Stream Persona Overlay v0.1 — added dedicated Twitch/TikTok views, EventSub, expanded TikTok events, overlay event reactions*
 
 ---
 

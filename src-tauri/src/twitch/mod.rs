@@ -1,3 +1,5 @@
+pub mod eventsub;
+
 use std::collections::HashSet;
 use tauri::{AppHandle, Emitter};
 use twitch_irc::login::StaticLoginCredentials;

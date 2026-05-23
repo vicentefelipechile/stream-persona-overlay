@@ -58,47 +58,26 @@ export async function renderConfig(): Promise<void> {
       </div>
     </section>
 
-    <!-- Twitch -->
+    <!-- Twitch & TikTok Shortcuts -->
     <section class="section">
-      <div class="section-title">Twitch IRC</div>
-      <div class="card">
-        <div class="form-group">
-          <label for="cfg-twitch-channel">Canal de Twitch</label>
-          <input type="text" id="cfg-twitch-channel"
-            value="${cfg.twitch_channel}"
-            placeholder="nombre_del_canal (sin #)" />
-        </div>
-        <div class="form-group">
-          <label for="cfg-twitch-bot-token">
-            Access Token
-            <a href="#" id="link-twitch-token" style="font-size:11px;color:#00c896;margin-left:8px;">Obtener token ↗</a>
-          </label>
-          <div style="display:flex;gap:8px;">
-            <input type="password" id="cfg-twitch-bot-token"
-              value="${cfg.twitch_bot_token}"
-              placeholder="Pegá el Access Token aquí" style="flex:1;" />
-            <button id="btn-validate-twitch" class="btn btn-secondary" style="white-space:nowrap;">Validar</button>
+      <div class="section-title">Plataformas</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 1.1rem; font-weight: 500;">📺 Twitch</span>
+            <span class="badge ${cfg.twitch_channel ? "badge-ok" : "badge-warn"}">${cfg.twitch_channel ? "Configurado" : "Pendiente"}</span>
           </div>
-          <div id="twitch-token-status" style="margin-top:6px;font-size:12px;min-height:18px;"
-            ${cfg.twitch_bot_username ? `style="color:#00c896;"` : ""}>
-            ${cfg.twitch_bot_username ? `✓ Conectado como <strong>@${cfg.twitch_bot_username}</strong>` : ""}
+          <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 8px;">Eventos, filtros y mapeos de recompensas</p>
+          <a href="#/twitch" class="btn btn-outline btn-sm" style="width: 100%;">Configurar</a>
+        </div>
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 1.1rem; font-weight: 500;">🎵 TikTok</span>
+            <span class="badge ${cfg.tiktok_username ? "badge-ok" : "badge-warn"}">${cfg.tiktok_username ? "Configurado" : "Pendiente"}</span>
           </div>
+          <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 8px;">Eventos en directo y filtros de chat</p>
+          <a href="#/tiktok" class="btn btn-outline btn-sm" style="width: 100%;">Configurar</a>
         </div>
-        <button id="btn-connect-twitch" class="btn btn-primary">Conectar</button>
-      </div>
-    </section>
-
-    <!-- TikTok -->
-    <section class="section">
-      <div class="section-title">TikTok LIVE</div>
-      <div class="card">
-        <div class="form-group">
-          <label for="cfg-tiktok-user">Username de TikTok</label>
-          <input type="text" id="cfg-tiktok-user"
-            value="${cfg.tiktok_username}"
-            placeholder="tu_usuario_tiktok (sin @)" />
-        </div>
-        <button id="btn-connect-tiktok" class="btn btn-primary">Conectar</button>
       </div>
     </section>
 
@@ -195,63 +174,6 @@ export async function renderConfig(): Promise<void> {
     }
   });
 
-  // Validar token de Twitch (auto-obtiene el username via API)
-  const statusEl = container.querySelector<HTMLElement>("#twitch-token-status")!;
-  const validateBtn = container.querySelector<HTMLButtonElement>("#btn-validate-twitch")!;
-
-  container.querySelector("#link-twitch-token")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    import("@tauri-apps/plugin-opener").then(({ openUrl }) =>
-      openUrl("https://twitchtokengenerator.com")
-    );
-  });
-
-  validateBtn.addEventListener("click", async () => {
-    const token = (container.querySelector<HTMLInputElement>("#cfg-twitch-bot-token")!).value.trim();
-    if (!token) { showToast("Pegá un token primero", "error"); return; }
-
-    validateBtn.disabled = true;
-    validateBtn.textContent = "Validando...";
-    statusEl.style.color = "";
-    statusEl.innerHTML = "";
-
-    try {
-      const username = await invoke<string>("validate_twitch_token", { token });
-      statusEl.style.color = "#00c896";
-      statusEl.innerHTML = `✓ Token válido — cuenta: <strong>@${username}</strong>`;
-      showToast(`Token válido para @${username}`, "success");
-    } catch (e) {
-      statusEl.style.color = "#ff6b6b";
-      statusEl.textContent = `✗ ${String(e)}`;
-    } finally {
-      validateBtn.disabled = false;
-      validateBtn.textContent = "Validar";
-    }
-  });
-
-  // Conectar Twitch
-  container.querySelector("#btn-connect-twitch")!.addEventListener("click", async () => {
-    const channel = (container.querySelector<HTMLInputElement>("#cfg-twitch-channel")!).value.trim();
-    if (!channel) { showToast("Ingresá un canal de Twitch", "error"); return; }
-    try {
-      await invoke("connect_twitch", { channel });
-      showToast(`Conectando a @${channel}...`, "info");
-    } catch (e) {
-      showToast(String(e), "error");
-    }
-  });
-
-  // Conectar TikTok
-  container.querySelector("#btn-connect-tiktok")!.addEventListener("click", async () => {
-    const username = (container.querySelector<HTMLInputElement>("#cfg-tiktok-user")!).value.trim();
-    if (!username) { showToast("Ingresa un username de TikTok", "error"); return; }
-    try {
-      await invoke("connect_tiktok", { username });
-      showToast(`Conectando a @${username}...`, "info");
-    } catch (e) {
-      showToast(String(e), "error");
-    }
-  });
 
   // TTS toggle — guarda al instante
   container.querySelector<HTMLInputElement>("#cfg-tts")!.addEventListener("change", async (e) => {
