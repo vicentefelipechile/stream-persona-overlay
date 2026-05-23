@@ -3,7 +3,8 @@ use tauri::{AppHandle, Emitter};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::{
-    db::{config::log_message, users::find_active_user_by_tiktok},
+    chat_filters::FilterDecision,
+    db::{config::{log_message, log_message_dropped}, users::find_active_user_by_tiktok},
     state::{AppState, ChatMessagePayload, ChatEventPayload},
 };
 
@@ -101,6 +102,19 @@ fn handle_chat(state: &AppState, app_handle: &AppHandle, data: &serde_json::Valu
         return;
     }
 
+    // Anti-spam filter — cfg is already read (caller holds config_cache read lock)
+    let filter_decision = {
+        let Ok(mut filters) = state.chat_filters.lock() else { return; };
+        filters.check_chat("tiktok", &username, &message, cfg)
+    };
+
+    if let FilterDecision::Drop(reason) = filter_decision {
+        tracing::debug!("[tiktok/filter] @{} bloqueado: {}", username, reason.as_str());
+        let Ok(db) = state.db.lock() else { return; };
+        let _ = log_message_dropped(&db, "tiktok", &username, &message, reason.as_str());
+        return;
+    }
+
     let Ok(db) = state.db.lock() else {
         return;
     };
@@ -154,19 +168,27 @@ fn handle_gift(state: &AppState, app_handle: &AppHandle, data: &serde_json::Valu
         return;
     }
 
+    let event_kind = if gift_amount >= cfg.tiktok_event_gift_big_coins as i64 {
+        "tiktok_gift_big"
+    } else {
+        "tiktok_gift"
+    };
+
+    // Event cooldown filter
+    {
+        let Ok(mut filters) = state.chat_filters.lock() else { return; };
+        if let FilterDecision::Drop(_) = filters.check_event("tiktok", &username, event_kind, cfg) {
+            return;
+        }
+    }
+
     let Ok(db) = state.db.lock() else { return; };
     let user_id = find_active_user_by_tiktok(&db, &username).ok().flatten().map(|u| u.id);
     drop(db);
 
-    let event_kind = if gift_amount >= cfg.tiktok_event_gift_big_coins as i64 {
-        "tiktok_gift_big".to_string()
-    } else {
-        "tiktok_gift".to_string()
-    };
-
     let payload = ChatEventPayload {
         platform: "tiktok".to_string(),
-        event_kind,
+        event_kind: event_kind.to_string(),
         username,
         user_id,
         display_name: String::new(),
@@ -179,11 +201,19 @@ fn handle_gift(state: &AppState, app_handle: &AppHandle, data: &serde_json::Valu
     state.broadcast_ws("chat-event", &payload);
 }
 
-fn handle_like(state: &AppState, app_handle: &AppHandle, data: &serde_json::Value, _cfg: &crate::state::AppConfig) {
+fn handle_like(state: &AppState, app_handle: &AppHandle, data: &serde_json::Value, cfg: &crate::state::AppConfig) {
     let username = data.get("uniqueId").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     if username.is_empty() {
         return;
+    }
+
+    // Event cooldown filter (replaces the old tiktok_event_like_throttle_ms inline logic)
+    {
+        let Ok(mut filters) = state.chat_filters.lock() else { return; };
+        if let FilterDecision::Drop(_) = filters.check_event("tiktok", &username, "tiktok_like", cfg) {
+            return;
+        }
     }
 
     let Ok(db) = state.db.lock() else { return; };
@@ -214,10 +244,18 @@ fn handle_social(state: &AppState, app_handle: &AppHandle, data: &serde_json::Va
     }
 
     let event_kind = match display_type {
-        "pm_main_follow_message" if cfg.tiktok_event_follow_enabled => "tiktok_follow".to_string(),
-        "pm_main_share_message" if cfg.tiktok_event_share_enabled => "tiktok_share".to_string(),
+        "pm_main_follow_message" if cfg.tiktok_event_follow_enabled => "tiktok_follow",
+        "pm_main_share_message"  if cfg.tiktok_event_share_enabled  => "tiktok_share",
         _ => return,
     };
+
+    // Event cooldown filter
+    {
+        let Ok(mut filters) = state.chat_filters.lock() else { return; };
+        if let FilterDecision::Drop(_) = filters.check_event("tiktok", &username, event_kind, cfg) {
+            return;
+        }
+    }
 
     let Ok(db) = state.db.lock() else { return; };
     let user_id = find_active_user_by_tiktok(&db, &username).ok().flatten().map(|u| u.id);
@@ -225,7 +263,7 @@ fn handle_social(state: &AppState, app_handle: &AppHandle, data: &serde_json::Va
 
     let payload = ChatEventPayload {
         platform: "tiktok".to_string(),
-        event_kind,
+        event_kind: event_kind.to_string(),
         username,
         user_id,
         display_name: String::new(),
@@ -238,11 +276,18 @@ fn handle_social(state: &AppState, app_handle: &AppHandle, data: &serde_json::Va
     state.broadcast_ws("chat-event", &payload);
 }
 
-fn handle_subscribe(state: &AppState, app_handle: &AppHandle, data: &serde_json::Value, _cfg: &crate::state::AppConfig) {
+fn handle_subscribe(state: &AppState, app_handle: &AppHandle, data: &serde_json::Value, cfg: &crate::state::AppConfig) {
     let username = data.get("uniqueId").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     if username.is_empty() {
         return;
+    }
+
+    {
+        let Ok(mut filters) = state.chat_filters.lock() else { return; };
+        if let FilterDecision::Drop(_) = filters.check_event("tiktok", &username, "tiktok_subscribe", cfg) {
+            return;
+        }
     }
 
     let Ok(db) = state.db.lock() else { return; };
@@ -264,11 +309,18 @@ fn handle_subscribe(state: &AppState, app_handle: &AppHandle, data: &serde_json:
     state.broadcast_ws("chat-event", &payload);
 }
 
-fn handle_envelope(state: &AppState, app_handle: &AppHandle, data: &serde_json::Value, _cfg: &crate::state::AppConfig) {
+fn handle_envelope(state: &AppState, app_handle: &AppHandle, data: &serde_json::Value, cfg: &crate::state::AppConfig) {
     let username = data.get("uniqueId").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     if username.is_empty() {
         return;
+    }
+
+    {
+        let Ok(mut filters) = state.chat_filters.lock() else { return; };
+        if let FilterDecision::Drop(_) = filters.check_event("tiktok", &username, "tiktok_envelope", cfg) {
+            return;
+        }
     }
 
     let Ok(db) = state.db.lock() else { return; };

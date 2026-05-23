@@ -62,6 +62,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "ALTER TABLE message_log ADD COLUMN amount INTEGER",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE message_log ADD COLUMN dropped_reason TEXT",
+        [],
+    );
 
     // Insertar valores de configuración por defecto si no existen
     let defaults = [
@@ -139,6 +143,32 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tiktok_event_envelope_enabled", "true"),
         ("tiktok_gift_action_map",      "{}"),
         ("tiktok_tts_event_announcements", "true"),
+        // ── Anti-spam / rate-limit config (chat) ────────────────────────────
+        ("twitch_chat_antispam_preset",    "off"),
+        ("twitch_chat_user_cooldown_ms",   "0"),
+        ("twitch_chat_dedup_window_ms",    "0"),
+        ("twitch_chat_rate_max_msgs",      "0"),
+        ("twitch_chat_rate_window_secs",   "10"),
+        ("tiktok_chat_antispam_preset",    "off"),
+        ("tiktok_chat_user_cooldown_ms",   "0"),
+        ("tiktok_chat_dedup_window_ms",    "0"),
+        ("tiktok_chat_rate_max_msgs",      "0"),
+        ("tiktok_chat_rate_window_secs",   "10"),
+        ("chat_global_throughput_preset",  "off"),
+        ("chat_global_rate_max_per_sec",   "0"),
+        // ── Event cooldown config ────────────────────────────────────────────
+        ("twitch_event_cooldown_preset",          "off"),
+        ("twitch_event_cheer_user_cooldown_ms",   "0"),
+        ("twitch_event_sub_user_cooldown_ms",     "0"),
+        ("twitch_event_raid_global_cooldown_ms",  "0"),
+        ("twitch_event_follow_user_cooldown_ms",  "0"),
+        ("tiktok_event_cooldown_preset",          "off"),
+        ("tiktok_event_gift_user_cooldown_ms",    "0"),
+        ("tiktok_event_like_user_cooldown_ms",    "0"),
+        ("tiktok_event_follow_user_cooldown_ms",  "0"),
+        ("tiktok_event_share_user_cooldown_ms",   "0"),
+        ("tiktok_event_subscribe_user_cooldown_ms", "0"),
+        ("tiktok_event_envelope_user_cooldown_ms", "0"),
     ];
 
     for (key, value) in &defaults {

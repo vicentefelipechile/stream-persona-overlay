@@ -6,7 +6,8 @@ use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::{ClientConfig, SecureTCPTransport, TwitchIRCClient};
 
 use crate::{
-    db::{config::log_message, users::find_active_user_by_twitch},
+    chat_filters::FilterDecision,
+    db::{config::{log_message, log_message_dropped}, users::find_active_user_by_twitch},
     state::{AppState, ChatMessagePayload},
 };
 
@@ -90,6 +91,20 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                 let text = msg.message_text.clone();
 
                 tracing::debug!("[twitch] @{}: {}", username, text);
+
+                // Anti-spam filter (read config + lock filters before touching DB)
+                let filter_decision = {
+                    let Ok(cfg) = state.config_cache.read() else { continue; };
+                    let Ok(mut filters) = state.chat_filters.lock() else { continue; };
+                    filters.check_chat("twitch", &username, &text, &cfg)
+                };
+
+                if let FilterDecision::Drop(reason) = filter_decision {
+                    tracing::debug!("[twitch/filter] @{} bloqueado: {}", username, reason.as_str());
+                    let Ok(db) = state.db.lock() else { break; };
+                    let _ = log_message_dropped(&db, "twitch", &username, &text, reason.as_str());
+                    continue;
+                }
 
                 let (payload_opt, is_unregistered) = {
                     let Ok(db) = state.db.lock() else {

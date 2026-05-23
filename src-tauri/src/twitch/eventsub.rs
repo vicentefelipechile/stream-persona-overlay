@@ -2,7 +2,10 @@ use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::state::{AppState, AppConfig, ChatEventPayload};
+use crate::{
+    chat_filters::FilterDecision,
+    state::{AppState, AppConfig, ChatEventPayload},
+};
 
 pub async fn spawn_twitch_eventsub(state: AppState, app_handle: AppHandle) {
     let cfg = {
@@ -165,11 +168,16 @@ fn handle_twitch_event(
                 return;
             }
 
+            {
+                let Ok(mut filters) = state.chat_filters.lock() else { return; };
+                if let FilterDecision::Drop(_) = filters.check_event("twitch", username, "cheer", &cfg) {
+                    return;
+                }
+            }
+
             let Ok(db) = state.db.lock() else { return; };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok()
-                .flatten()
-                .map(|u| u.id);
+                .ok().flatten().map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -189,11 +197,16 @@ fn handle_twitch_event(
         "channel.subscribe" if cfg.twitch_event_sub_enabled => {
             let username = event.get("user_login").and_then(|v| v.as_str()).unwrap_or("");
 
+            {
+                let Ok(mut filters) = state.chat_filters.lock() else { return; };
+                if let FilterDecision::Drop(_) = filters.check_event("twitch", username, "sub", &cfg) {
+                    return;
+                }
+            }
+
             let Ok(db) = state.db.lock() else { return; };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok()
-                .flatten()
-                .map(|u| u.id);
+                .ok().flatten().map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -214,11 +227,17 @@ fn handle_twitch_event(
             let username = event.get("from_broadcaster_user_login").and_then(|v| v.as_str()).unwrap_or("");
             let viewers = event.get("viewers").and_then(|v| v.as_i64()).unwrap_or(0);
 
+            // Raids use a global (channel-scope) cooldown — key uses empty string for user
+            {
+                let Ok(mut filters) = state.chat_filters.lock() else { return; };
+                if let FilterDecision::Drop(_) = filters.check_event("twitch", "", "raid", &cfg) {
+                    return;
+                }
+            }
+
             let Ok(db) = state.db.lock() else { return; };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok()
-                .flatten()
-                .map(|u| u.id);
+                .ok().flatten().map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -238,11 +257,16 @@ fn handle_twitch_event(
         "channel.follow" if cfg.twitch_event_follow_enabled => {
             let username = event.get("user_login").and_then(|v| v.as_str()).unwrap_or("");
 
+            {
+                let Ok(mut filters) = state.chat_filters.lock() else { return; };
+                if let FilterDecision::Drop(_) = filters.check_event("twitch", username, "follow", &cfg) {
+                    return;
+                }
+            }
+
             let Ok(db) = state.db.lock() else { return; };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok()
-                .flatten()
-                .map(|u| u.id);
+                .ok().flatten().map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {

@@ -121,6 +121,43 @@
   opacity: 0.3;
 }
 
+/* Preset radio group (anti-spam) */
+.preset-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+  user-select: none;
+}
+
+.preset-radio input[type="radio"] {
+  display: none;
+}
+
+.preset-radio:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.preset-radio.active {
+  border-color: var(--color-accent);
+  background: rgba(0, 200, 150, 0.1);
+  color: var(--color-accent);
+}
+
 /* Utilities */
 .text-accent  { color: var(--color-accent); }
 .text-muted   { color: var(--color-text-muted); }

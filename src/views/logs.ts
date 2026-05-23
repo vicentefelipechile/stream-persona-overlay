@@ -1,7 +1,7 @@
 // =========================================================================================================
 // LOGS VIEW
 // =========================================================================================================
-// Render message history from chat platforms.
+// Audit log of recent chat messages and events from Twitch and TikTok, including dropped/blocked entries.
 // =========================================================================================================
 
 // =========================================================================================================
@@ -24,13 +24,15 @@ export async function renderLogs(): Promise<void> {
       <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
           <h1>${Icons.logs(20)} Logs</h1>
-          <p>Historial de mensajes recibidos de Twitch y TikTok (últimos 100).</p>
+          <p>Historial de mensajes recibidos de Twitch y TikTok (últimos 200).</p>
         </div>
-        <div style="display:flex; gap:8px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btn-refresh-logs" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;">${Icons.refresh()} Refrescar</button>
-          <button id="btn-clear-filter" class="btn btn-secondary btn-sm">Todos</button>
-          <button id="btn-filter-twitch" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;color:#9146ff;border-color:#9146ff;">${Icons.twitchMono()} Twitch</button>
-          <button id="btn-filter-tiktok" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;color:#ff0050;border-color:#ff0050;">${Icons.tiktokMono()} TikTok</button>
+          <button id="btn-clear-filter"   class="btn btn-secondary btn-sm log-filter-btn active" data-filter="">Todos</button>
+          <button id="btn-filter-shown"   class="btn btn-secondary btn-sm log-filter-btn" data-filter="shown">Mostrados</button>
+          <button id="btn-filter-blocked" class="btn btn-secondary btn-sm log-filter-btn" data-filter="blocked" style="color:#ff6b6b;border-color:#ff6b6b;">Bloqueados</button>
+          <button id="btn-filter-twitch"  class="btn btn-secondary btn-sm log-filter-btn" style="display:inline-flex;align-items:center;gap:4px;color:#9146ff;border-color:#9146ff;" data-filter="twitch">${Icons.twitchMono()} Twitch</button>
+          <button id="btn-filter-tiktok"  class="btn btn-secondary btn-sm log-filter-btn" style="display:inline-flex;align-items:center;gap:4px;color:#ff0050;border-color:#ff0050;" data-filter="tiktok">${Icons.tiktokMono()} TikTok</button>
         </div>
       </div>
     </div>
@@ -43,61 +45,69 @@ export async function renderLogs(): Promise<void> {
     </div>
   `;
 
-  await loadLogs(container, null);
+  let currentFilter = "";
+  let allLogs: LogEntry[] = [];
 
-  // Refrescar
-  container.querySelector("#btn-refresh-logs")!.addEventListener("click", async () => {
-    await loadLogs(container, currentFilter);
-  });
+  const renderFiltered = () => {
+    let filtered = allLogs;
+    if (currentFilter === "shown")   filtered = allLogs.filter(l => !l.dropped_reason);
+    else if (currentFilter === "blocked") filtered = allLogs.filter(l => !!l.dropped_reason);
+    else if (currentFilter === "twitch") filtered = allLogs.filter(l => l.platform === "twitch");
+    else if (currentFilter === "tiktok") filtered = allLogs.filter(l => l.platform === "tiktok");
 
-  // Filtros
-  let currentFilter: string | null = null;
-
-  container.querySelector("#btn-clear-filter")!.addEventListener("click", async () => {
-    currentFilter = null;
-    await loadLogs(container, null);
-  });
-  container.querySelector("#btn-filter-twitch")!.addEventListener("click", async () => {
-    currentFilter = "twitch";
-    await loadLogs(container, "twitch");
-  });
-  container.querySelector("#btn-filter-tiktok")!.addEventListener("click", async () => {
-    currentFilter = "tiktok";
-    await loadLogs(container, "tiktok");
-  });
-}
-
-async function loadLogs(container: HTMLElement, filter: string | null): Promise<void> {
-  const loading = container.querySelector<HTMLElement>("#logs-loading")!;
-  const content = container.querySelector<HTMLElement>("#logs-content")!;
-
-  loading.style.display = "flex";
-  content.style.display = "none";
-
-  try {
-    const logs = await invoke<LogEntry[]>("get_recent_logs_cmd", { limit: 100 });
-    const filtered = filter ? logs.filter((l) => l.platform === filter) : logs;
-
+    const content = container.querySelector<HTMLElement>("#logs-content")!;
     if (filtered.length === 0) {
-      loading.style.display = "none";
-      content.style.display = "flex";
       content.innerHTML = `
         <div class="empty-state" style="padding:40px;">
           <span class="empty-state-icon">${Icons.logs(48)}</span>
-          <p>Sin mensajes${filter ? ` de ${filter}` : ""} aún.</p>
+          <p>Sin mensajes${currentFilter ? ` (filtro: ${currentFilter})` : ""} aún.</p>
         </div>
       `;
-      return;
+    } else {
+      content.innerHTML = filtered.map(logEntryHtml).join("");
     }
-
-    content.innerHTML = filtered.map(logEntryHtml).join("");
-    loading.style.display = "none";
     content.style.display = "flex";
-  } catch (e) {
-    showToast("Error cargando logs: " + String(e), "error");
-    loading.style.display = "none";
-  }
+  };
+
+  const loadLogs = async () => {
+    const loading = container.querySelector<HTMLElement>("#logs-loading")!;
+    const content = container.querySelector<HTMLElement>("#logs-content")!;
+    loading.style.display = "flex";
+    content.style.display = "none";
+    try {
+      allLogs = await invoke<LogEntry[]>("get_recent_logs_cmd", { limit: 200 });
+      renderFiltered();
+    } catch (e) {
+      showToast("Error cargando logs: " + String(e), "error");
+    } finally {
+      loading.style.display = "none";
+    }
+  };
+
+  container.querySelector("#btn-refresh-logs")!.addEventListener("click", loadLogs);
+
+  container.querySelectorAll<HTMLButtonElement>(".log-filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      container.querySelectorAll(".log-filter-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentFilter = btn.dataset.filter ?? "";
+      renderFiltered();
+    });
+  });
+
+  await loadLogs();
 }
+
+// =========================================================================================================
+// Helpers
+// =========================================================================================================
+
+const DROP_REASON_LABELS: Record<string, string> = {
+  cooldown:    "cooldown",
+  duplicate:   "duplicado",
+  rate_window: "límite/seg",
+  global_rate: "tope global",
+};
 
 function logEntryHtml(log: LogEntry): string {
   const date = new Date(log.created_at + "Z");
@@ -108,19 +118,20 @@ function logEntryHtml(log: LogEntry): string {
     log.platform === "tiktok" ? Icons.tiktokMono(11) :
     "";
 
+  const blockedBadge = log.dropped_reason
+    ? `<span class="log-dropped-badge" title="${log.dropped_reason}">${DROP_REASON_LABELS[log.dropped_reason] ?? log.dropped_reason}</span>`
+    : "";
+
   return `
-    <div class="log-entry log-entry--${log.platform}">
+    <div class="log-entry log-entry--${log.platform}${log.dropped_reason ? " log-entry--blocked" : ""}">
       <span class="log-time">${time}</span>
       <span class="log-platform ${log.platform}">${platformIcon}${log.platform}</span>
       <span class="log-username">${escHtml(log.username)}</span>
       <span class="log-message">${escHtml(log.message)}</span>
+      ${blockedBadge}
     </div>
   `;
 }
-
-// =========================================================================================================
-// Helpers
-// =========================================================================================================
 
 function escHtml(str: string): string {
   return str

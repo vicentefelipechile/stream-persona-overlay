@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use tauri::Manager;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+pub mod chat_filters;
 pub mod chat_platform;
 pub mod commands;
 pub mod db;

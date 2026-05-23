@@ -72,6 +72,8 @@ export interface LogEntry {
   message: string;
   user_id: number | null;
   shown: boolean;
+  event_kind: string;
+  dropped_reason: string | null;
   created_at: string;
 }
 

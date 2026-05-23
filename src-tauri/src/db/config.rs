@@ -87,6 +87,32 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tiktok_event_envelope_enabled" => cfg.tiktok_event_envelope_enabled = value == "true",
             "tiktok_gift_action_map"        => cfg.tiktok_gift_action_map = value,
             "tiktok_tts_event_announcements" => cfg.tiktok_tts_event_announcements = value == "true",
+            // ── Anti-spam / rate-limit config (chat) ─────────────────────────
+            "twitch_chat_antispam_preset"    => cfg.twitch_chat_antispam_preset = value,
+            "twitch_chat_user_cooldown_ms"   => cfg.twitch_chat_user_cooldown_ms = value.parse().unwrap_or(0),
+            "twitch_chat_dedup_window_ms"    => cfg.twitch_chat_dedup_window_ms = value.parse().unwrap_or(0),
+            "twitch_chat_rate_max_msgs"      => cfg.twitch_chat_rate_max_msgs = value.parse().unwrap_or(0),
+            "twitch_chat_rate_window_secs"   => cfg.twitch_chat_rate_window_secs = value.parse().unwrap_or(10),
+            "tiktok_chat_antispam_preset"    => cfg.tiktok_chat_antispam_preset = value,
+            "tiktok_chat_user_cooldown_ms"   => cfg.tiktok_chat_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_chat_dedup_window_ms"    => cfg.tiktok_chat_dedup_window_ms = value.parse().unwrap_or(0),
+            "tiktok_chat_rate_max_msgs"      => cfg.tiktok_chat_rate_max_msgs = value.parse().unwrap_or(0),
+            "tiktok_chat_rate_window_secs"   => cfg.tiktok_chat_rate_window_secs = value.parse().unwrap_or(10),
+            "chat_global_throughput_preset"  => cfg.chat_global_throughput_preset = value,
+            "chat_global_rate_max_per_sec"   => cfg.chat_global_rate_max_per_sec = value.parse().unwrap_or(0),
+            // ── Event cooldown config ─────────────────────────────────────────
+            "twitch_event_cooldown_preset"          => cfg.twitch_event_cooldown_preset = value,
+            "twitch_event_cheer_user_cooldown_ms"   => cfg.twitch_event_cheer_user_cooldown_ms = value.parse().unwrap_or(0),
+            "twitch_event_sub_user_cooldown_ms"     => cfg.twitch_event_sub_user_cooldown_ms = value.parse().unwrap_or(0),
+            "twitch_event_raid_global_cooldown_ms"  => cfg.twitch_event_raid_global_cooldown_ms = value.parse().unwrap_or(0),
+            "twitch_event_follow_user_cooldown_ms"  => cfg.twitch_event_follow_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_event_cooldown_preset"          => cfg.tiktok_event_cooldown_preset = value,
+            "tiktok_event_gift_user_cooldown_ms"    => cfg.tiktok_event_gift_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_event_like_user_cooldown_ms"    => cfg.tiktok_event_like_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_event_follow_user_cooldown_ms"  => cfg.tiktok_event_follow_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_event_share_user_cooldown_ms"   => cfg.tiktok_event_share_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_event_subscribe_user_cooldown_ms" => cfg.tiktok_event_subscribe_user_cooldown_ms = value.parse().unwrap_or(0),
+            "tiktok_event_envelope_user_cooldown_ms" => cfg.tiktok_event_envelope_user_cooldown_ms = value.parse().unwrap_or(0),
             _ => {}
         }
     }
@@ -143,9 +169,25 @@ pub fn log_message_with_event(
     Ok(())
 }
 
+/// Log de un mensaje bloqueado por anti-spam, con razón de descarte.
+pub fn log_message_dropped(
+    conn: &Connection,
+    platform: &str,
+    username: &str,
+    message: &str,
+    dropped_reason: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO message_log (platform, username, message, user_id, event_kind, dropped_reason)
+         VALUES (?1, ?2, ?3, NULL, 'chat', ?4)",
+        params![platform, username, message, dropped_reason],
+    )?;
+    Ok(())
+}
+
 pub fn get_recent_logs(conn: &Connection, limit: u32) -> Result<Vec<serde_json::Value>> {
     let mut stmt = conn.prepare(
-        "SELECT id, platform, username, message, user_id, shown, event_kind, amount, created_at
+        "SELECT id, platform, username, message, user_id, shown, event_kind, amount, created_at, dropped_reason
          FROM message_log
          ORDER BY created_at DESC
          LIMIT ?1",
@@ -161,6 +203,7 @@ pub fn get_recent_logs(conn: &Connection, limit: u32) -> Result<Vec<serde_json::
             "event_kind": row.get::<_, String>(6)?,
             "amount": row.get::<_, Option<i64>>(7)?,
             "created_at": row.get::<_, String>(8)?,
+            "dropped_reason": row.get::<_, Option<String>>(9)?,
         }))
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())

@@ -4,6 +4,8 @@ use rusqlite::Connection;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::broadcast;
 
+use crate::chat_filters::ChatFilters;
+
 // =========================================================================================================
 // AppState
 // =========================================================================================================
@@ -38,6 +40,8 @@ pub struct AppState {
     pub ws_tx: broadcast::Sender<String>,
     /// Handle for the axum HTTP/WebSocket server task.
     pub server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    /// Rate-limiter and anti-spam filter state shared across all chat handlers.
+    pub chat_filters: Arc<Mutex<ChatFilters>>,
 }
 
 impl AppState {
@@ -53,6 +57,7 @@ impl AppState {
             tiktok_handle: Arc::new(Mutex::new(None)),
             ws_tx,
             server_handle: Arc::new(Mutex::new(None)),
+            chat_filters: Arc::new(Mutex::new(ChatFilters::default())),
         }
     }
 
@@ -207,6 +212,32 @@ pub struct AppConfig {
     pub tiktok_event_envelope_enabled: bool,
     pub tiktok_gift_action_map: String,
     pub tiktok_tts_event_announcements: bool,
+    // ── Anti-spam / rate-limit config (chat) ────────────────────────────────
+    pub twitch_chat_antispam_preset: String,
+    pub twitch_chat_user_cooldown_ms: u32,
+    pub twitch_chat_dedup_window_ms: u32,
+    pub twitch_chat_rate_max_msgs: u32,
+    pub twitch_chat_rate_window_secs: u32,
+    pub tiktok_chat_antispam_preset: String,
+    pub tiktok_chat_user_cooldown_ms: u32,
+    pub tiktok_chat_dedup_window_ms: u32,
+    pub tiktok_chat_rate_max_msgs: u32,
+    pub tiktok_chat_rate_window_secs: u32,
+    pub chat_global_throughput_preset: String,
+    pub chat_global_rate_max_per_sec: u32,
+    // ── Event cooldown config ────────────────────────────────────────────────
+    pub twitch_event_cooldown_preset: String,
+    pub twitch_event_cheer_user_cooldown_ms: u32,
+    pub twitch_event_sub_user_cooldown_ms: u32,
+    pub twitch_event_raid_global_cooldown_ms: u32,
+    pub twitch_event_follow_user_cooldown_ms: u32,
+    pub tiktok_event_cooldown_preset: String,
+    pub tiktok_event_gift_user_cooldown_ms: u32,
+    pub tiktok_event_like_user_cooldown_ms: u32,
+    pub tiktok_event_follow_user_cooldown_ms: u32,
+    pub tiktok_event_share_user_cooldown_ms: u32,
+    pub tiktok_event_subscribe_user_cooldown_ms: u32,
+    pub tiktok_event_envelope_user_cooldown_ms: u32,
 }
 
 // ─── ChatMessagePayload ──────────────────────────────────────────────────────
