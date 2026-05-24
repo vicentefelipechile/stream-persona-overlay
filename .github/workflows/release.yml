@@ -75,15 +75,7 @@ jobs:
 
       - name: Generate SHA-256 checksum
         shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            certutil -hashfile "${{ matrix.artifact_name }}" SHA256 \
-              | grep -v "^SHA" | tr -d ' \r\n' \
-              > "${{ matrix.artifact_name }}.sha256"
-          else
-            sha256sum "${{ matrix.artifact_name }}" | awk '{print $1}' \
-              > "${{ matrix.artifact_name }}.sha256"
-          fi
+        run: sha256sum "${{ matrix.artifact_name }}" | awk '{print $1}' > "${{ matrix.artifact_name }}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -114,36 +106,12 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate changelog from git log
-        id: changelog
-        run: |
-          CURRENT_TAG="${{ github.ref_name }}"
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
-
-          if [ -z "$PREV_TAG" ]; then
-            RANGE="HEAD"
-            SINCE_MSG="*(first release — all commits)*"
-          else
-            RANGE="${PREV_TAG}..HEAD"
-            SINCE_MSG="*Changes since \`${PREV_TAG}\`*"
-          fi
-
-          # Categorize by conventional-commit prefix
-          FEAT=$(git log $RANGE --oneline --no-merges | grep -E "^[a-f0-9]+ feat" | sed 's/^[a-f0-9]* /- /')
-          FIX=$(git log $RANGE  --oneline --no-merges | grep -E "^[a-f0-9]+ fix"  | sed 's/^[a-f0-9]* /- /')
-          OTHER=$(git log $RANGE --oneline --no-merges | grep -vE "^[a-f0-9]+ (feat|fix|chore|docs|style|refactor|test|ci)" | sed 's/^[a-f0-9]* /- /')
-
-          BODY=""
-          [ -n "$FEAT"  ] && BODY="${BODY}\n### ✨ New features\n${FEAT}\n"
-          [ -n "$FIX"   ] && BODY="${BODY}\n### 🐛 Bug fixes\n${FIX}\n"
-          [ -n "$OTHER" ] && BODY="${BODY}\n### 🔧 Other changes\n${OTHER}\n"
-          [ -z "$BODY"  ] && BODY="\n*No notable changes.*\n"
-
-          {
-            echo "CHANGELOG<<DELIM"
-            echo -e "$SINCE_MSG\n$BODY"
-            echo "DELIM"
-          } >> "$GITHUB_OUTPUT"
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -175,7 +143,7 @@ jobs:
 
             ## 🔄 Cambios en esta versión
 
-            ${{ steps.changelog.outputs.CHANGELOG }}
+            ${{ steps.cliff.outputs.content }}
 
             ---
 
