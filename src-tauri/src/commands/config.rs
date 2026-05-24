@@ -76,7 +76,8 @@ pub async fn set_config_cmd(
             let db = state.db.lock().map_err(map_err)?;
             get_config(&db).map_err(map_err)?
         };
-        app.emit("tama-config-changed", &full_config).map_err(map_err)?;
+        app.emit("tama-config-changed", &full_config)
+            .map_err(map_err)?;
         state.broadcast_ws("tama-config-changed", &full_config);
         tracing::info!("[config] tama-config-changed emitido (key={})", key);
     }
