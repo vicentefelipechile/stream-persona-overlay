@@ -97,6 +97,10 @@ export class FightAction extends BaseAction {
       animate(rivalEl, { transform: ["translateX(60px)", "translateX(0px)"],  opacity: [0.5, 1] }, { duration: 0.4 }),
     ]);
 
+    // Clear any WAAPI transform residue so pos.x and visual position stay in sync.
+    myEl.style.transform    = "";
+    rivalEl.style.transform = "";
+
     // Remove cloud
     if (this.cloudEl) {
       await animate(this.cloudEl, { opacity: 0, transform: "scale(0)" }, { duration: 0.3 });
@@ -110,7 +114,9 @@ export class FightAction extends BaseAction {
       rival.moveTo(window.innerWidth * 0.6 + Math.random() * 200, 150),
     ]);
 
-    if (rival.fsm.canDo("idle")) rival.fsm.transition("idle");
+    // Rival was never taken out of "idle" state by the fight, so onEnter("idle")
+    // won't fire again — restart its walk loop manually.
+    rival.resumeIdleWalk();
   }
 
   private _createCloud(cx: number): HTMLElement {
@@ -119,7 +125,7 @@ export class FightAction extends BaseAction {
     el.style.cssText = `
       position:fixed;
       left:${cx - 50}px;
-      bottom:${this.pet.floorY + 20}px;
+      top:${this.pet.floorY - 80}px;
       width:100px;
       height:100px;
       font-size:60px;

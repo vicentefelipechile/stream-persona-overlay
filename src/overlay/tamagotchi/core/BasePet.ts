@@ -65,6 +65,9 @@ export class BasePet {
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private despawnCallback: (() => void) | null = null;
 
+  // Per-pet walk speed (0.6x–1.5x of base) so pets move at different paces.
+  private readonly walkSpeed: number;
+
   // X position saved when focus starts; restored when focus ends.
   // Not persisted to DB — a restart mid-focus respawns at floor_x which is fine.
   private originX: number | null = null;
@@ -84,6 +87,7 @@ export class BasePet {
       y: config.floorY,
     };
 
+    this.walkSpeed  = BasePet.WALK_SPEED_PX_PER_S * (0.6 + Math.random() * 0.9);
     this.el         = this._buildDOM(container);
     this.props      = new PropRenderer();
     this.imgOpen    = this.el.querySelector<HTMLImageElement>(".pet-mouth-open")!;
@@ -233,24 +237,63 @@ export class BasePet {
 
   private _startIdleWalk(): void {
     let lastTime: number | null = null;
+    let isMoving    = true;
+    // First decision after a short random delay so pets don't all pause in sync.
+    let nextDecision = Math.random() * 3 + 1;
+
+    const decide = () => {
+      const roll = Math.random();
+      if (!isMoving) {
+        isMoving = true;
+        if (Math.random() < 0.5) { this.direction *= -1; this._flipHorizontal(); }
+        nextDecision = Math.random() * 5 + 2;
+      } else if (roll < 0.25) {
+        isMoving = false;
+        nextDecision = Math.random() * 3 + 1;
+      } else if (roll < 0.5) {
+        this.direction *= -1;
+        this._flipHorizontal();
+        nextDecision = Math.random() * 5 + 2;
+      } else {
+        nextDecision = Math.random() * 5 + 2;
+      }
+    };
+
     const step = (now: number) => {
       if (this.fsm.state !== "idle") return;
       const dt = lastTime !== null ? (now - lastTime) / 1000 : 0;
       lastTime = now;
 
-      this.pos.x += this.direction * BasePet.WALK_SPEED_PX_PER_S * dt;
+      nextDecision -= dt;
+      if (nextDecision <= 0) decide();
 
-      const margin = this.config.sizePx / 2 + 20;
-      const maxX   = window.innerWidth - margin;
-      if (this.pos.x <= margin || this.pos.x >= maxX) {
-        this.direction *= -1;
-        this._flipHorizontal();
+      if (isMoving) {
+        this.pos.x += this.direction * this.walkSpeed * dt;
+
+        const margin = this.config.sizePx / 2 + 20;
+        const maxX   = window.innerWidth - margin;
+        if (this.pos.x <= margin) {
+          this.pos.x  = margin;
+          this.direction = 1;
+          this._flipHorizontal();
+        } else if (this.pos.x >= maxX) {
+          this.pos.x  = maxX;
+          this.direction = -1;
+          this._flipHorizontal();
+        }
+
+        this.el.style.left = `${this.pos.x}px`;
       }
 
-      this.el.style.left = `${this.pos.x}px`;
       this.walkAnimFrame = requestAnimationFrame(step);
     };
     this.walkAnimFrame = requestAnimationFrame(step);
+  }
+
+  resumeIdleWalk(): void {
+    if (this.fsm.state !== "idle") return;
+    this._stopWalking();
+    this._startIdleWalk();
   }
 
   private _stopWalking(): void {

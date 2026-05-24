@@ -136,7 +136,7 @@ export class PetManager {
 
   private static async _onChatMessage(payload: ChatMessagePayload): Promise<void> {
     if (!this.enabled) return;
-    if (payload.user_id <= 0) return; // skip test messages
+    if (payload.user_id === 0) return; // skip test messages (guest pets have negative IDs)
 
     if (!this.pets.has(payload.user_id)) {
       if (this.pets.size >= this.maxPets) return;
