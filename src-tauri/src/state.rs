@@ -244,6 +244,12 @@ pub struct AppConfig {
     pub tama_guests_tiktok: bool,
     pub tama_guests_tts: bool,
     pub tama_guests_label_prefix: String,
+    // ── Static layout config ─────────────────────────────────────────────────
+    /// "dynamic" (free walk) or "static" (fixed queue at anchor edge)
+    pub tama_layout_mode: String,
+    /// "left" or "right" — which side the queue starts from
+    pub tama_static_anchor: String,
+    pub tama_static_spacing_px: u32,
 }
 
 // =========================================================================================================

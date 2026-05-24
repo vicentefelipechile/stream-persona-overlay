@@ -172,6 +172,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_guests_tiktok", "true"),
         ("tama_guests_tts", "false"),
         ("tama_guests_label_prefix", ""),
+        // ── Static layout config ─────────────────────────────────────────────
+        ("tama_layout_mode", "dynamic"),
+        ("tama_static_anchor", "left"),
+        ("tama_static_spacing_px", "100"),
     ];
 
     for (key, value) in &defaults {

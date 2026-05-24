@@ -35,6 +35,7 @@ export interface PetConfig {
   sizePx: number;
   floorY: number;
   initialX?: number;
+  staticMode?: boolean;
 }
 
 export interface PetPosition {
@@ -192,6 +193,9 @@ export class BasePet {
       this.fsm.transition("idle");
     }
 
+    // In static mode pets do not walk — no approach/return cycle.
+    if (this.config.staticMode) return;
+
     if (!this.fsm.canDo("approaching")) return;
     this._stopCurrentAction();
     // Only capture originX on a fresh focus entry (idle -> approaching).
@@ -236,6 +240,7 @@ export class BasePet {
   private static readonly FOCUS_SPEED_PX_PER_S = 200;
 
   private _startIdleWalk(): void {
+    if (this.config.staticMode) return;
     let lastTime: number | null = null;
     let isMoving    = true;
     // First decision after a short random delay so pets don't all pause in sync.

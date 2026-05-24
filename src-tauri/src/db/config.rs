@@ -179,6 +179,12 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_guests_tiktok" => cfg.tama_guests_tiktok = value == "true",
             "tama_guests_tts" => cfg.tama_guests_tts = value == "true",
             "tama_guests_label_prefix" => cfg.tama_guests_label_prefix = value,
+            // ── Static layout config ──────────────────────────────────────────
+            "tama_layout_mode" => cfg.tama_layout_mode = value,
+            "tama_static_anchor" => cfg.tama_static_anchor = value,
+            "tama_static_spacing_px" => {
+                cfg.tama_static_spacing_px = value.parse().unwrap_or(100)
+            }
             _ => {}
         }
     }

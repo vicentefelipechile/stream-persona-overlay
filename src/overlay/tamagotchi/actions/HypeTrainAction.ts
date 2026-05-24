@@ -22,6 +22,8 @@ export class HypeTrainAction extends BaseAction {
   }
 
   async execute(): Promise<void> {
+    if (this.pet.config.staticMode) return;
+
     const train = document.createElement("div");
     train.textContent = "🚂 HYPE TRAIN 🚂";
     train.style.position = "fixed";

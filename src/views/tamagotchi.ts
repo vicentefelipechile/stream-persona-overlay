@@ -62,19 +62,23 @@ export async function renderTamagotchi(): Promise<void> {
     return;
   }
 
-  const enabled         = String(cfg["tama_enabled"])           === "true";
-  const petSizePx       = Number(cfg["tama_pet_size_px"])       || 80;
-  const maxPets         = Number(cfg["tama_max_pets"])          || 8;
-  const walkSpeed       = Number(cfg["tama_walk_speed"])        || 0.6;
-  const inactivityMins  = Number(cfg["tama_inactivity_mins"])   || 5;
-  const actionCheckSecs = Number(cfg["tama_action_check_secs"]) || 8;
-  const actionProb      = Number(cfg["tama_action_probability"])|| 0.15;
-  const jumpOnSpeak     = String(cfg["tama_jump_on_speak"])     === "true";
-  const guestsEnabled   = String(cfg["tama_guests_enabled"])    === "true";
-  const guestsTwitch    = String(cfg["tama_guests_twitch"])     === "true";
-  const guestsTiktok    = String(cfg["tama_guests_tiktok"])     === "true";
-  const guestsTts       = String(cfg["tama_guests_tts"])        === "true";
-  const guestsPrefix    = String(cfg["tama_guests_label_prefix"] ?? "");
+  const enabled         = String(cfg["tama_enabled"])              === "true";
+  const petSizePx       = Number(cfg["tama_pet_size_px"])          || 80;
+  const maxPets         = Number(cfg["tama_max_pets"])             || 8;
+  const walkSpeed       = Number(cfg["tama_walk_speed"])           || 0.6;
+  const inactivityMins  = Number(cfg["tama_inactivity_mins"])      || 5;
+  const actionCheckSecs = Number(cfg["tama_action_check_secs"])    || 8;
+  const actionProb      = Number(cfg["tama_action_probability"])   || 0.15;
+  const jumpOnSpeak     = String(cfg["tama_jump_on_speak"])        === "true";
+  const guestsEnabled   = String(cfg["tama_guests_enabled"])       === "true";
+  const guestsTwitch    = String(cfg["tama_guests_twitch"])        === "true";
+  const guestsTiktok    = String(cfg["tama_guests_tiktok"])        === "true";
+  const guestsTts       = String(cfg["tama_guests_tts"])           === "true";
+  const guestsPrefix    = String(cfg["tama_guests_label_prefix"]   ?? "");
+  const layoutMode      = String(cfg["tama_layout_mode"]           ?? "dynamic") === "static" ? "static" : "dynamic";
+  const staticAnchor    = String(cfg["tama_static_anchor"]         ?? "left")    === "right"  ? "right"  : "left";
+  const staticSpacing   = Number(cfg["tama_static_spacing_px"])    || 100;
+  const isStatic        = layoutMode === "static";
 
   let enabledActions: string[] = [];
   try {
@@ -128,6 +132,31 @@ export async function renderTamagotchi(): Promise<void> {
           <input type="checkbox" id="cfg-jump-on-speak" ${jumpOnSpeak ? "checked" : ""}/>
           <span class="switch-track"></span>
         </label>
+      </div>
+
+      <div class="tama-setting-row" style="margin-top:var(--space-4);">
+        <div>
+          <div class="tama-setting-label">Modo de disposición</div>
+          <div class="tama-setting-desc">Dynamic: mascotas caminan libremente. Static: se colocan en fila en un borde de la pantalla.</div>
+        </div>
+        <select id="cfg-layout-mode" style="width:140px;">
+          <option value="dynamic" ${layoutMode === "dynamic" ? "selected" : ""}>Dynamic</option>
+          <option value="static"  ${layoutMode === "static"  ? "selected" : ""}>Static</option>
+        </select>
+      </div>
+
+      <div id="static-options" style="${!isStatic ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4);padding-left:var(--space-5);border-left:2px solid var(--color-border);">
+        <div class="tama-setting-row">
+          <div>
+            <div class="tama-setting-label">Ancla</div>
+            <div class="tama-setting-desc">Desde qué lado de la pantalla comienza la fila</div>
+          </div>
+          <select id="cfg-static-anchor" style="width:100px;">
+            <option value="left"  ${staticAnchor === "left"  ? "selected" : ""}>Izquierda</option>
+            <option value="right" ${staticAnchor === "right" ? "selected" : ""}>Derecha</option>
+          </select>
+        </div>
+        ${_slider("cfg-static-spacing", "cfg-static-spacing-val", "Espaciado entre mascotas", staticSpacing, "px", 60, 300, 10)}
       </div>
     </div>
 
@@ -188,17 +217,20 @@ export async function renderTamagotchi(): Promise<void> {
         <span id="tama-actions-badge" class="badge badge-active">${enabledActions.length} activa${enabledActions.length !== 1 ? "s" : ""}</span>
       </div>
       <div class="tama-actions-grid" id="action-toggles">
-        ${allActionMeta.map(m => `
-          <label class="tama-action-card${enabledActions.includes(m.id) ? " tama-action-card--on" : ""}">
+        ${allActionMeta.map(m => {
+          const blocked = isStatic && (m.id === "fight" || m.id === "hype_train");
+          return `
+          <label class="tama-action-card${enabledActions.includes(m.id) ? " tama-action-card--on" : ""}${blocked ? " tama-action-card--blocked" : ""}">
             <input type="checkbox" class="action-checkbox" data-id="${m.id}" ${enabledActions.includes(m.id) ? "checked" : ""}/>
             <span class="tama-action-icon">${m.icon}</span>
             <div class="tama-action-info">
               <span class="tama-action-name">${m.label}</span>
               <span class="tama-action-desc">${m.description}</span>
+              ${blocked ? `<span class="badge" style="margin-top:4px;font-size:10px;opacity:.7;">No disponible en modo static</span>` : ""}
             </div>
             <span class="tama-action-check">${Icons.check(14)}</span>
           </label>
-        `).join("")}
+        `}).join("")}
       </div>
     </div>
 
@@ -218,7 +250,10 @@ export async function renderTamagotchi(): Promise<void> {
           <label>Acción</label>
           <select id="fire-action">
             <option value="">— Seleccionar acción —</option>
-            ${allActionMeta.map(m => `<option value="${m.id}">${m.icon} ${m.label}</option>`).join("")}
+            ${allActionMeta
+              .filter(m => !isStatic || (m.id !== "fight" && m.id !== "hype_train"))
+              .map(m => `<option value="${m.id}">${m.icon} ${m.label}</option>`)
+              .join("")}
           </select>
         </div>
         <button class="btn btn-primary" id="btn-fire" style="display:inline-flex;align-items:center;gap:6px;">${Icons.zap(14)} Disparar</button>
@@ -299,6 +334,30 @@ export async function renderTamagotchi(): Promise<void> {
   container.querySelector<HTMLInputElement>("#cfg-jump-on-speak")!.addEventListener("change", (e) => {
     const value = (e.target as HTMLInputElement).checked ? "true" : "false";
     invoke("set_config_cmd", { key: "tama_jump_on_speak", value }).catch(err => showToast(String(err), "error"));
+  });
+
+  const layoutModeEl    = container.querySelector<HTMLSelectElement>("#cfg-layout-mode")!;
+  const staticOptionsEl = container.querySelector<HTMLDivElement>("#static-options")!;
+
+  layoutModeEl.addEventListener("change", () => {
+    const value = layoutModeEl.value;
+    const nowStatic = value === "static";
+    staticOptionsEl.style.opacity       = nowStatic ? "" : "0.4";
+    staticOptionsEl.style.pointerEvents = nowStatic ? "" : "none";
+    invoke("set_config_cmd", { key: "tama_layout_mode", value })
+      .catch(err => showToast(String(err), "error"));
+    showToast("Recarga el overlay para aplicar el cambio de disposición", "info");
+  });
+
+  container.querySelector<HTMLSelectElement>("#cfg-static-anchor")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_static_anchor", value: (e.target as HTMLSelectElement).value })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  _bindRange("cfg-static-spacing", "cfg-static-spacing-val", "px");
+  container.querySelector<HTMLInputElement>("#cfg-static-spacing")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_static_spacing_px", value: (e.target as HTMLInputElement).value })
+      .catch(err => showToast(String(err), "error"));
   });
 
   const sliderMap: Array<[string, string]> = [

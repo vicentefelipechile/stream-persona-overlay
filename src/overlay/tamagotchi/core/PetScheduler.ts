@@ -10,13 +10,15 @@ import type { BasePet } from "./BasePet";
 
 export class PetScheduler {
   private pets: Map<number, BasePet>;
+  private blockedActions: string[];
   private intervalId: ReturnType<typeof setInterval> | null = null;
 
   private readonly CHECK_INTERVAL_MS  = 8_000;
   private readonly TRIGGER_PROBABILITY = 0.15;
 
-  constructor(pets: Map<number, BasePet>) {
-    this.pets = pets;
+  constructor(pets: Map<number, BasePet>, blockedActions: string[] = []) {
+    this.pets           = pets;
+    this.blockedActions = blockedActions;
     this._start();
   }
 
@@ -25,11 +27,12 @@ export class PetScheduler {
   }
 
   private _tick(): void {
+    const exclude = ["idle_walk", "sleep", ...this.blockedActions];
     for (const pet of this.pets.values()) {
       if (pet.fsm.state !== "idle") continue;
       if (Math.random() > this.TRIGGER_PROBABILITY) continue;
 
-      const actionId = ActionRegistry.getRandomId(["idle_walk", "sleep"]);
+      const actionId = ActionRegistry.getRandomId(exclude);
       if (actionId) pet.executeAction(actionId).catch(console.error);
     }
   }

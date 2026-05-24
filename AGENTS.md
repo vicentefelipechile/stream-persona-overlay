@@ -338,6 +338,9 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_guests_tiktok` | `"true"` | Allow guest pets from TikTok (only effective when master is on) |
 | `tama_guests_tts` | `"false"` | Enable TTS for guest messages |
 | `tama_guests_label_prefix` | `""` | Optional prefix prepended to the guest display name (e.g. `"[G] "`) |
+| `tama_layout_mode` | `"dynamic"` | `"dynamic"` = pets walk freely; `"static"` = pets queue at a fixed anchor edge |
+| `tama_static_anchor` | `"left"` | Which edge the queue starts from (`"left"` or `"right"`). Only used when `tama_layout_mode = "static"` |
+| `tama_static_spacing_px` | `"100"` | Pixel gap between consecutive pet slots in static mode |
 | **Anti-spam — Twitch chat** | | |
 | `twitch_chat_antispam_preset` | `"off"` | Named preset: `off`, `light`, `normal`, `strict`, `lockdown`, `custom` |
 | `twitch_chat_user_cooldown_ms` | `"0"` | Min ms between two messages from the same Twitch user (0 = disabled) |
@@ -875,7 +878,8 @@ overlay.ts
 | `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle ↔ approaching → talking → returning ↔ approaching (re-focus), returning → idle, idle → action → idle, idle → sleeping → despawning |
 | `BaseAction.ts` | Abstract base for all actions. Uses `import type { BasePet }` (avoids circular dep). Provides `wait(ms)`, `cancelled` flag, `onCancel()` hook |
 | `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
-| `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) |
+| `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) — used in `"dynamic"` layout mode |
+| `StaticFloor.ts` | Queue-based slot system for `"static"` layout mode. Assigns incrementing slot indices from a left/right anchor; slots are never compacted on release |
 | `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `WALK_SPEED_PX_PER_S = 36` base; each pet gets a random multiplier 0.6×–1.5× assigned at construction so pets move at different paces), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. The idle-walk loop uses a decision timer (1–8 s) that randomly pauses the pet, changes direction, or continues walking — producing natural-looking movement. Boundary hits clamp `pos.x` and flip direction rather than just toggling. `resumeIdleWalk()` is a public method that restarts the idle RAF loop without going through the FSM (used by `FightAction` to restart the rival after fighting). Exposes `configureBasePetInvoke()` for browser transport injection. `markTtsFinished()` handles the race where TTS ends before pet reaches center. |
 | `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool |
 | `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets |
@@ -889,12 +893,12 @@ Each action file calls `ActionRegistry.register(MyAction)` at the bottom — imp
 | `idle_walk` | `IdleWalkAction` | No-op placeholder; excluded from random pool |
 | `jump` | `JumpAction` | Squash-and-stretch jump loop |
 | `popcorn` | `PopcornAction` | Pet holds a popcorn bucket and watches chat |
-| `fight` | `FightAction` | Two pets charge toward each other, shake, show a fight cloud, bounce away. Cloud is positioned at `top: floorY - 80px` (NOT `bottom`). After all WAAPI animations complete, `el.style.transform` is explicitly cleared on both pets to prevent residual translateX from desynchronising `pos.x` and visual position. Rival's idle walk is restarted via `rival.resumeIdleWalk()` (FSM re-entry is not possible since rival never left "idle"). |
+| `fight` | `FightAction` | Two pets charge toward each other, shake, show a fight cloud, bounce away. **Blocked in static layout mode** (guard at start of `execute()`). Cloud is positioned at `top: floorY - 80px` (NOT `bottom`). After all WAAPI animations complete, `el.style.transform` is explicitly cleared on both pets to prevent residual translateX from desynchronising `pos.x` and visual position. Rival's idle walk is restarted via `rival.resumeIdleWalk()` (FSM re-entry is not possible since rival never left "idle"). |
 | `explode` | `ExplodeAction` | Tremor, flash, particle burst, then respawn with spring |
 | `dance` | `DanceAction` | Rhythmic rotate + translateY loop |
 | `sleep` | `SleepAction` | Pet tilts + ZZZ props; cancelled on next chat message |
 | `confetti` | `ConfettiAction` | 10 colored DOM particles burst from pet position; probability 0 (event-triggered only) |
-| `hype_train` | `HypeTrainAction` | 🚂 emoji text scrolls across the floor from left to right; probability 0 (event-triggered only) |
+| `hype_train` | `HypeTrainAction` | 🚂 emoji text scrolls across the floor from left to right; probability 0 (event-triggered only). **Blocked in static layout mode** (guard at start of `execute()`). |
 
 To add a new action, copy `_template.ts`, implement `execute()`, set `meta.id` and `meta.probability`, and call `ActionRegistry.register()` at the bottom. Import the file in `PetManager.ts` to activate it.
 

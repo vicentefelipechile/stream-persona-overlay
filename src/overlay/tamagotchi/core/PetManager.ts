@@ -11,6 +11,7 @@ import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { BasePet, configureBasePetInvoke } from "./BasePet";
 import type { PetConfig } from "./BasePet";
+import { StaticFloor } from "./StaticFloor";
 
 // =========================================================================================================
 // Transport Interface
@@ -82,6 +83,13 @@ export class PetManager {
   private static petSizePx    = 80;
   private static jumpOnSpeak  = false;
 
+  private static layoutMode:    "dynamic" | "static" = "dynamic";
+  private static staticAnchor:  "left" | "right"     = "left";
+  private static staticSpacing: number                = 100;
+  private static staticFloor:   StaticFloor | null    = null;
+
+  private static readonly STATIC_BLOCKED_ACTIONS = new Set(["fight", "hype_train"]);
+
   // =========================================================================================================
   // Init
   // =========================================================================================================
@@ -96,15 +104,31 @@ export class PetManager {
 
     try {
       const cfg = await this.transport.invoke<Record<string, unknown>>("get_config_cmd");
-      this.enabled   = String(cfg["tama_enabled"])   === "true";
-      this.maxPets   = Number(cfg["tama_max_pets"])  || 8;
-      this.petSizePx = Number(cfg["tama_pet_size_px"]) || 80;
-      this.jumpOnSpeak = String(cfg["tama_jump_on_speak"]) === "true";
+      this.enabled       = String(cfg["tama_enabled"])          === "true";
+      this.maxPets       = Number(cfg["tama_max_pets"])         || 8;
+      this.petSizePx     = Number(cfg["tama_pet_size_px"])      || 80;
+      this.jumpOnSpeak   = String(cfg["tama_jump_on_speak"])    === "true";
+      this.layoutMode    = String(cfg["tama_layout_mode"])      === "static" ? "static" : "dynamic";
+      this.staticAnchor  = String(cfg["tama_static_anchor"])    === "right"  ? "right"  : "left";
+      this.staticSpacing = Number(cfg["tama_static_spacing_px"]) || 100;
     } catch (_) {}
 
     const floorY = window.innerHeight - this.petSizePx - 28;
-    this.floor     = new PetFloor({ y: floorY, thickness: 20, minSpacing: 100 });
-    this._scheduler = new PetScheduler(this.pets);
+    this.floor = new PetFloor({ y: floorY, thickness: 20, minSpacing: 100 });
+
+    if (this.layoutMode === "static") {
+      this.staticFloor = new StaticFloor({
+        anchor:    this.staticAnchor,
+        spacingPx: this.staticSpacing,
+        petSizePx: this.petSizePx,
+        floorY,
+      });
+    }
+
+    const blockedActions = this.layoutMode === "static"
+      ? Array.from(this.STATIC_BLOCKED_ACTIONS)
+      : [];
+    this._scheduler = new PetScheduler(this.pets, blockedActions);
 
     await this.transport.listen<ChatMessagePayload>("chat-message", e => {
       this._onChatMessage(e.payload).catch(console.error);
@@ -123,6 +147,7 @@ export class PetManager {
       resizeTimer = setTimeout(() => {
         const newFloorY = window.innerHeight - this.petSizePx - 20;
         this.floor.floorY = newFloorY;
+        if (this.staticFloor) this.staticFloor.floorY = newFloorY;
         for (const pet of this.pets.values()) {
           pet.updateFloorY(newFloorY);
         }
@@ -141,21 +166,26 @@ export class PetManager {
     if (!this.pets.has(payload.user_id)) {
       if (this.pets.size >= this.maxPets) return;
 
-      const spawnX = this.floor.getSpawnX(payload.user_id, this.petSizePx);
+      const spawnX = this.layoutMode === "static"
+        ? this.staticFloor!.assignSlot(payload.user_id)
+        : this.floor.getSpawnX(payload.user_id, this.petSizePx);
+
       const cfg: PetConfig = {
         userId:       payload.user_id,
         displayName:  payload.display_name,
         mouthOpenUrl:   this.transport.convertFileSrc(payload.mouth_open_path),
         mouthClosedUrl: this.transport.convertFileSrc(payload.mouth_closed_path),
-        sizePx:  this.petSizePx,
-        floorY:  this.floor.floorY,
-        initialX: spawnX,
+        sizePx:    this.petSizePx,
+        floorY:    this.floor.floorY,
+        initialX:  spawnX,
+        staticMode: this.layoutMode === "static",
       };
 
       const pet = new BasePet(this.container, cfg);
       pet.setDespawnCallback(() => {
         this.pets.delete(payload.user_id);
         this.floor.remove(payload.user_id);
+        this.staticFloor?.releaseSlot(payload.user_id);
       });
       this.pets.set(payload.user_id, pet);
       await pet.spawn();
@@ -187,6 +217,7 @@ export class PetManager {
   }
 
   private static async _onTamaAction(payload: TamaActionPayload): Promise<void> {
+    if (this.layoutMode === "static" && this.STATIC_BLOCKED_ACTIONS.has(payload.action_id)) return;
     const pet = this.pets.get(payload.user_id);
     if (pet) await pet.executeAction(payload.action_id, payload.input);
   }

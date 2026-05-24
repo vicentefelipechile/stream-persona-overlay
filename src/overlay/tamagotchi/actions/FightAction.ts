@@ -45,6 +45,8 @@ export class FightAction extends BaseAction {
   constructor(pet: BasePet, input?: ActionInput) { super(pet, input); }
 
   async execute(): Promise<void> {
+    if (this.pet.config.staticMode) return;
+
     const targetId = this.input["targetUserId"] as number | undefined;
     const rival = targetId
       ? PetManager.get(targetId)
