@@ -876,7 +876,7 @@ overlay.ts
 | `BaseAction.ts` | Abstract base for all actions. Uses `import type { BasePet }` (avoids circular dep). Provides `wait(ms)`, `cancelled` flag, `onCancel()` hook |
 | `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
 | `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) |
-| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `WALK_SPEED_PX_PER_S = 36`), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. Exposes `configureBasePetInvoke()` for browser transport injection. `markTtsFinished()` handles the race where TTS ends before pet reaches center. |
+| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `WALK_SPEED_PX_PER_S = 36` base; each pet gets a random multiplier 0.6×–1.5× assigned at construction so pets move at different paces), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. The idle-walk loop uses a decision timer (1–8 s) that randomly pauses the pet, changes direction, or continues walking — producing natural-looking movement. Boundary hits clamp `pos.x` and flip direction rather than just toggling. `resumeIdleWalk()` is a public method that restarts the idle RAF loop without going through the FSM (used by `FightAction` to restart the rival after fighting). Exposes `configureBasePetInvoke()` for browser transport injection. `markTtsFinished()` handles the race where TTS ends before pet reaches center. |
 | `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool |
 | `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets |
 
@@ -889,7 +889,7 @@ Each action file calls `ActionRegistry.register(MyAction)` at the bottom — imp
 | `idle_walk` | `IdleWalkAction` | No-op placeholder; excluded from random pool |
 | `jump` | `JumpAction` | Squash-and-stretch jump loop |
 | `popcorn` | `PopcornAction` | Pet holds a popcorn bucket and watches chat |
-| `fight` | `FightAction` | Two pets charge toward each other, shake, show a fight cloud, bounce away |
+| `fight` | `FightAction` | Two pets charge toward each other, shake, show a fight cloud, bounce away. Cloud is positioned at `top: floorY - 80px` (NOT `bottom`). After all WAAPI animations complete, `el.style.transform` is explicitly cleared on both pets to prevent residual translateX from desynchronising `pos.x` and visual position. Rival's idle walk is restarted via `rival.resumeIdleWalk()` (FSM re-entry is not possible since rival never left "idle"). |
 | `explode` | `ExplodeAction` | Tremor, flash, particle burst, then respawn with spring |
 | `dance` | `DanceAction` | Rhythmic rotate + translateY loop |
 | `sleep` | `SleepAction` | Pet tilts + ZZZ props; cancelled on next chat message |
@@ -1101,11 +1101,3 @@ If `tts-state { speaking: false }` arrives before the pet finishes walking to ce
 ### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
 
 `PetManager` reads this config at `init()`. When set, `_onChatMessage` calls `pet.executeAction("jump")` instead of `pet.onChatMessage()`. The pet jumps in place — no approach, no center movement. The `jumpOnSpeak` flag is stored as a static property on `PetManager`; changes take effect only after the overlay reloads.
-
----
-
-*Updated 2026-05-24 — Stream Persona Overlay v0.1 — added Guest Viewer mode: unregistered chat users spawn a generic pet using bundled `guest_open.png` / `guest_closed.png` images from `src-tauri/resources/`. New config keys: `tama_guests_enabled`, `tama_guests_twitch`, `tama_guests_tiktok`, `tama_guests_tts`, `tama_guests_label_prefix`. Guest IDs are stable negative i64 values derived from `guest_user_id(platform, username)` (in `state.rs`) — they never collide with real DB autoincrement IDs. Guest pets skip DB persistence (`BasePet` already guards `userId <= 0`). Anti-spam pipeline applies to guests same as registered users. Admin panel: new "Guest Viewers" card between Config and Actions cards.*
-
-*Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views; corrected config-key table; moved disconnect_twitch/disconnect_tiktok to commands/config.rs; added animation-config-changed event to §8. UX pass: slider inputs for all ms/numeric advanced config (sRow + syncSlider + --slider-fill pattern), .details-toggle class for summary elements, section-title now 20px/bold/full-color, Twitch connect uses Promise.race with once() + 10s timeout, channel input auto-lowercases, duplicate connect toast removed from frontend, Access Token label + twitchapps.com/tmi link, TikTok API Key optional note + eulerstream.com link, required OAuth scopes shown as chips inline.*
-
----
