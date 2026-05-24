@@ -7,6 +7,8 @@ use crate::{
     state::{AppConfig, AppState, ChatEventPayload},
 };
 
+type SubDef<'a> = (&'a str, &'a str, Option<(&'a str, &'a str)>);
+
 pub async fn spawn_twitch_eventsub(state: AppState, app_handle: AppHandle) {
     let cfg = {
         let Ok(db) = state.db.lock() else {
@@ -104,7 +106,7 @@ async fn register_subscriptions(cfg: &AppConfig, session_id: &str) {
 
     // Subscriptions: (type, version, condition_extra_key)
     // channel.follow v2 requires moderator_user_id in addition to broadcaster_user_id
-    let subs: &[(&str, &str, Option<(&str, &str)>)] = &[
+    let subs: &[SubDef] = &[
         ("channel.cheer", "1", None),
         ("channel.subscribe", "1", None),
         (

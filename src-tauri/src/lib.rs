@@ -189,17 +189,15 @@ pub fn run() {
                 // Detect the main window being destroyed and force a clean exit here.
                 tauri::RunEvent::WindowEvent {
                     label,
-                    event: win_event,
+                    event: tauri::WindowEvent::Destroyed,
                     ..
                 } if label == "main" => {
-                    if let tauri::WindowEvent::Destroyed = win_event {
-                        let state = app_handle.state::<AppState>();
-                        state.abort_all();
-                        tracing::info!(
-                            "Ventana principal cerrada — abortando tareas y cerrando proceso"
-                        );
-                        app_handle.exit(0);
-                    }
+                    let state = app_handle.state::<AppState>();
+                    state.abort_all();
+                    tracing::info!(
+                        "Ventana principal cerrada — abortando tareas y cerrando proceso"
+                    );
+                    app_handle.exit(0);
                 }
                 _ => {}
             }

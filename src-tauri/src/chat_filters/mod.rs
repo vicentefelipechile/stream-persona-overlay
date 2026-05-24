@@ -98,10 +98,10 @@ impl ChatFilters {
         // 3. Duplicate suppression (case-insensitive, whitespace-normalised)
         if dedup_ms > 0 {
             if let (Some(last_text), Some(last_at)) = (&state.last_text, state.last_text_at) {
-                if now.duration_since(last_at) < Duration::from_millis(dedup_ms as u64) {
-                    if text.trim().to_lowercase() == last_text.trim().to_lowercase() {
-                        return FilterDecision::Drop(DropReason::Duplicate);
-                    }
+                if now.duration_since(last_at) < Duration::from_millis(dedup_ms as u64)
+                    && text.trim().to_lowercase() == last_text.trim().to_lowercase()
+                {
+                    return FilterDecision::Drop(DropReason::Duplicate);
                 }
             }
         }
@@ -213,28 +213,32 @@ mod tests {
     use super::*;
 
     fn cfg_with_cooldown(ms: u32) -> AppConfig {
-        let mut c = AppConfig::default();
-        c.twitch_chat_user_cooldown_ms = ms;
-        c
+        AppConfig {
+            twitch_chat_user_cooldown_ms: ms,
+            ..Default::default()
+        }
     }
 
     fn cfg_with_dedup(ms: u32) -> AppConfig {
-        let mut c = AppConfig::default();
-        c.twitch_chat_dedup_window_ms = ms;
-        c
+        AppConfig {
+            twitch_chat_dedup_window_ms: ms,
+            ..Default::default()
+        }
     }
 
     fn cfg_with_rate(max: u32, secs: u32) -> AppConfig {
-        let mut c = AppConfig::default();
-        c.twitch_chat_rate_max_msgs = max;
-        c.twitch_chat_rate_window_secs = secs;
-        c
+        AppConfig {
+            twitch_chat_rate_max_msgs: max,
+            twitch_chat_rate_window_secs: secs,
+            ..Default::default()
+        }
     }
 
     fn cfg_with_global(cap: u32) -> AppConfig {
-        let mut c = AppConfig::default();
-        c.chat_global_rate_max_per_sec = cap;
-        c
+        AppConfig {
+            chat_global_rate_max_per_sec: cap,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -328,8 +332,10 @@ mod tests {
     #[test]
     fn event_cooldown_blocks_repeat() {
         let mut f = ChatFilters::default();
-        let mut cfg = AppConfig::default();
-        cfg.tiktok_event_like_user_cooldown_ms = 60_000;
+        let cfg = AppConfig {
+            tiktok_event_like_user_cooldown_ms: 60_000,
+            ..Default::default()
+        };
         assert!(matches!(
             f.check_event("tiktok", "alice", "tiktok_like", &cfg),
             FilterDecision::Allow
