@@ -18,10 +18,10 @@ pub enum DropReason {
 impl DropReason {
     pub fn as_str(&self) -> &'static str {
         match self {
-            DropReason::Cooldown    => "cooldown",
-            DropReason::Duplicate   => "duplicate",
-            DropReason::RateWindow  => "rate_window",
-            DropReason::GlobalRate  => "global_rate",
+            DropReason::Cooldown => "cooldown",
+            DropReason::Duplicate => "duplicate",
+            DropReason::RateWindow => "rate_window",
+            DropReason::GlobalRate => "global_rate",
         }
     }
 }
@@ -36,10 +36,10 @@ pub enum FilterDecision {
 // =========================================================================================================
 
 struct UserChatState {
-    last_seen:    Option<Instant>,
-    last_text:    Option<String>,
+    last_seen: Option<Instant>,
+    last_text: Option<String>,
     last_text_at: Option<Instant>,
-    timestamps:   Vec<Instant>,
+    timestamps: Vec<Instant>,
 }
 
 // =========================================================================================================
@@ -48,8 +48,8 @@ struct UserChatState {
 
 #[derive(Default)]
 pub struct ChatFilters {
-    chat:              HashMap<(String, String), UserChatState>,
-    events:            HashMap<(String, String, String), Instant>,
+    chat: HashMap<(String, String), UserChatState>,
+    events: HashMap<(String, String, String), Instant>,
     global_timestamps: Vec<Instant>,
 }
 
@@ -59,9 +59,9 @@ impl ChatFilters {
     pub fn check_chat(
         &mut self,
         platform: &str,
-        user:     &str,
-        text:     &str,
-        cfg:      &AppConfig,
+        user: &str,
+        text: &str,
+        cfg: &AppConfig,
     ) -> FilterDecision {
         let now = Instant::now();
         let (cooldown_ms, dedup_ms, rate_max, rate_window_secs, global_cap) =
@@ -76,13 +76,14 @@ impl ChatFilters {
             }
         }
 
-        let state = self.chat
+        let state = self
+            .chat
             .entry((platform.to_string(), user.to_string()))
             .or_insert(UserChatState {
-                last_seen:    None,
-                last_text:    None,
+                last_seen: None,
+                last_text: None,
                 last_text_at: None,
-                timestamps:   Vec::new(),
+                timestamps: Vec::new(),
             });
 
         // 2. Per-user cooldown
@@ -115,8 +116,8 @@ impl ChatFilters {
         }
 
         // Allow — update state
-        state.last_seen    = Some(now);
-        state.last_text    = Some(text.to_string());
+        state.last_seen = Some(now);
+        state.last_text = Some(text.to_string());
         state.last_text_at = Some(now);
         if rate_max > 0 {
             state.timestamps.push(now);
@@ -131,10 +132,10 @@ impl ChatFilters {
     /// Check whether a chat event (cheer, sub, gift, like, etc.) should be forwarded.
     pub fn check_event(
         &mut self,
-        platform:   &str,
-        user:       &str,
+        platform: &str,
+        user: &str,
         event_kind: &str,
-        cfg:        &AppConfig,
+        cfg: &AppConfig,
     ) -> FilterDecision {
         let cooldown_ms = Self::event_cooldown(platform, event_kind, cfg);
         if cooldown_ms == 0 {
@@ -142,7 +143,11 @@ impl ChatFilters {
         }
 
         let now = Instant::now();
-        let key = (platform.to_string(), user.to_string(), event_kind.to_string());
+        let key = (
+            platform.to_string(),
+            user.to_string(),
+            event_kind.to_string(),
+        );
 
         if let Some(&last) = self.events.get(&key) {
             if now.duration_since(last) < Duration::from_millis(cooldown_ms as u64) {
@@ -182,17 +187,18 @@ impl ChatFilters {
 
     fn event_cooldown(platform: &str, event_kind: &str, cfg: &AppConfig) -> u32 {
         match (platform, event_kind) {
-            ("twitch", "cheer")  => cfg.twitch_event_cheer_user_cooldown_ms,
-            ("twitch", "sub")    => cfg.twitch_event_sub_user_cooldown_ms,
-            ("twitch", "raid")   => cfg.twitch_event_raid_global_cooldown_ms,
+            ("twitch", "cheer") => cfg.twitch_event_cheer_user_cooldown_ms,
+            ("twitch", "sub") => cfg.twitch_event_sub_user_cooldown_ms,
+            ("twitch", "raid") => cfg.twitch_event_raid_global_cooldown_ms,
             ("twitch", "follow") => cfg.twitch_event_follow_user_cooldown_ms,
-            ("tiktok", "tiktok_gift") | ("tiktok", "tiktok_gift_big") =>
-                cfg.tiktok_event_gift_user_cooldown_ms,
-            ("tiktok", "tiktok_like")      => cfg.tiktok_event_like_user_cooldown_ms,
-            ("tiktok", "tiktok_follow")    => cfg.tiktok_event_follow_user_cooldown_ms,
-            ("tiktok", "tiktok_share")     => cfg.tiktok_event_share_user_cooldown_ms,
+            ("tiktok", "tiktok_gift") | ("tiktok", "tiktok_gift_big") => {
+                cfg.tiktok_event_gift_user_cooldown_ms
+            }
+            ("tiktok", "tiktok_like") => cfg.tiktok_event_like_user_cooldown_ms,
+            ("tiktok", "tiktok_follow") => cfg.tiktok_event_follow_user_cooldown_ms,
+            ("tiktok", "tiktok_share") => cfg.tiktok_event_share_user_cooldown_ms,
             ("tiktok", "tiktok_subscribe") => cfg.tiktok_event_subscribe_user_cooldown_ms,
-            ("tiktok", "tiktok_envelope")  => cfg.tiktok_event_envelope_user_cooldown_ms,
+            ("tiktok", "tiktok_envelope") => cfg.tiktok_event_envelope_user_cooldown_ms,
             _ => 0,
         }
     }
@@ -220,7 +226,7 @@ mod tests {
 
     fn cfg_with_rate(max: u32, secs: u32) -> AppConfig {
         let mut c = AppConfig::default();
-        c.twitch_chat_rate_max_msgs    = max;
+        c.twitch_chat_rate_max_msgs = max;
         c.twitch_chat_rate_window_secs = secs;
         c
     }
@@ -234,8 +240,11 @@ mod tests {
     #[test]
     fn cooldown_blocks_second_message() {
         let mut f = ChatFilters::default();
-        let cfg   = cfg_with_cooldown(60_000);
-        assert!(matches!(f.check_chat("twitch", "alice", "hi", &cfg), FilterDecision::Allow));
+        let cfg = cfg_with_cooldown(60_000);
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "hi", &cfg),
+            FilterDecision::Allow
+        ));
         assert!(matches!(
             f.check_chat("twitch", "alice", "hi again", &cfg),
             FilterDecision::Drop(DropReason::Cooldown)
@@ -245,16 +254,25 @@ mod tests {
     #[test]
     fn cooldown_allows_different_users() {
         let mut f = ChatFilters::default();
-        let cfg   = cfg_with_cooldown(60_000);
-        assert!(matches!(f.check_chat("twitch", "alice", "hi", &cfg), FilterDecision::Allow));
-        assert!(matches!(f.check_chat("twitch", "bob", "hi", &cfg), FilterDecision::Allow));
+        let cfg = cfg_with_cooldown(60_000);
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "hi", &cfg),
+            FilterDecision::Allow
+        ));
+        assert!(matches!(
+            f.check_chat("twitch", "bob", "hi", &cfg),
+            FilterDecision::Allow
+        ));
     }
 
     #[test]
     fn dedup_blocks_same_text() {
         let mut f = ChatFilters::default();
-        let cfg   = cfg_with_dedup(60_000);
-        assert!(matches!(f.check_chat("twitch", "alice", "hello", &cfg), FilterDecision::Allow));
+        let cfg = cfg_with_dedup(60_000);
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "hello", &cfg),
+            FilterDecision::Allow
+        ));
         assert!(matches!(
             f.check_chat("twitch", "alice", "HELLO", &cfg),
             FilterDecision::Drop(DropReason::Duplicate)
@@ -264,17 +282,29 @@ mod tests {
     #[test]
     fn dedup_allows_different_text() {
         let mut f = ChatFilters::default();
-        let cfg   = cfg_with_dedup(60_000);
-        assert!(matches!(f.check_chat("twitch", "alice", "hello", &cfg), FilterDecision::Allow));
-        assert!(matches!(f.check_chat("twitch", "alice", "world", &cfg), FilterDecision::Allow));
+        let cfg = cfg_with_dedup(60_000);
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "hello", &cfg),
+            FilterDecision::Allow
+        ));
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "world", &cfg),
+            FilterDecision::Allow
+        ));
     }
 
     #[test]
     fn rate_limit_blocks_excess() {
         let mut f = ChatFilters::default();
-        let cfg   = cfg_with_rate(2, 60);
-        assert!(matches!(f.check_chat("twitch", "alice", "a", &cfg), FilterDecision::Allow));
-        assert!(matches!(f.check_chat("twitch", "alice", "b", &cfg), FilterDecision::Allow));
+        let cfg = cfg_with_rate(2, 60);
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "a", &cfg),
+            FilterDecision::Allow
+        ));
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "b", &cfg),
+            FilterDecision::Allow
+        ));
         assert!(matches!(
             f.check_chat("twitch", "alice", "c", &cfg),
             FilterDecision::Drop(DropReason::RateWindow)
@@ -284,8 +314,11 @@ mod tests {
     #[test]
     fn global_rate_blocks_all_users() {
         let mut f = ChatFilters::default();
-        let cfg   = cfg_with_global(1);
-        assert!(matches!(f.check_chat("twitch", "alice", "a", &cfg), FilterDecision::Allow));
+        let cfg = cfg_with_global(1);
+        assert!(matches!(
+            f.check_chat("twitch", "alice", "a", &cfg),
+            FilterDecision::Allow
+        ));
         assert!(matches!(
             f.check_chat("twitch", "bob", "b", &cfg),
             FilterDecision::Drop(DropReason::GlobalRate)
@@ -297,7 +330,10 @@ mod tests {
         let mut f = ChatFilters::default();
         let mut cfg = AppConfig::default();
         cfg.tiktok_event_like_user_cooldown_ms = 60_000;
-        assert!(matches!(f.check_event("tiktok", "alice", "tiktok_like", &cfg), FilterDecision::Allow));
+        assert!(matches!(
+            f.check_event("tiktok", "alice", "tiktok_like", &cfg),
+            FilterDecision::Allow
+        ));
         assert!(matches!(
             f.check_event("tiktok", "alice", "tiktok_like", &cfg),
             FilterDecision::Drop(DropReason::Cooldown)

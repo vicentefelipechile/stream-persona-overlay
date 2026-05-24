@@ -14,7 +14,8 @@ pub async fn set_username(
     #[description = "Tu username de TikTok (sin @)"] tiktok: Option<String>,
 ) -> Result<(), Error> {
     if twitch.is_none() && tiktok.is_none() {
-        ctx.say("❌ Debes proporcionar al menos un username (Twitch o TikTok).").await?;
+        ctx.say("❌ Debes proporcionar al menos un username (Twitch o TikTok).")
+            .await?;
         return Ok(());
     }
 
@@ -31,7 +32,8 @@ pub async fn set_username(
                 &display_name,
                 twitch.as_deref(),
                 tiktok.as_deref(),
-            ).map_err(|e| e.to_string()),
+            )
+            .map_err(|e| e.to_string()),
             Err(e) => Err(e.to_string()),
         }
     };
@@ -76,7 +78,11 @@ pub async fn upload_closed(
     upload_image(ctx, imagen, false).await
 }
 
-async fn upload_image(ctx: Context<'_>, attachment: serenity::Attachment, is_open: bool) -> Result<(), Error> {
+async fn upload_image(
+    ctx: Context<'_>,
+    attachment: serenity::Attachment,
+    is_open: bool,
+) -> Result<(), Error> {
     // Validar tipo MIME y extensión
     let filename = &attachment.filename;
     let content_type = attachment.content_type.as_deref().unwrap_or("");
@@ -93,7 +99,8 @@ async fn upload_image(ctx: Context<'_>, attachment: serenity::Attachment, is_ope
 
     // Validar tamaño (máx 2 MB)
     if attachment.size > 2 * 1024 * 1024 {
-        ctx.say("❌ La imagen es demasiado grande. Máximo 2MB.").await?;
+        ctx.say("❌ La imagen es demasiado grande. Máximo 2MB.")
+            .await?;
         return Ok(());
     }
 
@@ -130,7 +137,11 @@ async fn upload_image(ctx: Context<'_>, attachment: serenity::Attachment, is_ope
     // Usar resize_to_fit en lugar de resize_to_fill para no recortar la imagen (crop) si no es cuadrada
     let resized = img.resize_to_fill(512, 512, image::imageops::FilterType::Lanczos3);
 
-    let file_name = if is_open { "mouth_open.png" } else { "mouth_closed.png" };
+    let file_name = if is_open {
+        "mouth_open.png"
+    } else {
+        "mouth_closed.png"
+    };
     let file_path = persona_dir.join(file_name);
     resized.save_with_format(&file_path, image::ImageFormat::Png)?;
 
@@ -146,9 +157,16 @@ async fn upload_image(ctx: Context<'_>, attachment: serenity::Attachment, is_ope
         }
     }
 
-    let label = if is_open { "boca abierta" } else { "boca cerrada" };
-    ctx.say(format!("✅ Imagen de **{}** guardada correctamente (512×512 PNG).", label))
-        .await?;
+    let label = if is_open {
+        "boca abierta"
+    } else {
+        "boca cerrada"
+    };
+    ctx.say(format!(
+        "✅ Imagen de **{}** guardada correctamente (512×512 PNG).",
+        label
+    ))
+    .await?;
 
     Ok(())
 }
@@ -186,7 +204,8 @@ pub async fn preview(ctx: Context<'_>) -> Result<(), Error> {
 
     match persona_result {
         None => {
-            ctx.say("❌ No tienes ninguna persona registrada. Usa `/persona upload-open` primero.").await?;
+            ctx.say("❌ No tienes ninguna persona registrada. Usa `/persona upload-open` primero.")
+                .await?;
         }
         Some((open, closed)) => {
             let embed = serenity::CreateEmbed::new()
@@ -237,7 +256,8 @@ pub async fn remove(ctx: Context<'_>) -> Result<(), Error> {
             let persona_dir = get_persona_dir(&ctx.data().app_data_dir, &discord_id);
             let _ = std::fs::remove_dir_all(&persona_dir);
 
-            ctx.say("✅ Tu persona ha sido eliminada del overlay.").await?;
+            ctx.say("✅ Tu persona ha sido eliminada del overlay.")
+                .await?;
         }
     }
 

@@ -12,7 +12,6 @@
 // =========================================================================================================
 
 use axum::{
-    Router,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Query, State,
@@ -20,6 +19,7 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
+    Router,
 };
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -39,9 +39,9 @@ use crate::state::AppState;
 #[derive(Clone)]
 struct ServerState {
     app_state: AppState,
-    dist_dir:  PathBuf,
+    dist_dir: PathBuf,
     /// true when running under `tauri dev` (Vite dev server at localhost:1420)
-    dev_mode:  bool,
+    dev_mode: bool,
 }
 
 // =========================================================================================================
@@ -49,17 +49,21 @@ struct ServerState {
 // =========================================================================================================
 
 pub async fn start_server(app_state: AppState, dist_dir: PathBuf, dev_mode: bool) {
-    let state = ServerState { app_state, dist_dir: dist_dir.clone(), dev_mode };
+    let state = ServerState {
+        app_state,
+        dist_dir: dist_dir.clone(),
+        dev_mode,
+    };
 
     let app = Router::new()
         .route("/overlay", get(serve_overlay))
-        .route("/persona",  get(serve_persona))
-        .route("/ws",       get(ws_handler))
+        .route("/persona", get(serve_persona))
+        .route("/ws", get(ws_handler))
         .nest_service("/assets", ServeDir::new(dist_dir.join("assets")))
         .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:6767").await {
-        Ok(l)  => l,
+        Ok(l) => l,
         Err(e) => {
             tracing::error!("[server] No se pudo iniciar en 127.0.0.1:6767 — {}", e);
             return;
@@ -92,7 +96,7 @@ async fn serve_overlay(State(s): State<ServerState>) -> impl IntoResponse {
             Ok(html) => {
                 let html = html
                     .replace("href=\"/src/", "href=\"http://localhost:1420/src/")
-                    .replace("src=\"/src/",  "src=\"http://localhost:1420/src/");
+                    .replace("src=\"/src/", "src=\"http://localhost:1420/src/");
                 (
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
@@ -144,7 +148,7 @@ async fn serve_persona(
 
     // Canonicalize to prevent path traversal (e.g. "../../etc/passwd")
     let canonical = match tokio::fs::canonicalize(&requested).await {
-        Ok(p)  => p,
+        Ok(p) => p,
         Err(_) => return (StatusCode::NOT_FOUND, "Image not found").into_response(),
     };
 
@@ -167,7 +171,12 @@ async fn serve_persona(
             } else {
                 "application/octet-stream"
             };
-            (StatusCode::OK, [(header::CONTENT_TYPE, content_type)], bytes).into_response()
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, content_type)],
+                bytes,
+            )
+                .into_response()
         }
         Err(_) => (StatusCode::NOT_FOUND, "Image not found").into_response(),
     }
@@ -229,13 +238,13 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
 fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
     #[derive(Deserialize)]
     struct WsCommand {
-        id:      String,
+        id: String,
         command: String,
-        args:    Option<serde_json::Value>,
+        args: Option<serde_json::Value>,
     }
 
     let cmd: WsCommand = match serde_json::from_str(text) {
-        Ok(c)  => c,
+        Ok(c) => c,
         Err(_) => return None,
     };
 
@@ -243,30 +252,32 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
 
     let response = match cmd.command.as_str() {
         // Read full config and return it (mirrors get_config_cmd Tauri command)
-        "get_config_cmd" | "get_config" => {
-            match state.db.lock() {
-                Ok(db) => match crate::db::config::get_config(&db) {
-                    Ok(cfg) => serde_json::json!({ "id": cmd.id, "result": cfg }),
-                    Err(e)  => serde_json::json!({ "id": cmd.id, "error": e.to_string() }),
-                },
-                Err(_) => serde_json::json!({ "id": cmd.id, "error": "DB lock failed" }),
-            }
-        }
+        "get_config_cmd" | "get_config" => match state.db.lock() {
+            Ok(db) => match crate::db::config::get_config(&db) {
+                Ok(cfg) => serde_json::json!({ "id": cmd.id, "result": cfg }),
+                Err(e) => serde_json::json!({ "id": cmd.id, "error": e.to_string() }),
+            },
+            Err(_) => serde_json::json!({ "id": cmd.id, "error": "DB lock failed" }),
+        },
 
         // Upsert pet state (mirrors tama_upsert_pet_state Tauri command)
         // Accepts both camelCase (from JS via Tauri) and snake_case
         "tama_upsert_pet_state" => {
-            let user_id = args["userId"].as_i64()
+            let user_id = args["userId"]
+                .as_i64()
                 .or_else(|| args["user_id"].as_i64())
                 .unwrap_or(0);
-            let display_name = args["displayName"].as_str()
+            let display_name = args["displayName"]
+                .as_str()
                 .or_else(|| args["display_name"].as_str())
                 .unwrap_or("")
                 .to_string();
-            let floor_x = args["floorX"].as_f64()
+            let floor_x = args["floorX"]
+                .as_f64()
                 .or_else(|| args["floor_x"].as_f64())
                 .unwrap_or(0.0);
-            let is_sleeping = args["isSleeping"].as_bool()
+            let is_sleeping = args["isSleeping"]
+                .as_bool()
                 .or_else(|| args["is_sleeping"].as_bool())
                 .unwrap_or(false);
 
@@ -283,7 +294,7 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
                     );
                     let _ = display_name; // lives in users table
                     match result {
-                        Ok(_)  => serde_json::json!({ "id": cmd.id, "result": null }),
+                        Ok(_) => serde_json::json!({ "id": cmd.id, "result": null }),
                         Err(e) => serde_json::json!({ "id": cmd.id, "error": e.to_string() }),
                     }
                 }
@@ -293,7 +304,8 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
 
         // Remove pet state (mirrors tama_remove_pet_state Tauri command)
         "tama_remove_pet_state" => {
-            let user_id = args["userId"].as_i64()
+            let user_id = args["userId"]
+                .as_i64()
                 .or_else(|| args["user_id"].as_i64())
                 .unwrap_or(0);
             match state.db.lock() {
@@ -303,7 +315,7 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
                         rusqlite::params![user_id],
                     );
                     match result {
-                        Ok(_)  => serde_json::json!({ "id": cmd.id, "result": null }),
+                        Ok(_) => serde_json::json!({ "id": cmd.id, "result": null }),
                         Err(e) => serde_json::json!({ "id": cmd.id, "error": e.to_string() }),
                     }
                 }

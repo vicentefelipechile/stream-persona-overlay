@@ -12,10 +12,7 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 
 /// Reinicia el bot de Discord (requiere que el token esté configurado).
 #[tauri::command]
-pub async fn restart_discord_bot(
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> CmdResult<()> {
+pub async fn restart_discord_bot(state: State<'_, AppState>, app: AppHandle) -> CmdResult<()> {
     let inner = state.inner().clone();
     // Abortar instancia anterior para no dejar conexiones huérfanas en Discord
     inner.abort_discord();
@@ -23,7 +20,9 @@ pub async fn restart_discord_bot(
     let handle = tauri::async_runtime::spawn(async move {
         crate::discord::spawn_discord_bot(inner, app_clone).await;
     });
-    if let Ok(mut h) = state.discord_handle.lock() { *h = Some(handle); }
+    if let Ok(mut h) = state.discord_handle.lock() {
+        *h = Some(handle);
+    }
     tracing::info!("Bot de Discord reiniciando...");
     Ok(())
 }
@@ -38,8 +37,7 @@ pub async fn connect_twitch(
     // Scope the Mutex guard before spawning / emitting
     {
         let db = state.db.lock().map_err(map_err)?;
-        crate::db::config::set_config_value(&db, "twitch_channel", &channel)
-            .map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_channel", &channel).map_err(map_err)?;
     }
 
     let inner = state.inner().clone();
@@ -50,14 +48,18 @@ pub async fn connect_twitch(
     let handle = tauri::async_runtime::spawn(async move {
         crate::twitch::spawn_twitch_client(inner, app_clone).await;
     });
-    if let Ok(mut h) = state.twitch_handle.lock() { *h = Some(handle); }
+    if let Ok(mut h) = state.twitch_handle.lock() {
+        *h = Some(handle);
+    }
 
     let inner2 = state.inner().clone();
     let app_clone2 = app.clone();
     let eventsub_handle = tauri::async_runtime::spawn(async move {
         crate::twitch::eventsub::spawn_twitch_eventsub(inner2, app_clone2).await;
     });
-    if let Ok(mut h) = state.twitch_eventsub_handle.lock() { *h = Some(eventsub_handle); }
+    if let Ok(mut h) = state.twitch_eventsub_handle.lock() {
+        *h = Some(eventsub_handle);
+    }
 
     tracing::info!("Iniciando cliente Twitch para canal: {}", channel);
     Ok(())
@@ -100,7 +102,9 @@ pub async fn validate_twitch_token(
         return Err(format!("Token inválido (HTTP {}). Verificá que el token sea correcto y tenga los scopes necesarios.", status));
     }
 
-    let data: ValidateResponse = resp.json().await
+    let data: ValidateResponse = resp
+        .json()
+        .await
         .map_err(|e| format!("Respuesta inesperada de Twitch: {}", e))?;
 
     let username = data.login.clone();
@@ -109,13 +113,21 @@ pub async fn validate_twitch_token(
 
     {
         let db = state.db.lock().map_err(map_err)?;
-        crate::db::config::set_config_value(&db, "twitch_bot_username", &username).map_err(map_err)?;
-        crate::db::config::set_config_value(&db, "twitch_bot_token",    &stored_token).map_err(map_err)?;
-        crate::db::config::set_config_value(&db, "twitch_client_id",    &data.client_id).map_err(map_err)?;
-        crate::db::config::set_config_value(&db, "twitch_bot_user_id",  &data.user_id).map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_bot_username", &username)
+            .map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_bot_token", &stored_token)
+            .map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_client_id", &data.client_id)
+            .map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "twitch_bot_user_id", &data.user_id)
+            .map_err(map_err)?;
     }
 
-    tracing::info!("[twitch] Token validado para @{} con scopes: {:?}", username, scopes);
+    tracing::info!(
+        "[twitch] Token validado para @{} con scopes: {:?}",
+        username,
+        scopes
+    );
     Ok(serde_json::json!({
         "username": username,
         "scopes": scopes
@@ -131,8 +143,7 @@ pub async fn connect_tiktok(
 ) -> CmdResult<()> {
     {
         let db = state.db.lock().map_err(map_err)?;
-        crate::db::config::set_config_value(&db, "tiktok_username", &username)
-            .map_err(map_err)?;
+        crate::db::config::set_config_value(&db, "tiktok_username", &username).map_err(map_err)?;
     }
 
     let inner = state.inner().clone();
@@ -142,7 +153,9 @@ pub async fn connect_tiktok(
     let handle = tauri::async_runtime::spawn(async move {
         crate::tiktok::spawn_tiktok_client(inner, app_clone).await;
     });
-    if let Ok(mut h) = state.tiktok_handle.lock() { *h = Some(handle); }
+    if let Ok(mut h) = state.tiktok_handle.lock() {
+        *h = Some(handle);
+    }
 
     app.emit("tiktok-connected", &username).map_err(map_err)?;
     tracing::info!("Conectando a TikTok LIVE: {}", username);
@@ -153,7 +166,10 @@ pub async fn connect_tiktok(
 #[tauri::command]
 pub async fn toggle_overlay(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     if let Some(overlay) = app.get_webview_window("overlay") {
-        if overlay.is_visible().map_err(|e: tauri::Error| e.to_string())? {
+        if overlay
+            .is_visible()
+            .map_err(|e: tauri::Error| e.to_string())?
+        {
             overlay.hide().map_err(map_err)?;
             tracing::info!("Overlay ocultado");
         } else {
@@ -194,13 +210,15 @@ pub async fn send_test_message(
     state.broadcast_ws("chat-message", &payload);
 
     // Speak the test message so the streamer can verify lip-sync
-    let tts_enabled = state.config_cache.read()
+    let tts_enabled = state
+        .config_cache
+        .read()
         .map(|c| c.tts_enabled)
         .unwrap_or(false);
     if tts_enabled {
         let app_clone = app.clone();
-        let ws_tx     = state.ws_tx.clone();
-        let tts_text  = payload.message.clone();
+        let ws_tx = state.ws_tx.clone();
+        let tts_text = payload.message.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = crate::tts::speak_with_events(
                 tts_text,
@@ -208,7 +226,9 @@ pub async fn send_test_message(
                 0, // test user_id
                 app_clone,
                 ws_tx,
-            ).await {
+            )
+            .await
+            {
                 tracing::warn!("[tts/test] Error en TTS de prueba: {}", e);
             }
         });

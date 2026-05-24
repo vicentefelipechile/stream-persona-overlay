@@ -1,5 +1,5 @@
-use tauri::{Emitter, State};
 use serde::Deserialize;
+use tauri::{Emitter, State};
 
 use crate::{
     db::config::{get_config, set_config_value},
@@ -37,33 +37,34 @@ pub async fn set_config_cmd(
     // Update in-memory cache (std RwLock)
     let mut cache = state.config_cache.write().map_err(map_err)?;
     match key.as_str() {
-        "chroma_color"         => cache.chroma_color         = value.clone(),
-        "overlay_width"        => cache.overlay_width        = value.parse().unwrap_or(1920),
-        "overlay_height"       => cache.overlay_height       = value.parse().unwrap_or(1080),
-        "tts_enabled"          => cache.tts_enabled          = value == "true",
-        "twitch_channel"       => cache.twitch_channel       = value.clone(),
-        "tiktok_username"      => cache.tiktok_username      = value.clone(),
-        "discord_bot_token"    => cache.discord_bot_token    = value.clone(),
-        "discord_guild_id"     => cache.discord_guild_id     = value.clone(),
-        "discord_channel_id"   => cache.discord_channel_id   = value.clone(),
+        "chroma_color" => cache.chroma_color = value.clone(),
+        "overlay_width" => cache.overlay_width = value.parse().unwrap_or(1920),
+        "overlay_height" => cache.overlay_height = value.parse().unwrap_or(1080),
+        "tts_enabled" => cache.tts_enabled = value == "true",
+        "twitch_channel" => cache.twitch_channel = value.clone(),
+        "tiktok_username" => cache.tiktok_username = value.clone(),
+        "discord_bot_token" => cache.discord_bot_token = value.clone(),
+        "discord_guild_id" => cache.discord_guild_id = value.clone(),
+        "discord_channel_id" => cache.discord_channel_id = value.clone(),
         "overlay_display_mode" => {
             cache.overlay_display_mode = value.clone();
             drop(cache);
-            app.emit("overlay-display-mode-changed", &value).map_err(map_err)?;
+            app.emit("overlay-display-mode-changed", &value)
+                .map_err(map_err)?;
             return Ok(());
         }
         // ── Animation config cache ────────────────────────────────────────────
-        "animation_in"          => cache.animation_in          = value.clone(),
-        "animation_out"         => cache.animation_out         = value.clone(),
+        "animation_in" => cache.animation_in = value.clone(),
+        "animation_out" => cache.animation_out = value.clone(),
         "visible_duration_secs" => cache.visible_duration_secs = value.parse().unwrap_or(8.0),
-        "idle_wiggle"           => cache.idle_wiggle           = value == "true",
-        "idle_breathe"          => cache.idle_breathe          = value == "true",
-        "glow_effect"           => cache.glow_effect           = value == "true",
-        "glow_color"            => cache.glow_color            = value.clone(),
-        "outline_effect"        => cache.outline_effect        = value == "true",
-        "persona_size_px"       => cache.persona_size_px       = value.parse().unwrap_or(256),
-        "audio_threshold"       => cache.audio_threshold       = value.parse().unwrap_or(20),
-        "max_visible_personas"  => cache.max_visible_personas  = value.parse().unwrap_or(4),
+        "idle_wiggle" => cache.idle_wiggle = value == "true",
+        "idle_breathe" => cache.idle_breathe = value == "true",
+        "glow_effect" => cache.glow_effect = value == "true",
+        "glow_color" => cache.glow_color = value.clone(),
+        "outline_effect" => cache.outline_effect = value == "true",
+        "persona_size_px" => cache.persona_size_px = value.parse().unwrap_or(256),
+        "audio_threshold" => cache.audio_threshold = value.parse().unwrap_or(20),
+        "max_visible_personas" => cache.max_visible_personas = value.parse().unwrap_or(4),
         _ => {}
     }
     Ok(())
@@ -121,33 +122,46 @@ pub async fn save_animation_config(
 ) -> CmdResult<()> {
     {
         let db = state.db.lock().map_err(map_err)?;
-        set_config_value(&db, "animation_in",          &config.animation_in).map_err(map_err)?;
-        set_config_value(&db, "animation_out",         &config.animation_out).map_err(map_err)?;
-        set_config_value(&db, "visible_duration_secs", &config.visible_duration_secs.to_string()).map_err(map_err)?;
-        set_config_value(&db, "idle_wiggle",           &config.idle_wiggle.to_string()).map_err(map_err)?;
-        set_config_value(&db, "idle_breathe",          &config.idle_breathe.to_string()).map_err(map_err)?;
-        set_config_value(&db, "glow_effect",           &config.glow_effect.to_string()).map_err(map_err)?;
-        set_config_value(&db, "glow_color",            &config.glow_color).map_err(map_err)?;
-        set_config_value(&db, "outline_effect",        &config.outline_effect.to_string()).map_err(map_err)?;
-        set_config_value(&db, "persona_size_px",       &config.persona_size_px.to_string()).map_err(map_err)?;
-        set_config_value(&db, "audio_threshold",       &config.audio_threshold.to_string()).map_err(map_err)?;
-        set_config_value(&db, "max_visible_personas",  &config.max_visible_personas.to_string()).map_err(map_err)?;
+        set_config_value(&db, "animation_in", &config.animation_in).map_err(map_err)?;
+        set_config_value(&db, "animation_out", &config.animation_out).map_err(map_err)?;
+        set_config_value(
+            &db,
+            "visible_duration_secs",
+            &config.visible_duration_secs.to_string(),
+        )
+        .map_err(map_err)?;
+        set_config_value(&db, "idle_wiggle", &config.idle_wiggle.to_string()).map_err(map_err)?;
+        set_config_value(&db, "idle_breathe", &config.idle_breathe.to_string()).map_err(map_err)?;
+        set_config_value(&db, "glow_effect", &config.glow_effect.to_string()).map_err(map_err)?;
+        set_config_value(&db, "glow_color", &config.glow_color).map_err(map_err)?;
+        set_config_value(&db, "outline_effect", &config.outline_effect.to_string())
+            .map_err(map_err)?;
+        set_config_value(&db, "persona_size_px", &config.persona_size_px.to_string())
+            .map_err(map_err)?;
+        set_config_value(&db, "audio_threshold", &config.audio_threshold.to_string())
+            .map_err(map_err)?;
+        set_config_value(
+            &db,
+            "max_visible_personas",
+            &config.max_visible_personas.to_string(),
+        )
+        .map_err(map_err)?;
     }
 
     // Update in-memory cache
     {
         let mut cache = state.config_cache.write().map_err(map_err)?;
-        cache.animation_in          = config.animation_in.clone();
-        cache.animation_out         = config.animation_out.clone();
+        cache.animation_in = config.animation_in.clone();
+        cache.animation_out = config.animation_out.clone();
         cache.visible_duration_secs = config.visible_duration_secs;
-        cache.idle_wiggle           = config.idle_wiggle;
-        cache.idle_breathe          = config.idle_breathe;
-        cache.glow_effect           = config.glow_effect;
-        cache.glow_color            = config.glow_color.clone();
-        cache.outline_effect        = config.outline_effect;
-        cache.persona_size_px       = config.persona_size_px;
-        cache.audio_threshold       = config.audio_threshold;
-        cache.max_visible_personas  = config.max_visible_personas;
+        cache.idle_wiggle = config.idle_wiggle;
+        cache.idle_breathe = config.idle_breathe;
+        cache.glow_effect = config.glow_effect;
+        cache.glow_color = config.glow_color.clone();
+        cache.outline_effect = config.outline_effect;
+        cache.persona_size_px = config.persona_size_px;
+        cache.audio_threshold = config.audio_threshold;
+        cache.max_visible_personas = config.max_visible_personas;
     }
 
     // Notify overlay of the updated animation config
@@ -155,7 +169,8 @@ pub async fn save_animation_config(
         let db = state.db.lock().map_err(map_err)?;
         get_config(&db).map_err(map_err)?
     };
-    app.emit("animation-config-changed", &full_config).map_err(map_err)?;
+    app.emit("animation-config-changed", &full_config)
+        .map_err(map_err)?;
     tracing::info!("[config] Configuración de animaciones guardada");
     Ok(())
 }

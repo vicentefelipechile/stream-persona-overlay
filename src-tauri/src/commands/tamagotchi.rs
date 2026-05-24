@@ -1,10 +1,7 @@
-use tauri::{Emitter, Manager, State};
 use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Manager, State};
 
-use crate::{
-    db::config::set_config_value,
-    state::AppState,
-};
+use crate::{db::config::set_config_value, state::AppState};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -18,11 +15,11 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PetStateRow {
-    pub user_id:      i64,
+    pub user_id: i64,
     pub display_name: String,
     pub last_seen_at: String,
-    pub floor_x:      f64,
-    pub is_sleeping:  bool,
+    pub floor_x: f64,
+    pub is_sleeping: bool,
 }
 
 // =========================================================================================================
@@ -33,19 +30,23 @@ pub struct PetStateRow {
 /// forward it to the target pet. The input field is free-form JSON.
 #[tauri::command]
 pub async fn tama_trigger_action(
-    user_id:   i64,
+    user_id: i64,
     action_id: String,
-    input:     serde_json::Value,
-    app:       tauri::AppHandle,
+    input: serde_json::Value,
+    app: tauri::AppHandle,
 ) -> CmdResult<()> {
     #[derive(Serialize, Clone)]
     struct Payload {
-        user_id:   i64,
+        user_id: i64,
         action_id: String,
-        input:     serde_json::Value,
+        input: serde_json::Value,
     }
 
-    let payload = Payload { user_id, action_id, input };
+    let payload = Payload {
+        user_id,
+        action_id,
+        input,
+    };
     app.emit("tama-action", payload.clone()).map_err(map_err)?;
 
     // Also broadcast to OBS Browser Source WebSocket clients
@@ -58,10 +59,7 @@ pub async fn tama_trigger_action(
 
 /// Persists tama_enabled to the config table.
 #[tauri::command]
-pub async fn tama_set_enabled(
-    enabled: bool,
-    state:   State<'_, AppState>,
-) -> CmdResult<()> {
+pub async fn tama_set_enabled(enabled: bool, state: State<'_, AppState>) -> CmdResult<()> {
     let db = state.db.lock().map_err(map_err)?;
     set_config_value(&db, "tama_enabled", &enabled.to_string()).map_err(map_err)?;
     tracing::info!("[tama] tama_enabled set to {}", enabled);
@@ -70,9 +68,7 @@ pub async fn tama_set_enabled(
 
 /// Returns all active pet rows joined with their display_name from users.
 #[tauri::command]
-pub async fn tama_get_pet_states(
-    state: State<'_, AppState>,
-) -> CmdResult<Vec<PetStateRow>> {
+pub async fn tama_get_pet_states(state: State<'_, AppState>) -> CmdResult<Vec<PetStateRow>> {
     let db = state.db.lock().map_err(map_err)?;
     let mut stmt = db
         .prepare(
@@ -86,11 +82,11 @@ pub async fn tama_get_pet_states(
     let rows = stmt
         .query_map([], |row| {
             Ok(PetStateRow {
-                user_id:      row.get(0)?,
+                user_id: row.get(0)?,
                 display_name: row.get(1)?,
                 last_seen_at: row.get(2)?,
-                floor_x:      row.get(3)?,
-                is_sleeping:  row.get::<_, i64>(4)? != 0,
+                floor_x: row.get(3)?,
+                is_sleeping: row.get::<_, i64>(4)? != 0,
             })
         })
         .map_err(map_err)?
@@ -104,11 +100,11 @@ pub async fn tama_get_pet_states(
 /// Keeps the DB in sync so the admin panel can show the current pet list.
 #[tauri::command]
 pub async fn tama_upsert_pet_state(
-    user_id:      i64,
+    user_id: i64,
     display_name: String,
-    floor_x:      f64,
-    is_sleeping:  bool,
-    state:        State<'_, AppState>,
+    floor_x: f64,
+    is_sleeping: bool,
+    state: State<'_, AppState>,
 ) -> CmdResult<()> {
     let db = state.db.lock().map_err(map_err)?;
     db.execute(
@@ -128,10 +124,7 @@ pub async fn tama_upsert_pet_state(
 
 /// Called by the overlay when a pet despawns.
 #[tauri::command]
-pub async fn tama_remove_pet_state(
-    user_id: i64,
-    state:   State<'_, AppState>,
-) -> CmdResult<()> {
+pub async fn tama_remove_pet_state(user_id: i64, state: State<'_, AppState>) -> CmdResult<()> {
     let db = state.db.lock().map_err(map_err)?;
     db.execute(
         "DELETE FROM pet_state WHERE user_id = ?1",

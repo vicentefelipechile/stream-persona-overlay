@@ -36,11 +36,7 @@ pub trait ChatPlatform: Send + Sync {
     ///   propagating panics.
     /// - Emit `chat-message` Tauri events via `app_handle` whenever a
     ///   registered, active user sends a message.
-    async fn run(
-        &self,
-        state: crate::state::AppState,
-        app_handle: tauri::AppHandle,
-    );
+    async fn run(&self, state: crate::state::AppState, app_handle: tauri::AppHandle);
 }
 
 // ── Payload builder helper ────────────────────────────────────────────────────

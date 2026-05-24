@@ -13,10 +13,22 @@ pub mod tiktok;
 pub mod tts;
 pub mod twitch;
 
-use commands::config::{get_available_voices_cmd, get_config_cmd, save_animation_config, set_chroma_color, set_config_cmd, disconnect_twitch, disconnect_tiktok};
-use commands::control::{connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay, validate_twitch_token};
-use commands::users::{delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd, update_user_cmd};
-use commands::tamagotchi::{tama_get_pet_states, tama_remove_pet_state, tama_set_enabled, tama_trigger_action, tama_upsert_pet_state};
+use commands::config::{
+    disconnect_tiktok, disconnect_twitch, get_available_voices_cmd, get_config_cmd,
+    save_animation_config, set_chroma_color, set_config_cmd,
+};
+use commands::control::{
+    connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
+    validate_twitch_token,
+};
+use commands::tamagotchi::{
+    tama_get_pet_states, tama_remove_pet_state, tama_set_enabled, tama_trigger_action,
+    tama_upsert_pet_state,
+};
+use commands::users::{
+    delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd,
+    update_user_cmd,
+};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -44,11 +56,10 @@ pub fn run() {
             let db_path = app_data_dir.join("overlay.db");
             tracing::info!("Base de datos: {:?}", db_path);
 
-            let conn = Connection::open(&db_path)
-                .expect("No se pudo abrir la base de datos SQLite");
+            let conn =
+                Connection::open(&db_path).expect("No se pudo abrir la base de datos SQLite");
 
-            db::migrations::run_migrations(&conn)
-                .expect("Error ejecutando migraciones");
+            db::migrations::run_migrations(&conn).expect("Error ejecutando migraciones");
 
             // Cargar config inicial
             let config = db::config::get_config(&conn).unwrap_or_default();
@@ -100,10 +111,18 @@ pub fn run() {
             });
 
             // Guardar handles para poder abortarlos al reiniciar o cerrar
-            if let Ok(mut h) = app_state.discord_handle.lock() { *h = Some(discord_h); }
-            if let Ok(mut h) = app_state.twitch_handle.lock()  { *h = Some(twitch_h);  }
-            if let Ok(mut h) = app_state.tiktok_handle.lock()  { *h = Some(tiktok_h);  }
-            if let Ok(mut h) = app_state.server_handle.lock()  { *h = Some(server_h);  }
+            if let Ok(mut h) = app_state.discord_handle.lock() {
+                *h = Some(discord_h);
+            }
+            if let Ok(mut h) = app_state.twitch_handle.lock() {
+                *h = Some(twitch_h);
+            }
+            if let Ok(mut h) = app_state.tiktok_handle.lock() {
+                *h = Some(tiktok_h);
+            }
+            if let Ok(mut h) = app_state.server_handle.lock() {
+                *h = Some(server_h);
+            }
 
             // Interceptar el cierre de la ventana overlay para ocultarla en lugar
             // de destruirla. Si se destruye, get_webview_window("overlay") devuelve
@@ -114,7 +133,9 @@ pub fn run() {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = overlay_hide.hide();
-                        tracing::info!("[overlay] Cierre interceptado — ventana ocultada (no destruida)");
+                        tracing::info!(
+                            "[overlay] Cierre interceptado — ventana ocultada (no destruida)"
+                        );
                     }
                 });
             }
@@ -166,11 +187,17 @@ pub fn run() {
                 // The overlay window is only *hidden* on close (never destroyed), so
                 // Tauri never sees zero open windows and ExitRequested never fires.
                 // Detect the main window being destroyed and force a clean exit here.
-                tauri::RunEvent::WindowEvent { label, event: win_event, .. } if label == "main" => {
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: win_event,
+                    ..
+                } if label == "main" => {
                     if let tauri::WindowEvent::Destroyed = win_event {
                         let state = app_handle.state::<AppState>();
                         state.abort_all();
-                        tracing::info!("Ventana principal cerrada — abortando tareas y cerrando proceso");
+                        tracing::info!(
+                            "Ventana principal cerrada — abortando tareas y cerrando proceso"
+                        );
                         app_handle.exit(0);
                     }
                 }

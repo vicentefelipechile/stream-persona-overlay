@@ -13,111 +13,171 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
     for row in rows.filter_map(|r| r.ok()) {
         let (key, value) = row;
         match key.as_str() {
-            "chroma_color"         => cfg.chroma_color           = value,
-            "overlay_width"         => cfg.overlay_width          = value.parse().unwrap_or(1920),
-            "overlay_height"        => cfg.overlay_height         = value.parse().unwrap_or(1080),
-            "tts_enabled"           => cfg.tts_enabled            = value == "true",
-            "twitch_channel"        => cfg.twitch_channel         = value,
-            "twitch_bot_username"   => cfg.twitch_bot_username    = value,
-            "twitch_bot_token"      => cfg.twitch_bot_token       = value,
-            "twitch_client_id"      => cfg.twitch_client_id       = value,
-            "twitch_bot_user_id"    => cfg.twitch_bot_user_id     = value,
-            "tiktok_username"       => cfg.tiktok_username        = value,
-            "discord_bot_token"     => cfg.discord_bot_token      = value,
-            "discord_guild_id"      => cfg.discord_guild_id       = value,
-            "discord_channel_id"    => cfg.discord_channel_id     = value,
-            "overlay_display_mode" => cfg.overlay_display_mode    = value,
+            "chroma_color" => cfg.chroma_color = value,
+            "overlay_width" => cfg.overlay_width = value.parse().unwrap_or(1920),
+            "overlay_height" => cfg.overlay_height = value.parse().unwrap_or(1080),
+            "tts_enabled" => cfg.tts_enabled = value == "true",
+            "twitch_channel" => cfg.twitch_channel = value,
+            "twitch_bot_username" => cfg.twitch_bot_username = value,
+            "twitch_bot_token" => cfg.twitch_bot_token = value,
+            "twitch_client_id" => cfg.twitch_client_id = value,
+            "twitch_bot_user_id" => cfg.twitch_bot_user_id = value,
+            "tiktok_username" => cfg.tiktok_username = value,
+            "discord_bot_token" => cfg.discord_bot_token = value,
+            "discord_guild_id" => cfg.discord_guild_id = value,
+            "discord_channel_id" => cfg.discord_channel_id = value,
+            "overlay_display_mode" => cfg.overlay_display_mode = value,
             // ── Animation config ─────────────────────────────────────────────
-            "animation_in"          => cfg.animation_in           = value,
-            "animation_out"         => cfg.animation_out          = value,
-            "visible_duration_secs" => cfg.visible_duration_secs  = value.parse().unwrap_or(8.0),
-            "idle_wiggle"           => cfg.idle_wiggle            = value == "true",
-            "idle_breathe"          => cfg.idle_breathe           = value == "true",
-            "glow_effect"           => cfg.glow_effect            = value == "true",
-            "glow_color"            => cfg.glow_color             = value,
-            "outline_effect"        => cfg.outline_effect         = value == "true",
-            "persona_size_px"       => cfg.persona_size_px        = value.parse().unwrap_or(256),
-            "audio_threshold"       => cfg.audio_threshold        = value.parse().unwrap_or(20),
-            "max_visible_personas"  => cfg.max_visible_personas   = value.parse().unwrap_or(4),
+            "animation_in" => cfg.animation_in = value,
+            "animation_out" => cfg.animation_out = value,
+            "visible_duration_secs" => cfg.visible_duration_secs = value.parse().unwrap_or(8.0),
+            "idle_wiggle" => cfg.idle_wiggle = value == "true",
+            "idle_breathe" => cfg.idle_breathe = value == "true",
+            "glow_effect" => cfg.glow_effect = value == "true",
+            "glow_color" => cfg.glow_color = value,
+            "outline_effect" => cfg.outline_effect = value == "true",
+            "persona_size_px" => cfg.persona_size_px = value.parse().unwrap_or(256),
+            "audio_threshold" => cfg.audio_threshold = value.parse().unwrap_or(20),
+            "max_visible_personas" => cfg.max_visible_personas = value.parse().unwrap_or(4),
             // ── Tamagotchi config ─────────────────────────────────────────────
-            "tama_enabled"            => cfg.tama_enabled           = value == "true",
-            "tama_pet_size_px"        => cfg.tama_pet_size_px       = value.parse().unwrap_or(80),
-            "tama_floor_y"            => cfg.tama_floor_y           = value.parse().unwrap_or(900),
-            "tama_walk_speed"         => cfg.tama_walk_speed        = value.parse().unwrap_or(0.6),
-            "tama_inactivity_mins"    => cfg.tama_inactivity_mins   = value.parse().unwrap_or(5),
-            "tama_max_pets"           => cfg.tama_max_pets          = value.parse().unwrap_or(8),
-            "tama_action_check_secs"  => cfg.tama_action_check_secs = value.parse().unwrap_or(8),
-            "tama_action_probability" => cfg.tama_action_probability = value.parse().unwrap_or(0.15),
-            "tama_enabled_actions"    => cfg.tama_enabled_actions   = value,
-            "tama_jump_on_speak"      => cfg.tama_jump_on_speak     = value == "true",
+            "tama_enabled" => cfg.tama_enabled = value == "true",
+            "tama_pet_size_px" => cfg.tama_pet_size_px = value.parse().unwrap_or(80),
+            "tama_floor_y" => cfg.tama_floor_y = value.parse().unwrap_or(900),
+            "tama_walk_speed" => cfg.tama_walk_speed = value.parse().unwrap_or(0.6),
+            "tama_inactivity_mins" => cfg.tama_inactivity_mins = value.parse().unwrap_or(5),
+            "tama_max_pets" => cfg.tama_max_pets = value.parse().unwrap_or(8),
+            "tama_action_check_secs" => cfg.tama_action_check_secs = value.parse().unwrap_or(8),
+            "tama_action_probability" => {
+                cfg.tama_action_probability = value.parse().unwrap_or(0.15)
+            }
+            "tama_enabled_actions" => cfg.tama_enabled_actions = value,
+            "tama_jump_on_speak" => cfg.tama_jump_on_speak = value == "true",
             // ── Twitch config ─────────────────────────────────────────────────
-            "twitch_eventsub_enabled"       => cfg.twitch_eventsub_enabled = value == "true",
-            "twitch_chat_min_length"        => cfg.twitch_chat_min_length = value.parse().unwrap_or(0),
-            "twitch_chat_max_length"        => cfg.twitch_chat_max_length = value.parse().unwrap_or(500),
-            "twitch_chat_ignore_commands"   => cfg.twitch_chat_ignore_commands = value == "true",
-            "twitch_chat_ignore_users"      => cfg.twitch_chat_ignore_users = value,
-            "twitch_chat_followers_only"    => cfg.twitch_chat_followers_only = value == "true",
-            "twitch_chat_subs_only"         => cfg.twitch_chat_subs_only = value == "true",
-            "twitch_chat_allowed_badges"    => cfg.twitch_chat_allowed_badges = value,
-            "twitch_event_cheer_enabled"    => cfg.twitch_event_cheer_enabled = value == "true",
-            "twitch_event_cheer_min_bits"   => cfg.twitch_event_cheer_min_bits = value.parse().unwrap_or(100),
-            "twitch_event_sub_enabled"      => cfg.twitch_event_sub_enabled = value == "true",
-            "twitch_event_raid_enabled"     => cfg.twitch_event_raid_enabled = value == "true",
-            "twitch_event_follow_enabled"   => cfg.twitch_event_follow_enabled = value == "true",
-            "twitch_event_redemption_enabled" => cfg.twitch_event_redemption_enabled = value == "true",
-            "twitch_redemption_action_map"  => cfg.twitch_redemption_action_map = value,
-            "twitch_event_hype_train_enabled" => cfg.twitch_event_hype_train_enabled = value == "true",
-            "twitch_event_stream_status_enabled" => cfg.twitch_event_stream_status_enabled = value == "true",
-            "twitch_tts_event_announcements" => cfg.twitch_tts_event_announcements = value == "true",
+            "twitch_eventsub_enabled" => cfg.twitch_eventsub_enabled = value == "true",
+            "twitch_chat_min_length" => cfg.twitch_chat_min_length = value.parse().unwrap_or(0),
+            "twitch_chat_max_length" => cfg.twitch_chat_max_length = value.parse().unwrap_or(500),
+            "twitch_chat_ignore_commands" => cfg.twitch_chat_ignore_commands = value == "true",
+            "twitch_chat_ignore_users" => cfg.twitch_chat_ignore_users = value,
+            "twitch_chat_followers_only" => cfg.twitch_chat_followers_only = value == "true",
+            "twitch_chat_subs_only" => cfg.twitch_chat_subs_only = value == "true",
+            "twitch_chat_allowed_badges" => cfg.twitch_chat_allowed_badges = value,
+            "twitch_event_cheer_enabled" => cfg.twitch_event_cheer_enabled = value == "true",
+            "twitch_event_cheer_min_bits" => {
+                cfg.twitch_event_cheer_min_bits = value.parse().unwrap_or(100)
+            }
+            "twitch_event_sub_enabled" => cfg.twitch_event_sub_enabled = value == "true",
+            "twitch_event_raid_enabled" => cfg.twitch_event_raid_enabled = value == "true",
+            "twitch_event_follow_enabled" => cfg.twitch_event_follow_enabled = value == "true",
+            "twitch_event_redemption_enabled" => {
+                cfg.twitch_event_redemption_enabled = value == "true"
+            }
+            "twitch_redemption_action_map" => cfg.twitch_redemption_action_map = value,
+            "twitch_event_hype_train_enabled" => {
+                cfg.twitch_event_hype_train_enabled = value == "true"
+            }
+            "twitch_event_stream_status_enabled" => {
+                cfg.twitch_event_stream_status_enabled = value == "true"
+            }
+            "twitch_tts_event_announcements" => {
+                cfg.twitch_tts_event_announcements = value == "true"
+            }
             // ── TikTok config ─────────────────────────────────────────────────
-            "tiktok_api_key"                => cfg.tiktok_api_key = value,
-            "tiktok_ws_endpoint"            => cfg.tiktok_ws_endpoint = value,
-            "tiktok_chat_min_length"        => cfg.tiktok_chat_min_length = value.parse().unwrap_or(0),
-            "tiktok_chat_max_length"        => cfg.tiktok_chat_max_length = value.parse().unwrap_or(300),
-            "tiktok_chat_ignore_users"      => cfg.tiktok_chat_ignore_users = value,
-            "tiktok_event_gift_enabled"     => cfg.tiktok_event_gift_enabled = value == "true",
-            "tiktok_event_gift_min_coins"   => cfg.tiktok_event_gift_min_coins = value.parse().unwrap_or(10),
-            "tiktok_event_gift_big_coins"   => cfg.tiktok_event_gift_big_coins = value.parse().unwrap_or(100),
-            "tiktok_event_like_enabled"     => cfg.tiktok_event_like_enabled = value == "true",
-            "tiktok_event_like_throttle_ms" => cfg.tiktok_event_like_throttle_ms = value.parse().unwrap_or(4000),
-            "tiktok_event_follow_enabled"   => cfg.tiktok_event_follow_enabled = value == "true",
-            "tiktok_event_share_enabled"    => cfg.tiktok_event_share_enabled = value == "true",
-            "tiktok_event_subscribe_enabled" => cfg.tiktok_event_subscribe_enabled = value == "true",
-            "tiktok_event_member_enabled"   => cfg.tiktok_event_member_enabled = value == "true",
+            "tiktok_api_key" => cfg.tiktok_api_key = value,
+            "tiktok_ws_endpoint" => cfg.tiktok_ws_endpoint = value,
+            "tiktok_chat_min_length" => cfg.tiktok_chat_min_length = value.parse().unwrap_or(0),
+            "tiktok_chat_max_length" => cfg.tiktok_chat_max_length = value.parse().unwrap_or(300),
+            "tiktok_chat_ignore_users" => cfg.tiktok_chat_ignore_users = value,
+            "tiktok_event_gift_enabled" => cfg.tiktok_event_gift_enabled = value == "true",
+            "tiktok_event_gift_min_coins" => {
+                cfg.tiktok_event_gift_min_coins = value.parse().unwrap_or(10)
+            }
+            "tiktok_event_gift_big_coins" => {
+                cfg.tiktok_event_gift_big_coins = value.parse().unwrap_or(100)
+            }
+            "tiktok_event_like_enabled" => cfg.tiktok_event_like_enabled = value == "true",
+            "tiktok_event_like_throttle_ms" => {
+                cfg.tiktok_event_like_throttle_ms = value.parse().unwrap_or(4000)
+            }
+            "tiktok_event_follow_enabled" => cfg.tiktok_event_follow_enabled = value == "true",
+            "tiktok_event_share_enabled" => cfg.tiktok_event_share_enabled = value == "true",
+            "tiktok_event_subscribe_enabled" => {
+                cfg.tiktok_event_subscribe_enabled = value == "true"
+            }
+            "tiktok_event_member_enabled" => cfg.tiktok_event_member_enabled = value == "true",
             "tiktok_event_envelope_enabled" => cfg.tiktok_event_envelope_enabled = value == "true",
-            "tiktok_gift_action_map"        => cfg.tiktok_gift_action_map = value,
-            "tiktok_tts_event_announcements" => cfg.tiktok_tts_event_announcements = value == "true",
+            "tiktok_gift_action_map" => cfg.tiktok_gift_action_map = value,
+            "tiktok_tts_event_announcements" => {
+                cfg.tiktok_tts_event_announcements = value == "true"
+            }
             // ── Anti-spam / rate-limit config (chat) ─────────────────────────
-            "twitch_chat_antispam_preset"    => cfg.twitch_chat_antispam_preset = value,
-            "twitch_chat_user_cooldown_ms"   => cfg.twitch_chat_user_cooldown_ms = value.parse().unwrap_or(0),
-            "twitch_chat_dedup_window_ms"    => cfg.twitch_chat_dedup_window_ms = value.parse().unwrap_or(0),
-            "twitch_chat_rate_max_msgs"      => cfg.twitch_chat_rate_max_msgs = value.parse().unwrap_or(0),
-            "twitch_chat_rate_window_secs"   => cfg.twitch_chat_rate_window_secs = value.parse().unwrap_or(10),
-            "tiktok_chat_antispam_preset"    => cfg.tiktok_chat_antispam_preset = value,
-            "tiktok_chat_user_cooldown_ms"   => cfg.tiktok_chat_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_chat_dedup_window_ms"    => cfg.tiktok_chat_dedup_window_ms = value.parse().unwrap_or(0),
-            "tiktok_chat_rate_max_msgs"      => cfg.tiktok_chat_rate_max_msgs = value.parse().unwrap_or(0),
-            "tiktok_chat_rate_window_secs"   => cfg.tiktok_chat_rate_window_secs = value.parse().unwrap_or(10),
-            "chat_global_throughput_preset"  => cfg.chat_global_throughput_preset = value,
-            "chat_global_rate_max_per_sec"   => cfg.chat_global_rate_max_per_sec = value.parse().unwrap_or(0),
+            "twitch_chat_antispam_preset" => cfg.twitch_chat_antispam_preset = value,
+            "twitch_chat_user_cooldown_ms" => {
+                cfg.twitch_chat_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "twitch_chat_dedup_window_ms" => {
+                cfg.twitch_chat_dedup_window_ms = value.parse().unwrap_or(0)
+            }
+            "twitch_chat_rate_max_msgs" => {
+                cfg.twitch_chat_rate_max_msgs = value.parse().unwrap_or(0)
+            }
+            "twitch_chat_rate_window_secs" => {
+                cfg.twitch_chat_rate_window_secs = value.parse().unwrap_or(10)
+            }
+            "tiktok_chat_antispam_preset" => cfg.tiktok_chat_antispam_preset = value,
+            "tiktok_chat_user_cooldown_ms" => {
+                cfg.tiktok_chat_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_chat_dedup_window_ms" => {
+                cfg.tiktok_chat_dedup_window_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_chat_rate_max_msgs" => {
+                cfg.tiktok_chat_rate_max_msgs = value.parse().unwrap_or(0)
+            }
+            "tiktok_chat_rate_window_secs" => {
+                cfg.tiktok_chat_rate_window_secs = value.parse().unwrap_or(10)
+            }
+            "chat_global_throughput_preset" => cfg.chat_global_throughput_preset = value,
+            "chat_global_rate_max_per_sec" => {
+                cfg.chat_global_rate_max_per_sec = value.parse().unwrap_or(0)
+            }
             // ── Event cooldown config ─────────────────────────────────────────
-            "twitch_event_cooldown_preset"          => cfg.twitch_event_cooldown_preset = value,
-            "twitch_event_cheer_user_cooldown_ms"   => cfg.twitch_event_cheer_user_cooldown_ms = value.parse().unwrap_or(0),
-            "twitch_event_sub_user_cooldown_ms"     => cfg.twitch_event_sub_user_cooldown_ms = value.parse().unwrap_or(0),
-            "twitch_event_raid_global_cooldown_ms"  => cfg.twitch_event_raid_global_cooldown_ms = value.parse().unwrap_or(0),
-            "twitch_event_follow_user_cooldown_ms"  => cfg.twitch_event_follow_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_event_cooldown_preset"          => cfg.tiktok_event_cooldown_preset = value,
-            "tiktok_event_gift_user_cooldown_ms"    => cfg.tiktok_event_gift_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_event_like_user_cooldown_ms"    => cfg.tiktok_event_like_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_event_follow_user_cooldown_ms"  => cfg.tiktok_event_follow_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_event_share_user_cooldown_ms"   => cfg.tiktok_event_share_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_event_subscribe_user_cooldown_ms" => cfg.tiktok_event_subscribe_user_cooldown_ms = value.parse().unwrap_or(0),
-            "tiktok_event_envelope_user_cooldown_ms" => cfg.tiktok_event_envelope_user_cooldown_ms = value.parse().unwrap_or(0),
+            "twitch_event_cooldown_preset" => cfg.twitch_event_cooldown_preset = value,
+            "twitch_event_cheer_user_cooldown_ms" => {
+                cfg.twitch_event_cheer_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "twitch_event_sub_user_cooldown_ms" => {
+                cfg.twitch_event_sub_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "twitch_event_raid_global_cooldown_ms" => {
+                cfg.twitch_event_raid_global_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "twitch_event_follow_user_cooldown_ms" => {
+                cfg.twitch_event_follow_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_event_cooldown_preset" => cfg.tiktok_event_cooldown_preset = value,
+            "tiktok_event_gift_user_cooldown_ms" => {
+                cfg.tiktok_event_gift_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_event_like_user_cooldown_ms" => {
+                cfg.tiktok_event_like_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_event_follow_user_cooldown_ms" => {
+                cfg.tiktok_event_follow_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_event_share_user_cooldown_ms" => {
+                cfg.tiktok_event_share_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_event_subscribe_user_cooldown_ms" => {
+                cfg.tiktok_event_subscribe_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
+            "tiktok_event_envelope_user_cooldown_ms" => {
+                cfg.tiktok_event_envelope_user_cooldown_ms = value.parse().unwrap_or(0)
+            }
             // ── Guest viewer config ───────────────────────────────────────────
-            "tama_guests_enabled"      => cfg.tama_guests_enabled      = value == "true",
-            "tama_guests_twitch"       => cfg.tama_guests_twitch       = value == "true",
-            "tama_guests_tiktok"       => cfg.tama_guests_tiktok       = value == "true",
-            "tama_guests_tts"          => cfg.tama_guests_tts          = value == "true",
+            "tama_guests_enabled" => cfg.tama_guests_enabled = value == "true",
+            "tama_guests_twitch" => cfg.tama_guests_twitch = value == "true",
+            "tama_guests_tiktok" => cfg.tama_guests_tiktok = value == "true",
+            "tama_guests_tts" => cfg.tama_guests_tts = value == "true",
             "tama_guests_label_prefix" => cfg.tama_guests_label_prefix = value,
             _ => {}
         }

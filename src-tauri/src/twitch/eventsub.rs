@@ -4,7 +4,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::{
     chat_filters::FilterDecision,
-    state::{AppState, AppConfig, ChatEventPayload},
+    state::{AppConfig, AppState, ChatEventPayload},
 };
 
 pub async fn spawn_twitch_eventsub(state: AppState, app_handle: AppHandle) {
@@ -21,7 +21,10 @@ pub async fn spawn_twitch_eventsub(state: AppState, app_handle: AppHandle) {
         return;
     }
 
-    if cfg.twitch_bot_token.is_empty() || cfg.twitch_client_id.is_empty() || cfg.twitch_bot_user_id.is_empty() {
+    if cfg.twitch_bot_token.is_empty()
+        || cfg.twitch_client_id.is_empty()
+        || cfg.twitch_bot_user_id.is_empty()
+    {
         tracing::warn!("[twitch-eventsub] Token, client_id o user_id no configurados — validá el token OAuth primero");
         return;
     }
@@ -92,17 +95,28 @@ pub async fn spawn_twitch_eventsub(state: AppState, app_handle: AppHandle) {
 
 async fn register_subscriptions(cfg: &AppConfig, session_id: &str) {
     // Raw bearer token (without "oauth:" prefix)
-    let raw_token = cfg.twitch_bot_token.trim_start_matches("oauth:").to_string();
+    let raw_token = cfg
+        .twitch_bot_token
+        .trim_start_matches("oauth:")
+        .to_string();
     let broadcaster_id = &cfg.twitch_bot_user_id;
     let client_id = &cfg.twitch_client_id;
 
     // Subscriptions: (type, version, condition_extra_key)
     // channel.follow v2 requires moderator_user_id in addition to broadcaster_user_id
     let subs: &[(&str, &str, Option<(&str, &str)>)] = &[
-        ("channel.cheer",     "1", None),
+        ("channel.cheer", "1", None),
         ("channel.subscribe", "1", None),
-        ("channel.raid",      "1", Some(("to_broadcaster_user_id", broadcaster_id))),
-        ("channel.follow",    "2", Some(("moderator_user_id", broadcaster_id))),
+        (
+            "channel.raid",
+            "1",
+            Some(("to_broadcaster_user_id", broadcaster_id)),
+        ),
+        (
+            "channel.follow",
+            "2",
+            Some(("moderator_user_id", broadcaster_id)),
+        ),
     ];
 
     let http = reqwest::Client::new();
@@ -142,10 +156,19 @@ async fn register_subscriptions(cfg: &AppConfig, session_id: &str) {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 let body = resp.text().await.unwrap_or_default();
-                tracing::warn!("[twitch-eventsub] Error registrando {}: HTTP {} — {}", sub_type, status, body);
+                tracing::warn!(
+                    "[twitch-eventsub] Error registrando {}: HTTP {} — {}",
+                    sub_type,
+                    status,
+                    body
+                );
             }
             Err(e) => {
-                tracing::error!("[twitch-eventsub] Red error registrando {}: {}", sub_type, e);
+                tracing::error!(
+                    "[twitch-eventsub] Red error registrando {}: {}",
+                    sub_type,
+                    e
+                );
             }
         }
     }
@@ -157,11 +180,16 @@ fn handle_twitch_event(
     event_type: &str,
     event: &serde_json::Value,
 ) {
-    let Ok(cfg) = state.config_cache.read() else { return; };
+    let Ok(cfg) = state.config_cache.read() else {
+        return;
+    };
 
     match event_type {
         "channel.cheer" if cfg.twitch_event_cheer_enabled => {
-            let username = event.get("user_login").and_then(|v| v.as_str()).unwrap_or("");
+            let username = event
+                .get("user_login")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let bits = event.get("bits").and_then(|v| v.as_i64()).unwrap_or(0);
 
             if bits < cfg.twitch_event_cheer_min_bits as i64 {
@@ -169,15 +197,23 @@ fn handle_twitch_event(
             }
 
             {
-                let Ok(mut filters) = state.chat_filters.lock() else { return; };
-                if let FilterDecision::Drop(_) = filters.check_event("twitch", username, "cheer", &cfg) {
+                let Ok(mut filters) = state.chat_filters.lock() else {
+                    return;
+                };
+                if let FilterDecision::Drop(_) =
+                    filters.check_event("twitch", username, "cheer", &cfg)
+                {
                     return;
                 }
             }
 
-            let Ok(db) = state.db.lock() else { return; };
+            let Ok(db) = state.db.lock() else {
+                return;
+            };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok().flatten().map(|u| u.id);
+                .ok()
+                .flatten()
+                .map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -185,9 +221,16 @@ fn handle_twitch_event(
                 event_kind: "cheer".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event.get("user_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                display_name: event
+                    .get("user_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 amount: Some(bits),
-                text: event.get("message").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                text: event
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 extra: serde_json::json!({}),
             };
 
@@ -195,18 +238,29 @@ fn handle_twitch_event(
             state.broadcast_ws("chat-event", &payload);
         }
         "channel.subscribe" if cfg.twitch_event_sub_enabled => {
-            let username = event.get("user_login").and_then(|v| v.as_str()).unwrap_or("");
+            let username = event
+                .get("user_login")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             {
-                let Ok(mut filters) = state.chat_filters.lock() else { return; };
-                if let FilterDecision::Drop(_) = filters.check_event("twitch", username, "sub", &cfg) {
+                let Ok(mut filters) = state.chat_filters.lock() else {
+                    return;
+                };
+                if let FilterDecision::Drop(_) =
+                    filters.check_event("twitch", username, "sub", &cfg)
+                {
                     return;
                 }
             }
 
-            let Ok(db) = state.db.lock() else { return; };
+            let Ok(db) = state.db.lock() else {
+                return;
+            };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok().flatten().map(|u| u.id);
+                .ok()
+                .flatten()
+                .map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -214,7 +268,11 @@ fn handle_twitch_event(
                 event_kind: "sub".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event.get("user_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                display_name: event
+                    .get("user_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 amount: None,
                 text: None,
                 extra: serde_json::json!({}),
@@ -224,20 +282,29 @@ fn handle_twitch_event(
             state.broadcast_ws("chat-event", &payload);
         }
         "channel.raid" if cfg.twitch_event_raid_enabled => {
-            let username = event.get("from_broadcaster_user_login").and_then(|v| v.as_str()).unwrap_or("");
+            let username = event
+                .get("from_broadcaster_user_login")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let viewers = event.get("viewers").and_then(|v| v.as_i64()).unwrap_or(0);
 
             // Raids use a global (channel-scope) cooldown — key uses empty string for user
             {
-                let Ok(mut filters) = state.chat_filters.lock() else { return; };
+                let Ok(mut filters) = state.chat_filters.lock() else {
+                    return;
+                };
                 if let FilterDecision::Drop(_) = filters.check_event("twitch", "", "raid", &cfg) {
                     return;
                 }
             }
 
-            let Ok(db) = state.db.lock() else { return; };
+            let Ok(db) = state.db.lock() else {
+                return;
+            };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok().flatten().map(|u| u.id);
+                .ok()
+                .flatten()
+                .map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -245,7 +312,11 @@ fn handle_twitch_event(
                 event_kind: "raid".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event.get("from_broadcaster_user_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                display_name: event
+                    .get("from_broadcaster_user_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 amount: Some(viewers),
                 text: None,
                 extra: serde_json::json!({}),
@@ -255,18 +326,29 @@ fn handle_twitch_event(
             state.broadcast_ws("chat-event", &payload);
         }
         "channel.follow" if cfg.twitch_event_follow_enabled => {
-            let username = event.get("user_login").and_then(|v| v.as_str()).unwrap_or("");
+            let username = event
+                .get("user_login")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             {
-                let Ok(mut filters) = state.chat_filters.lock() else { return; };
-                if let FilterDecision::Drop(_) = filters.check_event("twitch", username, "follow", &cfg) {
+                let Ok(mut filters) = state.chat_filters.lock() else {
+                    return;
+                };
+                if let FilterDecision::Drop(_) =
+                    filters.check_event("twitch", username, "follow", &cfg)
+                {
                     return;
                 }
             }
 
-            let Ok(db) = state.db.lock() else { return; };
+            let Ok(db) = state.db.lock() else {
+                return;
+            };
             let user_id = crate::db::users::find_active_user_by_twitch(&db, username)
-                .ok().flatten().map(|u| u.id);
+                .ok()
+                .flatten()
+                .map(|u| u.id);
             drop(db);
 
             let payload = ChatEventPayload {
@@ -274,7 +356,11 @@ fn handle_twitch_event(
                 event_kind: "follow".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event.get("user_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                display_name: event
+                    .get("user_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 amount: None,
                 text: None,
                 extra: serde_json::json!({}),

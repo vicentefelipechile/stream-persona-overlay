@@ -1,6 +1,6 @@
+use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
-use rusqlite::Connection;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::broadcast;
 

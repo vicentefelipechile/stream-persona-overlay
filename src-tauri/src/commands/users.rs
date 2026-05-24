@@ -1,7 +1,10 @@
 use tauri::State;
 
 use crate::{
-    db::users::{delete_user, get_all_users, get_user_by_id, toggle_user_active, update_user, UpdateUserPayload},
+    db::users::{
+        delete_user, get_all_users, get_user_by_id, toggle_user_active, update_user,
+        UpdateUserPayload,
+    },
     state::AppState,
 };
 
@@ -29,10 +32,7 @@ pub async fn get_user(
 }
 
 #[tauri::command]
-pub async fn update_user_cmd(
-    user: UpdateUserPayload,
-    state: State<'_, AppState>,
-) -> CmdResult<()> {
+pub async fn update_user_cmd(user: UpdateUserPayload, state: State<'_, AppState>) -> CmdResult<()> {
     let db = state.db.lock().map_err(map_err)?;
     update_user(&db, &user).map_err(map_err)
 }
@@ -44,10 +44,7 @@ pub async fn delete_user_cmd(id: i64, state: State<'_, AppState>) -> CmdResult<(
 }
 
 #[tauri::command]
-pub async fn toggle_user_active_cmd(
-    id: i64,
-    state: State<'_, AppState>,
-) -> CmdResult<bool> {
+pub async fn toggle_user_active_cmd(id: i64, state: State<'_, AppState>) -> CmdResult<bool> {
     let db = state.db.lock().map_err(map_err)?;
     toggle_user_active(&db, id).map_err(map_err)
 }

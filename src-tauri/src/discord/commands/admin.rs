@@ -45,7 +45,11 @@ pub async fn list_users(ctx: Context<'_>) -> Result<(), Error> {
                     .as_deref()
                     .map(|t| format!("TikTok: `@{}`", t))
                     .unwrap_or_else(|| "sin TikTok".to_string());
-                let persona = if u.persona.is_some() { "🖼️" } else { "⚠️ sin persona" };
+                let persona = if u.persona.is_some() {
+                    "🖼️"
+                } else {
+                    "⚠️ sin persona"
+                };
                 lines.push(format!(
                     "{} **{}** (ID: `{}`) — {} | {} | {}",
                     status, u.display_name, u.id, twitch, tiktok, persona
@@ -81,11 +85,19 @@ pub async fn toggle_user(
         crate::db::users::toggle_user_active(&db, user_id)?
     };
 
-    let icon = if new_state { "🟢 activado" } else { "🔴 desactivado" };
+    let icon = if new_state {
+        "🟢 activado"
+    } else {
+        "🔴 desactivado"
+    };
     ctx.say(format!("✅ Usuario `{}` ha sido {}.", user_id, icon))
         .await?;
 
-    tracing::info!("Admin discord: toggled user {} → active={}", user_id, new_state);
+    tracing::info!(
+        "Admin discord: toggled user {} → active={}",
+        user_id,
+        new_state
+    );
     Ok(())
 }
 
@@ -145,7 +157,10 @@ pub async fn send_test(
         match user {
             None => format!("❌ No existe ningún usuario con ID `{}`.", user_id),
             Some(u) if u.persona.is_none() => {
-                format!("❌ El usuario **{}** no tiene persona subida.", u.display_name)
+                format!(
+                    "❌ El usuario **{}** no tiene persona subida.",
+                    u.display_name
+                )
             }
             Some(u) => {
                 tracing::warn!(

@@ -10,11 +10,11 @@ pub struct VoiceInfo {
 /// Reproduce un texto con la voz indicada usando el crate `tts`.
 /// Emite eventos `tts-state` al overlay Tauri y los difunde por WebSocket.
 pub async fn speak_with_events(
-    text:     String,
+    text: String,
     voice_id: String,
-    user_id:  i64,
-    app:      tauri::AppHandle,
-    ws_tx:    tokio::sync::broadcast::Sender<String>,
+    user_id: i64,
+    app: tauri::AppHandle,
+    ws_tx: tokio::sync::broadcast::Sender<String>,
 ) -> Result<()> {
     use tauri::Emitter;
     use tts::Tts;
@@ -39,7 +39,13 @@ pub async fn speak_with_events(
     }
 
     // Notifica al overlay que empieza el habla
-    if let Err(e) = app.emit("tts-state", crate::state::TtsStatePayload { user_id, speaking: true }) {
+    if let Err(e) = app.emit(
+        "tts-state",
+        crate::state::TtsStatePayload {
+            user_id,
+            speaking: true,
+        },
+    ) {
         tracing::warn!("[tts] Error emitiendo tts-state(speaking=true): {}", e);
     }
     broadcast(true);
@@ -49,9 +55,9 @@ pub async fn speak_with_events(
     // Polling hasta que termina el habla
     loop {
         match tts.is_speaking() {
-            Ok(true)  => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+            Ok(true) => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
             Ok(false) => break,
-            Err(e)    => {
+            Err(e) => {
                 tracing::warn!("[tts] is_speaking() error: {} — saliendo del loop", e);
                 break;
             }
@@ -59,7 +65,13 @@ pub async fn speak_with_events(
     }
 
     // Notifica que terminó
-    if let Err(e) = app.emit("tts-state", crate::state::TtsStatePayload { user_id, speaking: false }) {
+    if let Err(e) = app.emit(
+        "tts-state",
+        crate::state::TtsStatePayload {
+            user_id,
+            speaking: false,
+        },
+    ) {
         tracing::warn!("[tts] Error emitiendo tts-state(speaking=false): {}", e);
     }
     broadcast(false);
