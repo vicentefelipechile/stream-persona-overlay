@@ -67,6 +67,19 @@ pub async fn set_config_cmd(
         "max_visible_personas" => cache.max_visible_personas = value.parse().unwrap_or(4),
         _ => {}
     }
+
+    let is_tama = key.starts_with("tama_");
+    drop(cache);
+
+    if is_tama {
+        let full_config = {
+            let db = state.db.lock().map_err(map_err)?;
+            get_config(&db).map_err(map_err)?
+        };
+        app.emit("tama-config-changed", &full_config).map_err(map_err)?;
+        state.broadcast_ws("tama-config-changed", &full_config);
+        tracing::info!("[config] tama-config-changed emitido (key={})", key);
+    }
     Ok(())
 }
 

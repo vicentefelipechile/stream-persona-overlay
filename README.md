@@ -11,7 +11,7 @@ Users register their persona images through a **Discord bot** (`/persona` slash 
 
 ## Download
 
-Pre-built installers are available on the [Releases](../../releases) page — no Rust toolchain required. Download the `.msi` (Windows) or `.dmg` (macOS) and run it directly.
+Pre-built binaries are available on the [Releases](../../releases) page — no Rust toolchain required. Download the binary for your platform and run it directly.
 
 ## Building from Source
 

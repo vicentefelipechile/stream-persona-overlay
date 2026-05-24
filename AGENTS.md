@@ -470,6 +470,7 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (overlay.ts) | Yes |
 | `chat-event` | `ChatEventPayload` | `twitch/eventsub.rs`, `tiktok/mod.rs` | `eventReactions.ts` (overlay.ts) | Yes |
 | `animation-config-changed` | `AppConfig` (full) | `commands/config.rs` (`save_animation_config`) | overlay — reload animation params | No |
+| `tama-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `tama_`) | `PetManager._onTamaConfigChanged` — applies all tama settings live | Yes |
 | `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
@@ -880,9 +881,9 @@ overlay.ts
 | `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
 | `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) — used in `"dynamic"` layout mode |
 | `StaticFloor.ts` | Queue-based slot system for `"static"` layout mode. Assigns incrementing slot indices from a left/right anchor; slots are never compacted on release |
-| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `WALK_SPEED_PX_PER_S = 36` base; each pet gets a random multiplier 0.6×–1.5× assigned at construction so pets move at different paces), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. The idle-walk loop uses a decision timer (1–8 s) that randomly pauses the pet, changes direction, or continues walking — producing natural-looking movement. Boundary hits clamp `pos.x` and flip direction rather than just toggling. `resumeIdleWalk()` is a public method that restarts the idle RAF loop without going through the FSM (used by `FightAction` to restart the rival after fighting). Exposes `configureBasePetInvoke()` for browser transport injection. `markTtsFinished()` handles the race where TTS ends before pet reaches center. |
-| `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool |
-| `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets |
+| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `walkSpeedBase = 36` static mutable; each pet gets a random multiplier 0.6×–1.5× at construction), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. The idle-walk loop uses a decision timer (1–8 s) that randomly pauses the pet, changes direction, or continues walking. Boundary hits clamp `pos.x` and flip direction. `resumeIdleWalk()` restarts the idle RAF loop without FSM re-entry (used by `FightAction`). `markTtsFinished()` handles the TTS-before-arrival race. `updateSize(px)` and `updateWalkSpeed(base)` apply runtime config changes to existing pets. `BasePet.walkSpeedBase` and `BasePet.inactivityMs` are static mutable — changing them affects all pets from the next cycle onward. |
+| `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool. `enabledActionIds` further restricts the pool to the actions listed in `tama_enabled_actions`. `update(checkSecs, probability, enabledActions?)` restarts the interval with new parameters. |
+| `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets. `_onTamaConfigChanged()` handles `tama-config-changed` events and applies all settings live: enabled, maxPets, petSizePx (resizes existing pets), walkSpeed, inactivityMs, scheduler interval/probability/pool. |
 
 ### Actions (`src/overlay/tamagotchi/actions/`)
 
@@ -1104,4 +1105,21 @@ If `tts-state { speaking: false }` arrives before the pet finishes walking to ce
 
 ### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
 
-`PetManager` reads this config at `init()`. When set, `_onChatMessage` calls `pet.executeAction("jump")` instead of `pet.onChatMessage()`. The pet jumps in place — no approach, no center movement. The `jumpOnSpeak` flag is stored as a static property on `PetManager`; changes take effect only after the overlay reloads.
+`PetManager` reads this config at `init()` and updates it live on every `tama-config-changed` event. When set, `_onChatMessage` calls `pet.executeAction("jump")` instead of `pet.onChatMessage()`. The pet jumps in place — no approach, no center movement.
+
+### Live config updates (`tama-config-changed`)
+
+Every call to `set_config_cmd` with a key that starts with `tama_` causes Rust to emit `tama-config-changed` (payload: full `AppConfig`) to the overlay window and broadcast it via WebSocket to the OBS Browser Source. `PetManager._onTamaConfigChanged()` then applies all changes immediately:
+
+| Config key | Live effect |
+|---|---|
+| `tama_enabled` | Stops/resumes processing chat messages |
+| `tama_max_pets` | New limit enforced on next spawn |
+| `tama_pet_size_px` | Resizes all existing pets and recalculates floor Y |
+| `tama_walk_speed` | Updates `BasePet.walkSpeedBase`; existing pets reroll their per-pet speed |
+| `tama_inactivity_mins` | Updates `BasePet.inactivityMs`; takes effect on next timer reset |
+| `tama_action_check_secs` | Restarts PetScheduler interval |
+| `tama_action_probability` | Restarts PetScheduler with new probability |
+| `tama_enabled_actions` | Updates PetScheduler action pool immediately |
+| `tama_jump_on_speak` | Applies on the next chat message |
+| `tama_layout_mode` / `tama_static_anchor` / `tama_static_spacing_px` | Require overlay reload (admin panel shows info toast) |

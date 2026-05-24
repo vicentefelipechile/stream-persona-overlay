@@ -43,6 +43,17 @@ export class StaticFloor {
     return this._slotX(index);
   }
 
+  // Returns the current absolute CSS left for an already-assigned user, or null.
+  // Recalculates using the current window.innerWidth, so safe to call after resize.
+  getSlotX(userId: number): number | null {
+    const index = this.slots.get(userId);
+    return index !== undefined ? this._slotX(index) : null;
+  }
+
+  updatePetSizePx(sizePx: number): void {
+    this.petSizePx = sizePx;
+  }
+
   // Free a slot. Does not repack — the gap remains until the slot is naturally reused.
   releaseSlot(userId: number): void {
     const index = this.slots.get(userId);
@@ -54,10 +65,10 @@ export class StaticFloor {
 
   // Absolute CSS left value for a given slot index.
   private _slotX(index: number): number {
-    const margin = this.petSizePx / 2 + 10;
+    const edgeGap = 10;
     if (this.anchor === "left") {
-      return margin + index * this.spacingPx;
+      return edgeGap + index * this.spacingPx;
     }
-    return window.innerWidth - margin - index * this.spacingPx;
+    return window.innerWidth - this.petSizePx - edgeGap - index * this.spacingPx;
   }
 }

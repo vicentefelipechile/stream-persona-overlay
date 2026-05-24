@@ -139,17 +139,24 @@ export class PetManager {
     await this.transport.listen<TamaActionPayload>("tama-action", e => {
       this._onTamaAction(e.payload).catch(console.error);
     });
+    await this.transport.listen<Record<string, unknown>>("tama-config-changed", e => {
+      this._onTamaConfigChanged(e.payload);
+    });
 
-    // Recompute floor Y whenever the overlay window is resized
+    // Recompute floor Y (and static X for right-anchored pets) on window resize
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     window.addEventListener("resize", () => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        const newFloorY = window.innerHeight - this.petSizePx - 20;
+        const newFloorY = window.innerHeight - this.petSizePx - 28;
         this.floor.floorY = newFloorY;
         if (this.staticFloor) this.staticFloor.floorY = newFloorY;
         for (const pet of this.pets.values()) {
           pet.updateFloorY(newFloorY);
+          if (this.staticFloor) {
+            const newX = this.staticFloor.getSlotX(pet.userId);
+            if (newX !== null) pet.updatePosX(newX);
+          }
         }
       }, 100);
     });
@@ -214,6 +221,48 @@ export class PetManager {
         pet.markTtsFinished();
       }
     }
+  }
+
+  private static _onTamaConfigChanged(cfg: Record<string, unknown>): void {
+    this.enabled      = String(cfg["tama_enabled"])       === "true";
+    this.maxPets      = Number(cfg["tama_max_pets"])      || 8;
+    this.jumpOnSpeak  = String(cfg["tama_jump_on_speak"]) === "true";
+
+    const newSizePx   = Number(cfg["tama_pet_size_px"]) || 80;
+    if (newSizePx !== this.petSizePx) {
+      this.petSizePx = newSizePx;
+      const newFloorY = window.innerHeight - newSizePx - 28;
+      this.floor.floorY = newFloorY;
+      if (this.staticFloor) {
+        this.staticFloor.floorY = newFloorY;
+        this.staticFloor.updatePetSizePx(newSizePx);
+      }
+      for (const pet of this.pets.values()) {
+        pet.updateSize(newSizePx);
+        pet.updateFloorY(newFloorY);
+        if (this.staticFloor) {
+          const newX = this.staticFloor.getSlotX(pet.userId);
+          if (newX !== null) pet.updatePosX(newX);
+        }
+      }
+    }
+
+    const newWalkSpeed = Number(cfg["tama_walk_speed"]) || 0.6;
+    const newBaseSpeed = newWalkSpeed * 60;
+    if (newBaseSpeed !== BasePet.walkSpeedBase) {
+      BasePet.walkSpeedBase = newBaseSpeed;
+      for (const pet of this.pets.values()) pet.updateWalkSpeed(newBaseSpeed);
+    }
+
+    BasePet.inactivityMs = (Number(cfg["tama_inactivity_mins"]) || 5) * 60 * 1000;
+
+    const checkSecs  = Number(cfg["tama_action_check_secs"])  || 8;
+    const prob       = Number(cfg["tama_action_probability"]) || 0.15;
+    let enabledActions: string[] | undefined;
+    try {
+      enabledActions = JSON.parse(String(cfg["tama_enabled_actions"] ?? "[]"));
+    } catch (_) {}
+    this._scheduler.update(checkSecs, prob, enabledActions);
   }
 
   private static async _onTamaAction(payload: TamaActionPayload): Promise<void> {

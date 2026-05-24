@@ -67,7 +67,7 @@ export class BasePet {
   private despawnCallback: (() => void) | null = null;
 
   // Per-pet walk speed (0.6x–1.5x of base) so pets move at different paces.
-  private readonly walkSpeed: number;
+  private walkSpeed: number;
 
   // X position saved when focus starts; restored when focus ends.
   // Not persisted to DB — a restart mid-focus respawns at floor_x which is fine.
@@ -77,7 +77,8 @@ export class BasePet {
   // _doApproach checks this on arrival and triggers an immediate return.
   private pendingReturn = false;
 
-  private readonly INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+  // Reads from BasePet.inactivityMs so runtime config changes take effect on next reset.
+  private get INACTIVITY_TIMEOUT_MS(): number { return BasePet.inactivityMs; }
 
   constructor(container: HTMLElement, config: PetConfig) {
     this.userId = config.userId;
@@ -88,7 +89,7 @@ export class BasePet {
       y: config.floorY,
     };
 
-    this.walkSpeed  = BasePet.WALK_SPEED_PX_PER_S * (0.6 + Math.random() * 0.9);
+    this.walkSpeed  = BasePet.walkSpeedBase * (0.6 + Math.random() * 0.9);
     this.el         = this._buildDOM(container);
     this.props      = new PropRenderer();
     this.imgOpen    = this.el.querySelector<HTMLImageElement>(".pet-mouth-open")!;
@@ -234,8 +235,10 @@ export class BasePet {
   // Movement
   // =========================================================================================================
 
-  // 36 px/s at 60 fps ≈ 0.6 px/frame — used for idle walk.
-  private static readonly WALK_SPEED_PX_PER_S = 36;
+  // 36 px/s at 60 fps ≈ 0.6 px/frame — used for idle walk. Mutable so runtime config applies.
+  static walkSpeedBase = 36;
+  // Minutes before a pet falls asleep. Read by _resetInactivityTimer().
+  static inactivityMs = 5 * 60 * 1000;
   // Faster speed for approach/return so the pet arrives before TTS ends.
   private static readonly FOCUS_SPEED_PX_PER_S = 200;
 
@@ -452,6 +455,25 @@ export class BasePet {
   }
 
   // =========================================================================================================
+  // =========================================================================================================
+  // Runtime Config Updates
+  // =========================================================================================================
+
+  updateSize(sizePx: number): void {
+    this.config.sizePx   = sizePx;
+    this.el.style.width  = `${sizePx}px`;
+    this.el.style.height = `${sizePx}px`;
+  }
+
+  updatePosX(x: number): void {
+    this.pos.x          = x;
+    this.el.style.left  = `${x}px`;
+  }
+
+  updateWalkSpeed(baseSpeed: number): void {
+    this.walkSpeed = baseSpeed * (0.6 + Math.random() * 0.9);
+  }
+
   // Floor Y update (called by PetManager on window resize)
   // =========================================================================================================
 
