@@ -65,7 +65,7 @@ jobs:
         run: npm ci
 
       - name: Build binary (no installers)
-        run: npm run tauri build -- --bundles none --target ${{ matrix.target }}
+        run: npm run tauri build -- --no-bundle --target ${{ matrix.target }}
 
       - name: Stage artifact
         shell: bash
