@@ -113,6 +113,12 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tiktok_event_share_user_cooldown_ms"   => cfg.tiktok_event_share_user_cooldown_ms = value.parse().unwrap_or(0),
             "tiktok_event_subscribe_user_cooldown_ms" => cfg.tiktok_event_subscribe_user_cooldown_ms = value.parse().unwrap_or(0),
             "tiktok_event_envelope_user_cooldown_ms" => cfg.tiktok_event_envelope_user_cooldown_ms = value.parse().unwrap_or(0),
+            // ── Guest viewer config ───────────────────────────────────────────
+            "tama_guests_enabled"      => cfg.tama_guests_enabled      = value == "true",
+            "tama_guests_twitch"       => cfg.tama_guests_twitch       = value == "true",
+            "tama_guests_tiktok"       => cfg.tama_guests_tiktok       = value == "true",
+            "tama_guests_tts"          => cfg.tama_guests_tts          = value == "true",
+            "tama_guests_label_prefix" => cfg.tama_guests_label_prefix = value,
             _ => {}
         }
     }

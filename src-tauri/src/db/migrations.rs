@@ -169,6 +169,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tiktok_event_share_user_cooldown_ms",   "0"),
         ("tiktok_event_subscribe_user_cooldown_ms", "0"),
         ("tiktok_event_envelope_user_cooldown_ms", "0"),
+        // ── Guest viewer config ──────────────────────────────────────────────
+        ("tama_guests_enabled",      "false"),
+        ("tama_guests_twitch",       "true"),
+        ("tama_guests_tiktok",       "true"),
+        ("tama_guests_tts",          "false"),
+        ("tama_guests_label_prefix", ""),
     ];
 
     for (key, value) in &defaults {

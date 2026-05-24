@@ -80,9 +80,7 @@ export async function renderTwitch(): Promise<void> {
   const chat_min_length = Number(cfg["twitch_chat_min_length"]) || 0;
   const chat_max_length = Number(cfg["twitch_chat_max_length"]) || 500;
   const ignore_commands = String(cfg["twitch_chat_ignore_commands"]) === "true";
-  const followers_only = String(cfg["twitch_chat_followers_only"]) === "true";
-  const subs_only = String(cfg["twitch_chat_subs_only"]) === "true";
-  const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true";
+const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true";
   const event_cheer_min_bits = Number(cfg["twitch_event_cheer_min_bits"]) || 100;
   const event_sub_enabled = String(cfg["twitch_event_sub_enabled"]) === "true";
   const event_raid_enabled = String(cfg["twitch_event_raid_enabled"]) === "true";
@@ -197,20 +195,6 @@ export async function renderTwitch(): Promise<void> {
         <div><div class="tama-setting-label">Ignorar comandos (!comando)</div></div>
         <label class="switch">
           <input type="checkbox" id="twitch-ignore-commands" ${ignore_commands ? "checked" : ""}/>
-          <span class="switch-track"></span>
-        </label>
-      </div>
-      <div class="tama-setting-row">
-        <div><div class="tama-setting-label">Solo seguidores</div></div>
-        <label class="switch">
-          <input type="checkbox" id="twitch-followers-only" ${followers_only ? "checked" : ""}/>
-          <span class="switch-track"></span>
-        </label>
-      </div>
-      <div class="tama-setting-row">
-        <div><div class="tama-setting-label">Solo suscriptores</div></div>
-        <label class="switch">
-          <input type="checkbox" id="twitch-subs-only" ${subs_only ? "checked" : ""}/>
           <span class="switch-track"></span>
         </label>
       </div>
@@ -561,9 +545,7 @@ export async function renderTwitch(): Promise<void> {
       ["twitch_chat_min_length",          g("twitch-chat-min-length").value],
       ["twitch_chat_max_length",          g("twitch-chat-max-length").value],
       ["twitch_chat_ignore_commands",     g("twitch-ignore-commands").checked ? "true" : "false"],
-      ["twitch_chat_followers_only",      g("twitch-followers-only").checked ? "true" : "false"],
-      ["twitch_chat_subs_only",           g("twitch-subs-only").checked ? "true" : "false"],
-      ["twitch_event_cheer_enabled",      g("twitch-event-cheer").checked ? "true" : "false"],
+["twitch_event_cheer_enabled",      g("twitch-event-cheer").checked ? "true" : "false"],
       ["twitch_event_cheer_min_bits",     g("twitch-cheer-min-bits").value],
       ["twitch_event_sub_enabled",        g("twitch-event-sub").checked ? "true" : "false"],
       ["twitch_event_raid_enabled",       g("twitch-event-raid").checked ? "true" : "false"],

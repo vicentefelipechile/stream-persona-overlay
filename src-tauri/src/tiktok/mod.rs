@@ -1,11 +1,11 @@
 use futures_util::StreamExt;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::{
     chat_filters::FilterDecision,
     db::{config::{log_message, log_message_dropped}, users::find_active_user_by_tiktok},
-    state::{AppState, ChatMessagePayload, ChatEventPayload},
+    state::{AppState, ChatMessagePayload, ChatEventPayload, guest_user_id},
 };
 
 /// Conecta a TikTool WebSocket API y escucha eventos de chat de TikTok LIVE.
@@ -64,6 +64,16 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
     }
 }
 
+/// Returns the directory that contains guest_open.png / guest_closed.png.
+fn guest_resource_dir(app_handle: &AppHandle) -> std::path::PathBuf {
+    if let Ok(dir) = app_handle.path().resource_dir() {
+        if dir.join("guest_open.png").exists() {
+            return dir;
+        }
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
+}
+
 /// Processes a single TikTok event synchronously (no .await inside).
 fn handle_tiktok_event(
     state: &AppState,
@@ -119,10 +129,10 @@ fn handle_chat(state: &AppState, app_handle: &AppHandle, data: &serde_json::Valu
         return;
     };
 
-    let payload_opt = match find_active_user_by_tiktok(&db, &username) {
+    let (payload_opt, is_unregistered) = match find_active_user_by_tiktok(&db, &username) {
         Ok(Some(user)) => {
             let _ = log_message(&db, "tiktok", &username, &message, Some(user.id));
-            user.persona.as_ref().map(|persona| ChatMessagePayload {
+            let payload = user.persona.as_ref().map(|persona| ChatMessagePayload {
                 platform: "tiktok".to_string(),
                 username: username.clone(),
                 message: message.clone(),
@@ -131,22 +141,49 @@ fn handle_chat(state: &AppState, app_handle: &AppHandle, data: &serde_json::Valu
                 mouth_open_path: persona.mouth_open_path.clone(),
                 mouth_closed_path: persona.mouth_closed_path.clone(),
                 voice_id: user.voice_id.clone(),
-            })
+            });
+            (payload, false)
         }
         Ok(None) => {
             let _ = log_message(&db, "tiktok", &username, &message, None);
-            None
+            (None, true)
         }
-        Err(_) => None,
+        Err(_) => (None, false),
     };
 
     drop(db);
 
-    if let Some(payload) = payload_opt {
+    // Guest viewer fallback — emit a pet for unregistered users if guests are enabled
+    let guest_payload_opt: Option<ChatMessagePayload> = if payload_opt.is_none() && is_unregistered
+        && cfg.tama_guests_enabled && cfg.tama_guests_tiktok && cfg.tama_enabled
+    {
+        let res_dir = guest_resource_dir(app_handle);
+        let mouth_open  = res_dir.join("guest_open.png").to_string_lossy().to_string();
+        let mouth_closed = res_dir.join("guest_closed.png").to_string_lossy().to_string();
+        tracing::info!("[tiktok/guest] Spawning guest pet for @{}", username);
+        Some(ChatMessagePayload {
+            platform: "tiktok".to_string(),
+            username: username.clone(),
+            message: message.clone(),
+            user_id: guest_user_id("tiktok", &username),
+            display_name: format!("{}{}", cfg.tama_guests_label_prefix, username),
+            mouth_open_path: mouth_open,
+            mouth_closed_path: mouth_closed,
+            voice_id: if cfg.tama_guests_tts { "default".to_string() } else { String::new() },
+        })
+    } else {
+        None
+    };
+
+    let effective_payload = payload_opt.or(guest_payload_opt);
+    let is_guest = effective_payload.as_ref().map(|p| p.user_id < 0).unwrap_or(false);
+
+    if let Some(payload) = effective_payload {
         let _ = app_handle.emit("chat-message", &payload);
         state.broadcast_ws("chat-message", &payload);
 
-        if cfg.tts_enabled {
+        let should_tts = cfg.tts_enabled && (!is_guest || cfg.tama_guests_tts) && !payload.voice_id.is_empty();
+        if should_tts {
             let app_clone = app_handle.clone();
             let ws_tx = state.ws_tx.clone();
             let tts_text = payload.message.clone();

@@ -47,6 +47,12 @@ export interface AppConfig {
   discord_bot_token: string;
   discord_guild_id: string;
   discord_channel_id: string;
+  // Guest viewer config — stored as strings, compare with === "true"
+  tama_guests_enabled: string;
+  tama_guests_twitch: string;
+  tama_guests_tiktok: string;
+  tama_guests_tts: string;
+  tama_guests_label_prefix: string;
 }
 
 export interface VoiceInfo {
@@ -107,6 +113,11 @@ class AppStateClass {
     discord_bot_token: "",
     discord_guild_id: "",
     discord_channel_id: "",
+    tama_guests_enabled: "false",
+    tama_guests_twitch: "true",
+    tama_guests_tiktok: "true",
+    tama_guests_tts: "false",
+    tama_guests_label_prefix: "",
   };
 
   public users: User[] = [];

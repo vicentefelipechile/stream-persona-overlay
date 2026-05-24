@@ -333,6 +333,11 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_action_probability` | `"0.15"` | Probability per interval of triggering a random action |
 | `tama_enabled_actions` | `'["jump","popcorn","dance","fight","explode"]'` | JSON array of action IDs in the random pool |
 | `tama_jump_on_speak` | `"false"` | When `"true"`, pets execute a `jump` action in place when their owner sends a chat message instead of walking to the center |
+| `tama_guests_enabled` | `"false"` | Master toggle — enables guest viewer pets globally |
+| `tama_guests_twitch` | `"true"` | Allow guest pets from Twitch (only effective when master is on) |
+| `tama_guests_tiktok` | `"true"` | Allow guest pets from TikTok (only effective when master is on) |
+| `tama_guests_tts` | `"false"` | Enable TTS for guest messages |
+| `tama_guests_label_prefix` | `""` | Optional prefix prepended to the guest display name (e.g. `"[G] "`) |
 | **Anti-spam — Twitch chat** | | |
 | `twitch_chat_antispam_preset` | `"off"` | Named preset: `off`, `light`, `normal`, `strict`, `lockdown`, `custom` |
 | `twitch_chat_user_cooldown_ms` | `"0"` | Min ms between two messages from the same Twitch user (0 = disabled) |
@@ -932,6 +937,7 @@ chat-message (returning user while sleeping)
   - Each slider has `.tama-slider-item` with label + teal value display
   - Custom range input styling (`.tama-range`) with teal thumb and glow on focus
   - **"Saltar al hablar" toggle** (`.tama-setting-row`) — pets jump in place instead of walking to chat message
+- **Guest Viewers card** — master enable/disable toggle in the card header; collapsible `<details>` "Avanzado" section (gated by `.details-toggle`) with per-platform toggles (Twitch / TikTok), TTS toggle, and a text input for the display-name prefix. The advanced section is visually disabled (`opacity:0.4`, `pointer-events:none`) when the master toggle is off.
 - **Actions card** — 2-column grid of action cards (`.tama-action-card`)
   - Each card shows: emoji icon + name + description (wraps to 2 lines) + checkmark
   - Teal border/background when enabled (`tama-action-card--on`)
@@ -1097,6 +1103,8 @@ If `tts-state { speaking: false }` arrives before the pet finishes walking to ce
 `PetManager` reads this config at `init()`. When set, `_onChatMessage` calls `pet.executeAction("jump")` instead of `pet.onChatMessage()`. The pet jumps in place — no approach, no center movement. The `jumpOnSpeak` flag is stored as a static property on `PetManager`; changes take effect only after the overlay reloads.
 
 ---
+
+*Updated 2026-05-24 — Stream Persona Overlay v0.1 — added Guest Viewer mode: unregistered chat users spawn a generic pet using bundled `guest_open.png` / `guest_closed.png` images from `src-tauri/resources/`. New config keys: `tama_guests_enabled`, `tama_guests_twitch`, `tama_guests_tiktok`, `tama_guests_tts`, `tama_guests_label_prefix`. Guest IDs are stable negative i64 values derived from `guest_user_id(platform, username)` (in `state.rs`) — they never collide with real DB autoincrement IDs. Guest pets skip DB persistence (`BasePet` already guards `userId <= 0`). Anti-spam pipeline applies to guests same as registered users. Admin panel: new "Guest Viewers" card between Config and Actions cards.*
 
 *Updated 2026-05-23 — Stream Persona Overlay v0.1 — added anti-spam / rate-limiting system (ChatFilters), dropped-message audit logging, Mostrados/Bloqueados log filters, anti-spam preset UI in Twitch and TikTok views; corrected config-key table; moved disconnect_twitch/disconnect_tiktok to commands/config.rs; added animation-config-changed event to §8. UX pass: slider inputs for all ms/numeric advanced config (sRow + syncSlider + --slider-fill pattern), .details-toggle class for summary elements, section-title now 20px/bold/full-color, Twitch connect uses Promise.race with once() + 10s timeout, channel input auto-lowercases, duplicate connect toast removed from frontend, Access Token label + twitchapps.com/tmi link, TikTok API Key optional note + eulerstream.com link, required OAuth scopes shown as chips inline.*
 

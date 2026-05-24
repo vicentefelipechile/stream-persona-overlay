@@ -1,15 +1,28 @@
 pub mod eventsub;
 
 use std::collections::HashSet;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::{ClientConfig, SecureTCPTransport, TwitchIRCClient};
 
 use crate::{
     chat_filters::FilterDecision,
     db::{config::{log_message, log_message_dropped}, users::find_active_user_by_twitch},
-    state::{AppState, ChatMessagePayload},
+    state::{AppState, ChatMessagePayload, guest_user_id},
 };
+
+/// Returns the directory that contains guest_open.png / guest_closed.png.
+/// In release builds uses the Tauri resource dir; in dev falls back to the
+/// source-tree resources/ folder so no bundling step is needed.
+fn guest_resource_dir(app_handle: &AppHandle) -> std::path::PathBuf {
+    if let Ok(dir) = app_handle.path().resource_dir() {
+        if dir.join("guest_open.png").exists() {
+            return dir;
+        }
+    }
+    // Dev-mode fallback: files live at src-tauri/resources/ in the source tree.
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
+}
 
 /// Inicia el cliente Twitch IRC y escucha mensajes del canal configurado.
 pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
@@ -137,23 +150,60 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                     }
                 };
 
-                // Notificar una sola vez por sesión cuando el usuario no está registrado
-                if is_unregistered && !notified_unregistered.contains(&username) {
+                // Guest viewer fallback — emit a pet for unregistered users if guests are enabled
+                let guest_payload_opt: Option<ChatMessagePayload> = if payload_opt.is_none() && is_unregistered {
+                    let (guests_enabled, guests_twitch, tama_enabled, guests_tts, label_prefix) = {
+                        state.config_cache.read().map(|c| (
+                            c.tama_guests_enabled,
+                            c.tama_guests_twitch,
+                            c.tama_enabled,
+                            c.tama_guests_tts,
+                            c.tama_guests_label_prefix.clone(),
+                        )).unwrap_or((false, false, false, false, String::new()))
+                    };
+                    if guests_enabled && guests_twitch && tama_enabled {
+                        let res_dir = guest_resource_dir(&app_handle);
+                        let mouth_open  = res_dir.join("guest_open.png").to_string_lossy().to_string();
+                        let mouth_closed = res_dir.join("guest_closed.png").to_string_lossy().to_string();
+                        tracing::info!("[twitch/guest] Spawning guest pet for @{}", username);
+                        Some(ChatMessagePayload {
+                            platform: "twitch".to_string(),
+                            username: username.clone(),
+                            message: text.clone(),
+                            user_id: guest_user_id("twitch", &username),
+                            display_name: format!("{}{}", label_prefix, username),
+                            mouth_open_path: mouth_open,
+                            mouth_closed_path: mouth_closed,
+                            voice_id: if guests_tts { "default".to_string() } else { String::new() },
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let effective_payload = payload_opt.or(guest_payload_opt);
+
+                // Only notify "ignorando" when we are truly dropping this user's message
+                if is_unregistered && effective_payload.is_none() && !notified_unregistered.contains(&username) {
                     notified_unregistered.insert(username.clone());
                     tracing::info!("[twitch] @{} no está registrado — ignorando mensaje", username);
                     let _ = app_handle.emit("twitch-unregistered-user", &username);
                 }
+                let is_guest = effective_payload.as_ref().map(|p| p.user_id < 0).unwrap_or(false);
 
-                if let Some(payload) = payload_opt {
+                if let Some(payload) = effective_payload {
                     if let Err(e) = app_handle.emit("chat-message", &payload) {
                         tracing::error!("[twitch] Error emitiendo chat-message: {}", e);
                     }
                     state.broadcast_ws("chat-message", &payload);
 
-                    let tts_enabled = state.config_cache.read()
-                        .map(|c| c.tts_enabled)
-                        .unwrap_or(false);
-                    if tts_enabled {
+                    let (tts_enabled, guests_tts) = state.config_cache.read()
+                        .map(|c| (c.tts_enabled, c.tama_guests_tts))
+                        .unwrap_or((false, false));
+                    let should_tts = tts_enabled && (!is_guest || guests_tts) && !payload.voice_id.is_empty();
+                    if should_tts {
                         let app_clone  = app_handle.clone();
                         let ws_tx      = state.ws_tx.clone();
                         let tts_text   = payload.message.clone();

@@ -70,6 +70,11 @@ export async function renderTamagotchi(): Promise<void> {
   const actionCheckSecs = Number(cfg["tama_action_check_secs"]) || 8;
   const actionProb      = Number(cfg["tama_action_probability"])|| 0.15;
   const jumpOnSpeak     = String(cfg["tama_jump_on_speak"])     === "true";
+  const guestsEnabled   = String(cfg["tama_guests_enabled"])    === "true";
+  const guestsTwitch    = String(cfg["tama_guests_twitch"])     === "true";
+  const guestsTiktok    = String(cfg["tama_guests_tiktok"])     === "true";
+  const guestsTts       = String(cfg["tama_guests_tts"])        === "true";
+  const guestsPrefix    = String(cfg["tama_guests_label_prefix"] ?? "");
 
   let enabledActions: string[] = [];
   try {
@@ -124,6 +129,57 @@ export async function renderTamagotchi(): Promise<void> {
           <span class="switch-track"></span>
         </label>
       </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header" style="justify-content:space-between;">
+        <h2 class="section-title">Visores Invitados</h2>
+        <label class="switch">
+          <input type="checkbox" id="guests-enabled" ${guestsEnabled ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
+      </div>
+      <p style="font-size:13px;color:var(--color-text-muted);margin:0 0 var(--space-4);">
+        Genera una mascota genérica para usuarios del chat que no están registrados en el sistema.
+      </p>
+      <details id="guests-advanced"${!guestsEnabled ? " style=\"pointer-events:none;opacity:.4;\"" : ""}>
+        <summary class="details-toggle">Avanzado</summary>
+        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4);">
+          <div class="tama-setting-row">
+            <div>
+              <div class="tama-setting-label">${Icons.twitch(14)} Invitados de Twitch</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="guests-twitch" ${guestsTwitch ? "checked" : ""}/>
+              <span class="switch-track"></span>
+            </label>
+          </div>
+          <div class="tama-setting-row">
+            <div>
+              <div class="tama-setting-label">${Icons.tiktok(14)} Invitados de TikTok</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="guests-tiktok" ${guestsTiktok ? "checked" : ""}/>
+              <span class="switch-track"></span>
+            </label>
+          </div>
+          <div class="tama-setting-row">
+            <div>
+              <div class="tama-setting-label">Activar TTS para invitados</div>
+              <div class="tama-setting-desc">Permite que los mensajes de invitados sean leídos por el sistema de voz</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="guests-tts" ${guestsTts ? "checked" : ""}/>
+              <span class="switch-track"></span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label for="guests-prefix">Prefijo del nombre</label>
+            <input type="text" id="guests-prefix" value="${guestsPrefix}" placeholder="[G] " style="max-width:200px;"/>
+            <small style="color:var(--color-text-muted);">Se antepone al nombre de usuario del invitado en la etiqueta de la mascota</small>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="card" style="margin-top:var(--space-5);">
@@ -195,6 +251,42 @@ export async function renderTamagotchi(): Promise<void> {
     } catch (e) {
       showToast(`Error: ${String(e)}`, "error");
     }
+  });
+
+  // Guest Viewers toggles
+  const guestsEnabledEl = container.querySelector<HTMLInputElement>("#guests-enabled")!;
+  const guestsAdvanced  = container.querySelector<HTMLDetailsElement>("#guests-advanced")!;
+
+  function _setGuestsAdvancedState(on: boolean): void {
+    guestsAdvanced.style.pointerEvents = on ? "" : "none";
+    guestsAdvanced.style.opacity       = on ? "" : "0.4";
+  }
+
+  guestsEnabledEl.addEventListener("change", () => {
+    const value = guestsEnabledEl.checked ? "true" : "false";
+    _setGuestsAdvancedState(guestsEnabledEl.checked);
+    invoke("set_config_cmd", { key: "tama_guests_enabled", value })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  container.querySelector<HTMLInputElement>("#guests-twitch")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_guests_twitch", value: (e.target as HTMLInputElement).checked ? "true" : "false" })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  container.querySelector<HTMLInputElement>("#guests-tiktok")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_guests_tiktok", value: (e.target as HTMLInputElement).checked ? "true" : "false" })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  container.querySelector<HTMLInputElement>("#guests-tts")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_guests_tts", value: (e.target as HTMLInputElement).checked ? "true" : "false" })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  container.querySelector<HTMLInputElement>("#guests-prefix")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_guests_label_prefix", value: (e.target as HTMLInputElement).value })
+      .catch(err => showToast(String(err), "error"));
   });
 
   _bindRange("cfg-size",       "cfg-size-val",       "px");

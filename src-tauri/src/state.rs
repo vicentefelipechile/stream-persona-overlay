@@ -238,6 +238,27 @@ pub struct AppConfig {
     pub tiktok_event_share_user_cooldown_ms: u32,
     pub tiktok_event_subscribe_user_cooldown_ms: u32,
     pub tiktok_event_envelope_user_cooldown_ms: u32,
+    // ── Guest viewer config ──────────────────────────────────────────────────
+    pub tama_guests_enabled: bool,
+    pub tama_guests_twitch: bool,
+    pub tama_guests_tiktok: bool,
+    pub tama_guests_tts: bool,
+    pub tama_guests_label_prefix: String,
+}
+
+// =========================================================================================================
+// Guest User ID
+// =========================================================================================================
+
+/// Derives a stable negative i64 from (platform, username).
+/// Negative IDs never collide with real SQLite autoincrement IDs (always >= 1).
+/// The same (platform, username) pair always produces the same ID within a session.
+pub fn guest_user_id(platform: &str, username: &str) -> i64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    format!("{}:{}", platform, username).hash(&mut h);
+    -((h.finish() % (i64::MAX as u64)) as i64 + 1)
 }
 
 // ─── ChatMessagePayload ──────────────────────────────────────────────────────
