@@ -107,12 +107,11 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate changelog
-        uses: orhun/git-cliff-action@v4
-        id: cliff
-        with:
-          config: cliff.toml
-          args: --latest --strip header
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV=$(git tag --sort=-version:refname | grep -E '^v' | sed -n '2p')
+          echo "tag=${PREV:-${{ github.ref_name }}}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -120,7 +119,7 @@ jobs:
           name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           body: |
-            ## 📥 ¿Qué archivo descargar?
+            ## ¿Qué archivo descargar?
 
             | Sistema | Archivo | Notas |
             |---------|---------|-------|
@@ -128,29 +127,6 @@ jobs:
             | Linux x86_64 | `stream-persona-overlay-linux-x86_64` | Dar permisos con `chmod +x` antes de ejecutar |
             | macOS (Apple Silicon) | `stream-persona-overlay-macos-arm64` | Puede requerir `xattr -cr` si macOS bloquea la ejecución |
 
-            > **Verificar integridad:** cada binario incluye un archivo `.sha256` con su checksum.
-            > ```
-            > # Linux / macOS
-            > sha256sum -c stream-persona-overlay-linux-x86_64.sha256
-            > ```
-
-            ---
-
-            ## 🔄 Cambios en esta versión
-
-            ${{ steps.cliff.outputs.content }}
-
-            ---
-
-            ## ⚡ Inicio rápido
-
-            1. Descarga el binario para tu sistema operativo.
-            2. Abre la app - el panel principal aparecerá automáticamente.
-            3. En OBS, añade una **Browser Source** apuntando a `http://localhost:6767/overlay`.
-            4. Conecta tu cuenta de Twitch o TikTok desde el panel de configuración.
-
-            ---
-
-            *¿Encontraste un bug? Abre un [issue](../../issues/new) con los pasos para reproducirlo.*
+            **Full changelog**: ${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }}
           files: |
             artifacts/**
