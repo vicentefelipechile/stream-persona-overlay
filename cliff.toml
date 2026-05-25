@@ -4,9 +4,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group }}
 {% for commit in commits %}
-- {{ commit.message | split(pat="\n") | first | trim }}\
-{% if commit.breaking %} ⚠️ BREAKING{% endif %}
-
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first | trim | capitalize }}{% if commit.breaking %} ⚠️ **BREAKING CHANGE**{% endif %}
 {% endfor %}
 {% endfor %}
 """
@@ -25,14 +23,14 @@ sort_commits = "oldest"
 commit_preprocessors = []
 
 commit_parsers = [
-  { message = "^feat", group = "✨ New features" },
-  { message = "^fix",  group = "🐛 Bug fixes" },
-  { message = "^perf", group = "⚡ Performance" },
-  { message = "^refactor", group = "🔨 Refactor" },
-  { message = "^docs", group = "📖 Documentation" },
-  { message = "^style", group = "🎨 Style" },
-  { message = "^test", group = "🧪 Tests" },
-  { message = "^ci",   group = "🤖 CI" },
+  { message = "^feat", group = "Features" },
+  { message = "^fix",  group = "Bug fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactor" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^style", group = "Style" },
+  { message = "^test", group = "Tests" },
+  { message = "^ci",   group = "CI" },
   { message = "^chore", skip = true },
 ]
 
