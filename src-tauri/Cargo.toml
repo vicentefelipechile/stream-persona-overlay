@@ -56,4 +56,5 @@ async-trait = "0.1"
 
 # HTTP + WebSocket server (OBS Browser Source)
 axum = { version = "0.7", features = ["ws"] }
-tower-http = { version = "0.5", features = ["fs"] }
+# Embed dist/ assets into the release binary so no external dist/ folder is needed
+rust-embed = "8"

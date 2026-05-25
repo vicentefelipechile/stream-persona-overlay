@@ -65,6 +65,15 @@ pub async fn set_config_cmd(
         "persona_size_px" => cache.persona_size_px = value.parse().unwrap_or(256),
         "audio_threshold" => cache.audio_threshold = value.parse().unwrap_or(20),
         "max_visible_personas" => cache.max_visible_personas = value.parse().unwrap_or(4),
+        // ── Tama guest config cache (read by twitch/tiktok handlers at runtime) ────
+        "tama_enabled" => cache.tama_enabled = value == "true",
+        "tama_guests_enabled" => cache.tama_guests_enabled = value == "true",
+        "tama_guests_twitch" => cache.tama_guests_twitch = value == "true",
+        "tama_guests_tiktok" => cache.tama_guests_tiktok = value == "true",
+        "tama_guests_tts" => cache.tama_guests_tts = value == "true",
+        "tama_guests_label_prefix" => cache.tama_guests_label_prefix = value.clone(),
+        "tama_guest_mouth_open_path" => cache.tama_guest_mouth_open_path = value.clone(),
+        "tama_guest_mouth_closed_path" => cache.tama_guest_mouth_closed_path = value.clone(),
         _ => {}
     }
 

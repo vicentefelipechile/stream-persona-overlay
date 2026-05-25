@@ -188,12 +188,23 @@ fn handle_chat(
         && cfg.tama_guests_tiktok
         && cfg.tama_enabled
     {
-        let res_dir = guest_resource_dir(app_handle);
-        let mouth_open = res_dir.join("guest_open.png").to_string_lossy().to_string();
-        let mouth_closed = res_dir
-            .join("guest_closed.png")
-            .to_string_lossy()
-            .to_string();
+        let (mouth_open, mouth_closed) = if !cfg.tama_guest_mouth_open_path.is_empty()
+            && !cfg.tama_guest_mouth_closed_path.is_empty()
+        {
+            (
+                cfg.tama_guest_mouth_open_path.clone(),
+                cfg.tama_guest_mouth_closed_path.clone(),
+            )
+        } else {
+            let res_dir = guest_resource_dir(app_handle);
+            (
+                res_dir.join("guest_open.png").to_string_lossy().to_string(),
+                res_dir
+                    .join("guest_closed.png")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        };
         tracing::info!("[tiktok/guest] Spawning guest pet for @{}", username);
         Some(ChatMessagePayload {
             platform: "tiktok".to_string(),

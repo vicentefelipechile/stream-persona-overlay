@@ -7,6 +7,7 @@
 // =========================================================================================================
 
 import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { showToast } from "../state";
 import { Icons } from "../icons";
 import { ActionRegistry } from "../overlay/tamagotchi/core/ActionRegistry";
@@ -75,6 +76,8 @@ export async function renderTamagotchi(): Promise<void> {
   const guestsTiktok    = String(cfg["tama_guests_tiktok"])        === "true";
   const guestsTts       = String(cfg["tama_guests_tts"])           === "true";
   const guestsPrefix    = String(cfg["tama_guests_label_prefix"]   ?? "");
+  const guestOpenPath   = String(cfg["tama_guest_mouth_open_path"]   ?? "");
+  const guestClosedPath = String(cfg["tama_guest_mouth_closed_path"] ?? "");
   const layoutMode      = String(cfg["tama_layout_mode"]           ?? "dynamic") === "static" ? "static" : "dynamic";
   const staticAnchor    = String(cfg["tama_static_anchor"]         ?? "left")    === "right"  ? "right"  : "left";
   const staticSpacing   = Number(cfg["tama_static_spacing_px"])    || 100;
@@ -207,6 +210,36 @@ export async function renderTamagotchi(): Promise<void> {
             <input type="text" id="guests-prefix" value="${guestsPrefix}" placeholder="[G] " style="max-width:200px;"/>
             <small style="color:var(--color-text-muted);">Se antepone al nombre de usuario del invitado en la etiqueta de la mascota</small>
           </div>
+          <div style="border-top:1px solid var(--color-border);padding-top:var(--space-4);margin-top:var(--space-2);">
+            <div class="tama-setting-label" style="margin-bottom:var(--space-2);">Sprite personalizado de invitado</div>
+            <div class="tama-setting-desc" style="margin-bottom:var(--space-3);">Imagen PNG/JPEG que reemplaza el sprite genérico. Vacío = usar sprite por defecto incluido.</div>
+            <div style="display:flex;gap:var(--space-5);flex-wrap:wrap;">
+              <div>
+                <div style="font-size:12px;color:var(--color-text-muted);margin-bottom:var(--space-2);">Boca abierta</div>
+                <div style="width:80px;height:80px;border:1px solid var(--color-border);border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:var(--space-2);background:var(--color-surface);">
+                  ${guestOpenPath
+                    ? `<img src="${convertFileSrc(guestOpenPath)}" style="width:100%;height:100%;object-fit:contain;" />`
+                    : `<span style="font-size:11px;color:var(--color-text-muted);">Default</span>`}
+                </div>
+                <div style="display:flex;gap:var(--space-2);">
+                  <button class="btn btn-secondary btn-sm" id="btn-guest-img-open">Cambiar</button>
+                  ${guestOpenPath ? `<button class="btn btn-outline btn-sm" id="btn-guest-img-open-reset">Restablecer</button>` : ""}
+                </div>
+              </div>
+              <div>
+                <div style="font-size:12px;color:var(--color-text-muted);margin-bottom:var(--space-2);">Boca cerrada</div>
+                <div style="width:80px;height:80px;border:1px solid var(--color-border);border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:var(--space-2);background:var(--color-surface);">
+                  ${guestClosedPath
+                    ? `<img src="${convertFileSrc(guestClosedPath)}" style="width:100%;height:100%;object-fit:contain;" />`
+                    : `<span style="font-size:11px;color:var(--color-text-muted);">Default</span>`}
+                </div>
+                <div style="display:flex;gap:var(--space-2);">
+                  <button class="btn btn-secondary btn-sm" id="btn-guest-img-closed">Cambiar</button>
+                  ${guestClosedPath ? `<button class="btn btn-outline btn-sm" id="btn-guest-img-closed-reset">Restablecer</button>` : ""}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </details>
     </div>
@@ -322,6 +355,49 @@ export async function renderTamagotchi(): Promise<void> {
   container.querySelector<HTMLInputElement>("#guests-prefix")!.addEventListener("change", (e) => {
     invoke("set_config_cmd", { key: "tama_guests_label_prefix", value: (e.target as HTMLInputElement).value })
       .catch(err => showToast(String(err), "error"));
+  });
+
+  function _pickGuestImage(imageType: "open" | "closed"): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const buffer = await file.arrayBuffer();
+      const bytes = Array.from(new Uint8Array(buffer));
+      try {
+        await invoke("set_guest_image", { imageType, imageData: bytes });
+        showToast("Imagen de invitado actualizada", "success");
+        await renderTamagotchi();
+      } catch (e) {
+        showToast(String(e), "error");
+      }
+    };
+    input.click();
+  }
+
+  container.querySelector("#btn-guest-img-open")?.addEventListener("click", () => _pickGuestImage("open"));
+  container.querySelector("#btn-guest-img-closed")?.addEventListener("click", () => _pickGuestImage("closed"));
+
+  container.querySelector("#btn-guest-img-open-reset")?.addEventListener("click", async () => {
+    try {
+      await invoke("reset_guest_image", { imageType: "open" });
+      showToast("Imagen restablecida al default", "success");
+      await renderTamagotchi();
+    } catch (e) {
+      showToast(String(e), "error");
+    }
+  });
+
+  container.querySelector("#btn-guest-img-closed-reset")?.addEventListener("click", async () => {
+    try {
+      await invoke("reset_guest_image", { imageType: "closed" });
+      showToast("Imagen restablecida al default", "success");
+      await renderTamagotchi();
+    } catch (e) {
+      showToast(String(e), "error");
+    }
   });
 
   _bindRange("cfg-size",       "cfg-size-val",       "px");

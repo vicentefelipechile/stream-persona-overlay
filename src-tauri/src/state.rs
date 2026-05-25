@@ -244,6 +244,10 @@ pub struct AppConfig {
     pub tama_guests_tiktok: bool,
     pub tama_guests_tts: bool,
     pub tama_guests_label_prefix: String,
+    /// Absolute path to a custom guest mouth-open sprite (empty = use bundled default)
+    pub tama_guest_mouth_open_path: String,
+    /// Absolute path to a custom guest mouth-closed sprite (empty = use bundled default)
+    pub tama_guest_mouth_closed_path: String,
     // ── Static layout config ─────────────────────────────────────────────────
     /// "dynamic" (free walk) or "static" (fixed queue at anchor edge)
     pub tama_layout_mode: String,

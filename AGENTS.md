@@ -338,6 +338,8 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_guests_tiktok` | `"true"` | Allow guest pets from TikTok (only effective when master is on) |
 | `tama_guests_tts` | `"false"` | Enable TTS for guest messages |
 | `tama_guests_label_prefix` | `""` | Optional prefix prepended to the guest display name (e.g. `"[G] "`) |
+| `tama_guest_mouth_open_path` | `""` | Absolute path to a custom guest mouth-open PNG (empty = use bundled `guest_open.png`) |
+| `tama_guest_mouth_closed_path` | `""` | Absolute path to a custom guest mouth-closed PNG (empty = use bundled `guest_closed.png`) |
 | `tama_layout_mode` | `"dynamic"` | `"dynamic"` = pets walk freely; `"static"` = pets queue at a fixed anchor edge |
 | `tama_static_anchor` | `"left"` | Which edge the queue starts from (`"left"` or `"right"`). Only used when `tama_layout_mode = "static"` |
 | `tama_static_spacing_px` | `"100"` | Pixel gap between consecutive pet slots in static mode |
@@ -445,6 +447,8 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `tama_get_pet_states` | `invoke<PetStateRow[]>("tama_get_pet_states")` | Return all active pet rows joined with display_name from users |
 | `tama_upsert_pet_state` | `invoke("tama_upsert_pet_state", { user_id, display_name, floor_x, is_sleeping })` | Sync pet position/state to DB (called by overlay on spawn and state change) |
 | `tama_remove_pet_state` | `invoke("tama_remove_pet_state", { user_id })` | Delete pet row from DB (called by overlay on despawn) |
+| `set_guest_image` | `invoke("set_guest_image", { imageType: "open" \| "closed", imageData: number[] })` | Upload a custom PNG/JPEG sprite for guest pets (max 2 MB). Resizes to 512×512 PNG, saves to `{app_data_dir}/guest_open\|closed.png`, updates `tama_guest_mouth_open\|closed_path` config key and emits `tama-config-changed`. |
+| `reset_guest_image` | `invoke("reset_guest_image", { imageType: "open" \| "closed" })` | Clear the custom guest image, reverting to the bundled default. |
 
 ### Control (`commands/control.rs`)
 

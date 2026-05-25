@@ -170,7 +170,15 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                 let guest_payload_opt: Option<ChatMessagePayload> = if payload_opt.is_none()
                     && is_unregistered
                 {
-                    let (guests_enabled, guests_twitch, tama_enabled, guests_tts, label_prefix) = {
+                    let (
+                        guests_enabled,
+                        guests_twitch,
+                        tama_enabled,
+                        guests_tts,
+                        label_prefix,
+                        guest_open_cfg,
+                        guest_closed_cfg,
+                    ) = {
                         state
                             .config_cache
                             .read()
@@ -181,18 +189,34 @@ pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {
                                     c.tama_enabled,
                                     c.tama_guests_tts,
                                     c.tama_guests_label_prefix.clone(),
+                                    c.tama_guest_mouth_open_path.clone(),
+                                    c.tama_guest_mouth_closed_path.clone(),
                                 )
                             })
-                            .unwrap_or((false, false, false, false, String::new()))
+                            .unwrap_or((
+                                false,
+                                false,
+                                false,
+                                false,
+                                String::new(),
+                                String::new(),
+                                String::new(),
+                            ))
                     };
                     if guests_enabled && guests_twitch && tama_enabled {
-                        let res_dir = guest_resource_dir(&app_handle);
-                        let mouth_open =
-                            res_dir.join("guest_open.png").to_string_lossy().to_string();
-                        let mouth_closed = res_dir
-                            .join("guest_closed.png")
-                            .to_string_lossy()
-                            .to_string();
+                        let (mouth_open, mouth_closed) =
+                            if !guest_open_cfg.is_empty() && !guest_closed_cfg.is_empty() {
+                                (guest_open_cfg, guest_closed_cfg)
+                            } else {
+                                let res_dir = guest_resource_dir(&app_handle);
+                                (
+                                    res_dir.join("guest_open.png").to_string_lossy().to_string(),
+                                    res_dir
+                                        .join("guest_closed.png")
+                                        .to_string_lossy()
+                                        .to_string(),
+                                )
+                            };
                         tracing::info!("[twitch/guest] Spawning guest pet for @{}", username);
                         Some(ChatMessagePayload {
                             platform: "twitch".to_string(),

@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
 
-use crate::{db::config::set_config_value, state::AppState};
+use crate::{
+    db::config::{get_config, set_config_value},
+    state::AppState,
+};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -131,5 +134,115 @@ pub async fn tama_remove_pet_state(user_id: i64, state: State<'_, AppState>) -> 
         rusqlite::params![user_id],
     )
     .map_err(map_err)?;
+    Ok(())
+}
+
+// =========================================================================================================
+// Guest Image Commands
+// =========================================================================================================
+
+/// Saves a custom guest pet image (mouth open or closed) to app_data_dir and
+/// updates the corresponding config key so Twitch/TikTok handlers use it.
+///
+/// `image_type` must be `"open"` or `"closed"`.
+/// `image_data` is the raw file bytes (PNG or JPEG, max 2 MB).
+#[tauri::command]
+pub async fn set_guest_image(
+    image_type: String,
+    image_data: Vec<u8>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> CmdResult<()> {
+    if image_data.len() > 2 * 1024 * 1024 {
+        return Err("La imagen no puede superar los 2 MB".to_string());
+    }
+
+    let (filename, config_key) = match image_type.as_str() {
+        "open" => ("guest_open.png", "tama_guest_mouth_open_path"),
+        "closed" => ("guest_closed.png", "tama_guest_mouth_closed_path"),
+        _ => return Err("image_type debe ser \"open\" o \"closed\"".to_string()),
+    };
+
+    let img =
+        image::load_from_memory(&image_data).map_err(|e| format!("Imagen inválida: {}", e))?;
+
+    let resized = img.resize_exact(512, 512, image::imageops::FilterType::Lanczos3);
+
+    let dest_path = state.app_data_dir.join(filename);
+    resized
+        .save(&dest_path)
+        .map_err(|e| format!("Error guardando imagen: {}", e))?;
+
+    let path_str = dest_path.to_string_lossy().to_string();
+
+    {
+        let db = state.db.lock().map_err(map_err)?;
+        set_config_value(&db, config_key, &path_str).map_err(map_err)?;
+    }
+
+    {
+        let mut cache = state.config_cache.write().map_err(map_err)?;
+        match config_key {
+            "tama_guest_mouth_open_path" => cache.tama_guest_mouth_open_path = path_str.clone(),
+            "tama_guest_mouth_closed_path" => cache.tama_guest_mouth_closed_path = path_str.clone(),
+            _ => {}
+        }
+    }
+
+    let full_config = {
+        let db = state.db.lock().map_err(map_err)?;
+        get_config(&db).map_err(map_err)?
+    };
+    app.emit("tama-config-changed", &full_config)
+        .map_err(map_err)?;
+    state.broadcast_ws("tama-config-changed", &full_config);
+
+    tracing::info!(
+        "[tama] Imagen de invitado '{}' actualizada: {}",
+        image_type,
+        path_str
+    );
+    Ok(())
+}
+
+/// Resets a guest image to the bundled default by clearing the config key.
+#[tauri::command]
+pub async fn reset_guest_image(
+    image_type: String,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> CmdResult<()> {
+    let config_key = match image_type.as_str() {
+        "open" => "tama_guest_mouth_open_path",
+        "closed" => "tama_guest_mouth_closed_path",
+        _ => return Err("image_type debe ser \"open\" o \"closed\"".to_string()),
+    };
+
+    {
+        let db = state.db.lock().map_err(map_err)?;
+        set_config_value(&db, config_key, "").map_err(map_err)?;
+    }
+
+    {
+        let mut cache = state.config_cache.write().map_err(map_err)?;
+        match config_key {
+            "tama_guest_mouth_open_path" => cache.tama_guest_mouth_open_path = String::new(),
+            "tama_guest_mouth_closed_path" => cache.tama_guest_mouth_closed_path = String::new(),
+            _ => {}
+        }
+    }
+
+    let full_config = {
+        let db = state.db.lock().map_err(map_err)?;
+        get_config(&db).map_err(map_err)?
+    };
+    app.emit("tama-config-changed", &full_config)
+        .map_err(map_err)?;
+    state.broadcast_ws("tama-config-changed", &full_config);
+
+    tracing::info!(
+        "[tama] Imagen de invitado '{}' restablecida al default",
+        image_type
+    );
     Ok(())
 }

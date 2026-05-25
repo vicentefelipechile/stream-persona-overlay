@@ -22,8 +22,8 @@ use commands::control::{
     validate_twitch_token,
 };
 use commands::tamagotchi::{
-    tama_get_pet_states, tama_remove_pet_state, tama_set_enabled, tama_trigger_action,
-    tama_upsert_pet_state,
+    reset_guest_image, set_guest_image, tama_get_pet_states, tama_remove_pet_state,
+    tama_set_enabled, tama_trigger_action, tama_upsert_pet_state,
 };
 use commands::users::{
     delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd,
@@ -172,6 +172,8 @@ pub fn run() {
             tama_get_pet_states,
             tama_upsert_pet_state,
             tama_remove_pet_state,
+            set_guest_image,
+            reset_guest_image,
         ])
         .build(tauri::generate_context!())
         .expect("Error iniciando la aplicación Tauri")

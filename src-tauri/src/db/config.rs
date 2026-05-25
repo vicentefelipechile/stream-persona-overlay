@@ -179,6 +179,8 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_guests_tiktok" => cfg.tama_guests_tiktok = value == "true",
             "tama_guests_tts" => cfg.tama_guests_tts = value == "true",
             "tama_guests_label_prefix" => cfg.tama_guests_label_prefix = value,
+            "tama_guest_mouth_open_path" => cfg.tama_guest_mouth_open_path = value,
+            "tama_guest_mouth_closed_path" => cfg.tama_guest_mouth_closed_path = value,
             // ── Static layout config ──────────────────────────────────────────
             "tama_layout_mode" => cfg.tama_layout_mode = value,
             "tama_static_anchor" => cfg.tama_static_anchor = value,
