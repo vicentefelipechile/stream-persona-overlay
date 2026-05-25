@@ -6,12 +6,12 @@ Users register their persona images through a **Discord bot** (`/persona` slash 
 
 ## Stack
 
-- **Backend:** Rust — Tauri 2, tokio, serenity/poise (Discord), twitch-irc, rusqlite (SQLite), axum (OBS Browser Source server on port 6767)
+- **Backend:** Rust, Tauri 2, tokio, serenity/poise (Discord), twitch-irc, rusqlite (SQLite), axum (OBS Browser Source server on port 6767)
 - **Frontend:** Vanilla TypeScript, Vite 6, Motion v12
 
 ## Download
 
-Pre-built binaries are available on the [Releases](../../releases) page — no Rust toolchain required. Download the binary for your platform and run it directly.
+Pre-built binaries are available on the [Releases](../../releases) page.
 
 ## Building from Source
 
