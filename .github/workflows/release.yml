@@ -117,15 +117,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Stream Persona Overlay ${{ github.ref_name }}"
+          name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           body: |
-            ## Stream Persona Overlay ${{ github.ref_name }}
-
-            > Panel de overlays para Twitch y TikTok con sistema Tamagotchi, filtros de spam y fuente de navegador para OBS.
-
-            ---
-
             ## 📥 ¿Qué archivo descargar?
 
             | Sistema | Archivo | Notas |
@@ -151,7 +145,7 @@ jobs:
             ## ⚡ Inicio rápido
 
             1. Descarga el binario para tu sistema operativo.
-            2. Abre la app — el panel principal aparecerá automáticamente.
+            2. Abre la app - el panel principal aparecerá automáticamente.
             3. En OBS, añade una **Browser Source** apuntando a `http://localhost:6767/overlay`.
             4. Conecta tu cuenta de Twitch o TikTok desde el panel de configuración.
 
