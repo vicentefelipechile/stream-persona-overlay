@@ -127,6 +127,6 @@ jobs:
             | Linux x86_64 | `stream-persona-overlay-linux-x86_64` | Dar permisos con `chmod +x` antes de ejecutar |
             | macOS (Apple Silicon) | `stream-persona-overlay-macos-arm64` | Puede requerir `xattr -cr` si macOS bloquea la ejecución |
 
-            **Full changelog**: ${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }}
+            **Full changelog**: ${{ github.server_url }}/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }}
           files: |
             artifacts/**
