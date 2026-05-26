@@ -46,6 +46,7 @@ mod embedded {
     pub struct FrontendAssets;
 }
 
+#[cfg(not(debug_assertions))]
 fn guess_content_type(path: &str) -> &'static str {
     if path.ends_with(".js") || path.ends_with(".mjs") {
         "application/javascript; charset=utf-8"
