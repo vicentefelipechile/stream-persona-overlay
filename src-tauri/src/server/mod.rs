@@ -82,18 +82,28 @@ struct ServerState {
 // Entry Point
 // =========================================================================================================
 
+/// Builds the route table, kept separate from `start_server` so it can be
+/// constructed without any runtime state. axum panics at route *registration*
+/// when the syntax is wrong (e.g. the axum 0.8 catch-all form `{*path}` used on
+/// axum 0.7), so the `router_builds_without_panicking` test below turns that into
+/// a `cargo test` failure instead of a silently-dead server task in release.
+fn build_router() -> Router<ServerState> {
+    Router::new()
+        .route("/overlay", get(serve_overlay))
+        .route("/persona", get(serve_persona))
+        .route("/ws", get(ws_handler))
+        // axum 0.7 catch-all syntax is `*path` (no braces). `{*path}` is axum 0.8
+        // and panics here: "catch-all parameters are only allowed at the end".
+        .route("/assets/*path", get(serve_embedded_asset))
+}
+
 pub async fn start_server(app_state: AppState, _dist_dir: PathBuf, dev_mode: bool) {
     let state = ServerState {
         app_state,
         dev_mode,
     };
 
-    let app = Router::new()
-        .route("/overlay", get(serve_overlay))
-        .route("/persona", get(serve_persona))
-        .route("/ws", get(ws_handler))
-        .route("/assets/{*path}", get(serve_embedded_asset))
-        .with_state(state);
+    let app = build_router().with_state(state);
 
     // Bind IPv4 loopback with retries in case a previous instance left the port in TIME_WAIT.
     let listener_v4 = bind_with_retry("127.0.0.1:6767").await;
@@ -276,12 +286,23 @@ async fn serve_persona(
         Err(_) => return (StatusCode::NOT_FOUND, "Image not found").into_response(),
     };
 
-    let app_data_dir = s.app_state.app_data_dir.as_ref();
-    // Canonicalize app_data_dir too so both sides have the same \\?\ prefix on Windows
-    let app_data_canonical = tokio::fs::canonicalize(app_data_dir)
-        .await
-        .unwrap_or_else(|_| app_data_dir.to_path_buf());
-    if !canonical.starts_with(&app_data_canonical) {
+    // Allowed roots: app_data_dir (custom guest images saved via set_guest_image)
+    // and resource_dir (bundled default sprites guest_open.png / guest_closed.png,
+    // which live next to the binary — outside app_data_dir). Without resource_dir
+    // here, guests using the default sprite get a 403 in the OBS Browser Source
+    // (the Tauri overlay window is unaffected: it loads via the asset: protocol).
+    // Canonicalize each root so both sides share the same \\?\ prefix on Windows.
+    let mut allowed = Vec::with_capacity(2);
+    for root in [
+        s.app_state.app_data_dir.as_ref(),
+        s.app_state.resource_dir.as_ref(),
+    ] {
+        let c = tokio::fs::canonicalize(root)
+            .await
+            .unwrap_or_else(|_| root.to_path_buf());
+        allowed.push(c);
+    }
+    if !allowed.iter().any(|root| canonical.starts_with(root)) {
         tracing::warn!("[server] Acceso denegado a persona: {:?}", canonical);
         return (StatusCode::FORBIDDEN, "Access denied").into_response();
     }
@@ -454,4 +475,24 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
     };
 
     serde_json::to_string(&response).ok()
+}
+
+// =========================================================================================================
+// Tests
+// =========================================================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression guard for the "OBS overlay refuses connection in release" bug.
+    // An invalid route string panics when axum registers it, which killed the
+    // spawned server task before it could bind port 6767 — visible only as
+    // ERR_CONNECTION_REFUSED in a release binary (the panic in the detached task
+    // was swallowed). Constructing the router here makes any such mistake fail at
+    // `cargo test` time instead.
+    #[test]
+    fn router_builds_without_panicking() {
+        let _ = build_router();
+    }
 }

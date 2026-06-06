@@ -724,7 +724,7 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 ### `server/`
 
-- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767.
+- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767. Routes are built by `build_router()` (split out so the `router_builds_without_panicking` test can validate route syntax — see §16 "axum route syntax + silent panics"). **Uses axum 0.7 route syntax** (`/assets/*path`, not the 0.8 `{*path}`).
 - Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprite images from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket).
 - **Bind strategy**: tries `127.0.0.1:6767` (IPv4 loopback) with up to 3 attempts and 1 s between retries to recover from TIME_WAIT left by a previous instance. Also binds `[::1]:6767` (IPv6 loopback) concurrently — on Windows 10 `localhost` often resolves to `::1` first, so without the IPv6 listener the browser gets connection refused even when the IPv4 server is healthy. If only one address is available the server runs on that address alone; if neither is available the task logs an error and exits.
 - **Dev mode** (`dev_mode = true`): reads `overlay-browser.html` from the project root (not `dist/`) and rewrites `/src/*` references to `http://localhost:1420/src/*` so assets are served by the Vite dev server. Enabled automatically when compiled in debug mode (`cfg(debug_assertions)`).
@@ -1083,6 +1083,25 @@ export interface PetTransport {
 | `tauri build` (release) | `dist/overlay-browser.html` | `dist/assets/*` via axum `ServeDir` |
 
 No build step is required in dev — the server adapts automatically based on `cfg(debug_assertions)`.
+
+### ⚠️ Critical: axum route syntax + silent panics in the server task
+
+**Symptom:** the OBS Browser Source shows `ERR_CONNECTION_REFUSED` on `http://localhost:6767/overlay` in a **release `.exe`**, while `tauri dev` works fine — "as if the server never started."
+
+**Root cause (real incident):** the catch-all route was written `/assets/{*path}` — that is **axum 0.8** syntax. This project is pinned to **axum 0.7** (`Cargo.lock` → axum 0.7.9 / matchit 0.7.3), where the catch-all form is `/assets/*path` (asterisk, no braces). axum validates routes at **registration time** and *panics*:
+
+```
+panicked at src/server/mod.rs: Invalid route "/assets/{*path}":
+catch-all parameters are only allowed at the end of a route
+```
+
+That panic fires inside `start_server` **before the socket `bind`**. Because the server runs in a detached `tauri::async_runtime::spawn` task, the panic was swallowed — the task just died and port 6767 was never opened. It only surfaced in release because `tauri dev` loads the overlay from the Tauri window / Vite (`:1420`), not from the axum server on `:6767`; only the OBS Browser Source depends 100% on axum.
+
+**Why it's guarded now:**
+- `build_router()` is split out from `start_server`, and the `router_builds_without_panicking` test in `server/mod.rs` constructs it — any invalid route syntax now fails `cargo test`/CI instead of a shipped binary.
+- The server task in `lib.rs` is wrapped in `catch_unwind`, so any future panic is logged (`[server] La tarea del servidor paniqueó...`) instead of disappearing.
+
+**Rule:** when touching routes, use axum **0.7** syntax (`*name` catch-all, `:name` params). If you upgrade to axum 0.8, switch to `{*name}` / `{name}` *and* bump the version in `Cargo.toml`/`Cargo.lock` together. Never rely on a release build to catch a route-syntax mistake.
 
 ### Adding a New Event to the Browser Source
 

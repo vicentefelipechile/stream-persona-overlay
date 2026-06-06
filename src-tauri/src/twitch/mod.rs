@@ -1,7 +1,7 @@
 pub mod eventsub;
 
 use std::collections::HashSet;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::{ClientConfig, SecureTCPTransport, TwitchIRCClient};
 
@@ -11,21 +11,8 @@ use crate::{
         config::{log_message, log_message_dropped},
         users::find_active_user_by_twitch,
     },
-    state::{guest_user_id, AppState, ChatMessagePayload},
+    state::{guest_resource_dir, guest_user_id, AppState, ChatMessagePayload},
 };
-
-/// Returns the directory that contains guest_open.png / guest_closed.png.
-/// In release builds uses the Tauri resource dir; in dev falls back to the
-/// source-tree resources/ folder so no bundling step is needed.
-fn guest_resource_dir(app_handle: &AppHandle) -> std::path::PathBuf {
-    if let Ok(dir) = app_handle.path().resource_dir() {
-        if dir.join("guest_open.png").exists() {
-            return dir;
-        }
-    }
-    // Dev-mode fallback: files live at src-tauri/resources/ in the source tree.
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
-}
 
 /// Inicia el cliente Twitch IRC y escucha mensajes del canal configurado.
 pub async fn spawn_twitch_client(state: AppState, app_handle: AppHandle) {

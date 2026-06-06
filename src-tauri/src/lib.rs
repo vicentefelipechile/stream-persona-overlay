@@ -64,7 +64,8 @@ pub fn run() {
             // Cargar config inicial
             let config = db::config::get_config(&conn).unwrap_or_default();
 
-            let app_state = AppState::new(conn, app_data_dir.clone());
+            let resource_dir = state::guest_resource_dir(app.handle());
+            let app_state = AppState::new(conn, app_data_dir.clone(), resource_dir);
 
             // Actualizar caché de config
             if let Ok(mut cache) = app_state.config_cache.write() {
@@ -107,7 +108,28 @@ pub fn run() {
                     .unwrap_or_default()
             };
             let server_h = tauri::async_runtime::spawn(async move {
-                server::start_server(state_for_server, dist_dir, dev_mode).await;
+                // The server runs in a detached task, so a panic here would otherwise
+                // vanish silently (the symptom: OBS gets ERR_CONNECTION_REFUSED on
+                // :6767 because the task died before binding). Catch and log it.
+                use futures_util::FutureExt;
+                let outcome = std::panic::AssertUnwindSafe(server::start_server(
+                    state_for_server,
+                    dist_dir,
+                    dev_mode,
+                ))
+                .catch_unwind()
+                .await;
+                if let Err(panic) = outcome {
+                    let msg = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "panic sin mensaje".to_string());
+                    tracing::error!(
+                        "[server] La tarea del servidor paniqueó y se detuvo: {}",
+                        msg
+                    );
+                }
             });
 
             // Guardar handles para poder abortarlos al reiniciar o cerrar

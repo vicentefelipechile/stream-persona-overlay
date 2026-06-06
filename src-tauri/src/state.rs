@@ -25,6 +25,12 @@ pub struct AppState {
     /// Compartido con el bot de Discord para guardar las imágenes de personas
     /// en la ubicación correcta sin depender de current_dir().
     pub app_data_dir: Arc<PathBuf>,
+    /// Directory containing the bundled default guest sprites
+    /// (guest_open.png / guest_closed.png). In release this is the Tauri resource
+    /// dir; in dev, src-tauri/resources/. Used to let the /persona HTTP route serve
+    /// these images to the OBS Browser Source — they live outside app_data_dir, so
+    /// they must be explicitly on the allow-list.
+    pub resource_dir: Arc<PathBuf>,
     /// Handle de la tarea del bot de Discord.
     /// Permite abortarla antes de relanzar o al cerrar la app.
     pub discord_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
@@ -45,12 +51,13 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(conn: Connection, app_data_dir: PathBuf) -> Self {
+    pub fn new(conn: Connection, app_data_dir: PathBuf, resource_dir: PathBuf) -> Self {
         let (ws_tx, _) = broadcast::channel::<String>(512);
         AppState {
             db: Arc::new(Mutex::new(conn)),
             config_cache: Arc::new(RwLock::new(AppConfig::default())),
             app_data_dir: Arc::new(app_data_dir),
+            resource_dir: Arc::new(resource_dir),
             discord_handle: Arc::new(Mutex::new(None)),
             twitch_handle: Arc::new(Mutex::new(None)),
             twitch_eventsub_handle: Arc::new(Mutex::new(None)),
@@ -130,6 +137,23 @@ impl AppState {
         self.abort_tiktok();
         self.abort_server();
     }
+}
+
+/// Returns the directory that contains the bundled default guest sprites
+/// (`guest_open.png` / `guest_closed.png`). In release builds this is the Tauri
+/// resource dir; in dev it falls back to `src-tauri/resources/` so no bundling
+/// step is needed. Resolved once at startup and stored in `AppState.resource_dir`;
+/// the Twitch/TikTok handlers use it to build guest pet image paths and the
+/// `/persona` HTTP route uses it to allow serving these files to the browser overlay.
+pub fn guest_resource_dir(app_handle: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    if let Ok(dir) = app_handle.path().resource_dir() {
+        if dir.join("guest_open.png").exists() {
+            return dir;
+        }
+    }
+    // Dev-mode fallback: files live at src-tauri/resources/ in the source tree.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
 }
 
 // ─── AppConfig ───────────────────────────────────────────────────────────────

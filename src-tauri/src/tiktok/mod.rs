@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
         config::{log_message, log_message_dropped},
         users::find_active_user_by_tiktok,
     },
-    state::{guest_user_id, AppState, ChatEventPayload, ChatMessagePayload},
+    state::{guest_resource_dir, guest_user_id, AppState, ChatEventPayload, ChatMessagePayload},
 };
 
 /// Conecta a TikTool WebSocket API y escucha eventos de chat de TikTok LIVE.
@@ -65,16 +65,6 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
             _ => {}
         }
     }
-}
-
-/// Returns the directory that contains guest_open.png / guest_closed.png.
-fn guest_resource_dir(app_handle: &AppHandle) -> std::path::PathBuf {
-    if let Ok(dir) = app_handle.path().resource_dir() {
-        if dir.join("guest_open.png").exists() {
-            return dir;
-        }
-    }
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
 }
 
 /// Processes a single TikTok event synchronously (no .await inside).
