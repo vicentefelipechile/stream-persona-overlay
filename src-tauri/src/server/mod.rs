@@ -128,7 +128,9 @@ pub async fn start_server(app_state: AppState, _dist_dir: PathBuf, dev_mode: boo
                     }
                 });
             }
-            tracing::info!("[server] OBS Browser Source disponible en http://localhost:6767/overlay");
+            tracing::info!(
+                "[server] OBS Browser Source disponible en http://localhost:6767/overlay"
+            );
             if let Err(e) = axum::serve(l4, app).await {
                 tracing::error!("[server] Error fatal del servidor HTTP: {}", e);
             }

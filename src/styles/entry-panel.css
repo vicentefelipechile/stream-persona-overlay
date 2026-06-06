@@ -21,3 +21,5 @@
 @import './logs.css';
 @import './switch.css';
 @import './tamagotchi-panel.css';
+@import 'driver.js/dist/driver.css';
+@import './onboarding.css';

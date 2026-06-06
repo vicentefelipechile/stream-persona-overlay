@@ -49,6 +49,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
 | `simple-icons` | Brand SVG icons (Twitch, TikTok, Discord). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
 | `lucide` | UI SVG icons (stroke + fill). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
+| `driver.js` (v1.4+) | Spotlight/tooltip engine for the first-run onboarding tour. Consumed exclusively through `src/onboarding/tour.ts` — never imported directly in views. See Section 18. |
 | `@fontsource/ibm-plex-sans` + `@fontsource/ibm-plex-mono` | Self-hosted IBM Plex font files. Imported via `@import` in `entry-panel.css` — no Google Fonts CDN, works fully offline. |
 | `ws-transport.ts` (internal) | Drop-in replacement for Tauri API used by the OBS Browser Source overlay |
 
@@ -162,6 +163,8 @@ stream-persona-overlay/
 |   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, ConfettiAction, HypeTrainAction, _template
 |   |       +-- props/            # PropRenderer, PropAssetLoader
 |   |       +-- eventReactions.ts # chat-event listener → maps event_kind to pet action
+|   +-- onboarding/               # First-run onboarding tour (see Section 18)
+|   |   +-- tour.ts               # driver.js wrapper — step definitions, cross-view navigation, first-run flag
 |   +-- components/               # Reusable frontend components
 |   |   +-- color-picker.ts       # Chroma color selector component
 |   +-- assets/                   # Static frontend assets
@@ -179,6 +182,7 @@ stream-persona-overlay/
 |       +-- logs.css              # Log entries
 |       +-- switch.css            # Switch/toggle component
 |       +-- tamagotchi-panel.css  # Tamagotchi admin panel styles (.tama-* prefix)
+|       +-- onboarding.css        # Onboarding tour popover theming (driver.js, .spo-tour scope)
 |       +-- overlay-base.css      # Overlay window base reset + fade-cover
 |       +-- pets.css              # Pet styles (.tamagotchi-pet, .pet-*)
 |
@@ -1148,3 +1152,34 @@ Every call to `set_config_cmd` with a key that starts with `tama_` causes Rust t
 | `tama_enabled_actions` | Updates PetScheduler action pool immediately |
 | `tama_jump_on_speak` | Applies on the next chat message |
 | `tama_layout_mode` / `tama_static_anchor` / `tama_static_spacing_px` | Require overlay reload (admin panel shows info toast) |
+
+---
+
+## 18. Onboarding Tour
+
+A guided, first-run setup walkthrough for the admin panel, built on `driver.js`. It exists because first-time users did not know where to start: it walks the streamer through the full getting-started flow (connect Twitch, register personas via the Discord bot, add the overlay to OBS, enable the Tamagotchi pets) and doubles as a reference tour of every sidebar section.
+
+> **Scope:** the tour lives **only** in the admin panel (`main.ts` / `index.html`). It is never loaded by the overlay windows (`overlay.ts`, `overlay-browser.ts`) — those have no Tauri/router context.
+
+### Files
+
+| File | Role |
+|---|---|
+| `src/onboarding/tour.ts` | Engine wrapper. Owns the `STEPS` array, cross-view navigation, the first-run flag, and exports `startTour()` + `maybeAutoStartTour()`. |
+| `src/styles/onboarding.css` | Themes the driver.js popover with design tokens (scoped via `popoverClass: "spo-tour"`). Imported in `entry-panel.css` together with `driver.js/dist/driver.css`. |
+| `src/icons.ts` | `Icons.help` (lucide `CircleHelp`) — used by the sidebar button. |
+| `index.html` | `#btn-onboarding` ("¿Cómo empezar?") button in the sidebar footer. |
+| `src/main.ts` | Injects the button icon, wires the click to `startTour()`, and calls `maybeAutoStartTour()` on load. |
+
+### How it works
+
+- **Cross-view steps:** the panel is a hash-based SPA whose views render asynchronously into `#view-container`. Each `TourStep` may declare a `view` (`ViewId`). Before driver.js highlights a step, `prepareStep()` drives the `router` to that view (`router.navigate`) and `waitForElement()` polls (via `requestAnimationFrame`, ~2.5 s budget) until the target exists. Sidebar/nav targets (`#sidebar`, `#nav-*`, `#btn-*`) need no view change.
+- **Navigation ownership:** `onNextClick` / `onPrevClick` are overridden so step changes go through `prepareStep()` + `moveTo()`. **`allowKeyboardControl: false`** is set deliberately — keyboard nav calls driver's `moveNext()`/`movePrevious()` directly and would bypass the view-switch prep, landing on a step whose element does not exist yet.
+- **First-run trigger:** `maybeAutoStartTour()` launches the tour the first time the panel is ever opened, gated by the `localStorage` flag `spo_onboarding_seen`. The flag is set in driver's `onDestroyed` (so closing via the X also counts as seen). The "¿Cómo empezar?" button calls `startTour()` directly and ignores the flag, so it is always replayable.
+
+### Adding or editing steps
+
+- Edit the `STEPS` array in `tour.ts`. Each step is a driver.js `DriveStep` plus an optional `view`.
+- **Target stable, visible elements** (existing IDs like `#twitch-channel`, `#cfg-discord-token`, `#obs-browser-url`, or a unique class like `.tama-system-toggle`). If a view renames the ID a step points at, update `STEPS`.
+- **⚠️ Never target a `.switch` checkbox input.** `switch.css` has `.switch input { display: none }`, so the real `<input>` has a zero-size bounding box at `0,0` and driver.js dumps the popover in the top-left corner. Point at the visible wrapper instead (e.g. the Tamagotchi enable step targets `.tama-system-toggle`, not `#tama-enabled`). The same applies to any element hidden with `display:none` / `visibility:hidden` or sitting inside a collapsed `<details>`.
+- Comments in English per the project convention; user-facing popover strings stay Spanish (same as the rest of the panel UI).

@@ -14,7 +14,8 @@ import { listen } from "@tauri-apps/api/event";
 
 import { AppState, showToast } from "./state";
 import { initRouter } from "./router";
-import { injectNavIcons } from "./icons";
+import { injectNavIcons, Icons } from "./icons";
+import { startTour, maybeAutoStartTour } from "./onboarding/tour";
 
 // =========================================================================================================
 // Initialization
@@ -43,6 +44,17 @@ window.addEventListener("DOMContentLoaded", async () => {
       console.error("Error toggling overlay:", e);
     }
   });
+
+  // Botón del tutorial de onboarding (relanzable cuando se quiera)
+  const btnOnboarding = document.getElementById("btn-onboarding");
+  const onboardingIcon = btnOnboarding?.querySelector(".btn-onboarding-icon");
+  if (onboardingIcon) onboardingIcon.innerHTML = Icons.help(14);
+  btnOnboarding?.addEventListener("click", () => {
+    void startTour();
+  });
+
+  // Lanzar el tutorial automáticamente la primera vez que se abre el panel
+  void maybeAutoStartTour();
 
   // ── Twitch ──────────────────────────────────────────────────────────────────
   await listen<string>("twitch-connected", (event) => {

@@ -10,7 +10,7 @@ import { siTwitch, siTiktok, siDiscord } from "simple-icons";
 import {
     Settings, Users, User, List, AlertTriangle, PawPrint,
     Pencil, Play, Pause, Trash2, RefreshCw,
-    Check, X, Copy, Zap, Unplug, Save, Eye, ShieldOff, ExternalLink, Bot,
+    Check, X, Copy, Zap, Unplug, Save, Eye, ShieldOff, ExternalLink, Bot, CircleHelp,
 } from "lucide";
 import type { IconNode } from "lucide";
 
@@ -88,6 +88,7 @@ export const Icons = {
     shieldOff:     (size = 14) => ui(ShieldOff, size),
     externalLink:  (size = 14) => ui(ExternalLink, size),
     bot:           (size = 14) => ui(Bot, size),
+    help:          (size = 14) => ui(CircleHelp, size),
 } as const;
 
 // =========================================================================================================
