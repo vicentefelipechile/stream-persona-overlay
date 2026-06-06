@@ -723,10 +723,11 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 ### `server/`
 
-- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on `127.0.0.1:6767`.
+- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767.
 - Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprite images from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket).
+- **Bind strategy**: tries `127.0.0.1:6767` (IPv4 loopback) with up to 3 attempts and 1 s between retries to recover from TIME_WAIT left by a previous instance. Also binds `[::1]:6767` (IPv6 loopback) concurrently — on Windows 10 `localhost` often resolves to `::1` first, so without the IPv6 listener the browser gets connection refused even when the IPv4 server is healthy. If only one address is available the server runs on that address alone; if neither is available the task logs an error and exits.
 - **Dev mode** (`dev_mode = true`): reads `overlay-browser.html` from the project root (not `dist/`) and rewrites `/src/*` references to `http://localhost:1420/src/*` so assets are served by the Vite dev server. Enabled automatically when compiled in debug mode (`cfg(debug_assertions)`).
-- **Production mode**: reads all files from `dist/` (Vite build output bundled alongside the binary).
+- **Production mode**: all frontend assets are embedded at compile time via `rust-embed` (`#[folder = "../dist"]`) — no external `dist/` folder is needed next to the binary.
 - The WebSocket handler subscribes to `AppState.ws_tx` and forwards broadcast messages to each connected client. It also receives commands from the browser overlay (`get_config_cmd`, `tama_upsert_pet_state`, `tama_remove_pet_state`) and executes them against the DB.
 - **Security:** `/persona` canonicalizes both the requested path and `app_data_dir` before calling `starts_with` — this handles the Windows `\\?\` extended-path prefix and prevents path traversal.
 

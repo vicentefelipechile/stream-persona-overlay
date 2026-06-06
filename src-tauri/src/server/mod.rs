@@ -95,19 +95,66 @@ pub async fn start_server(app_state: AppState, _dist_dir: PathBuf, dev_mode: boo
         .route("/assets/{*path}", get(serve_embedded_asset))
         .with_state(state);
 
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:6767").await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!("[server] No se pudo iniciar en 127.0.0.1:6767 — {}", e);
-            return;
+    // Bind IPv4 loopback with retries in case a previous instance left the port in TIME_WAIT.
+    let listener_v4 = bind_with_retry("127.0.0.1:6767").await;
+
+    // Also bind IPv6 loopback: on Windows 10, 'localhost' often resolves to ::1 rather than
+    // 127.0.0.1, causing browsers and OBS to connect to the IPv6 address. Without this second
+    // listener the connection would be refused even though the IPv4 server is running.
+    let listener_v6 = tokio::net::TcpListener::bind("[::1]:6767").await.ok();
+
+    match (listener_v4, listener_v6) {
+        (None, None) => {
+            tracing::error!(
+                "[server] No se pudo iniciar el servidor en ninguna dirección — puerto 6767 en uso."
+            );
         }
-    };
-
-    tracing::info!("[server] OBS Browser Source disponible en http://localhost:6767/overlay");
-
-    if let Err(e) = axum::serve(listener, app).await {
-        tracing::error!("[server] Error fatal del servidor HTTP: {}", e);
+        (Some(l4), maybe_v6) => {
+            if let Some(l6) = maybe_v6 {
+                let app6 = app.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = axum::serve(l6, app6).await {
+                        tracing::error!("[server] Error en listener IPv6: {}", e);
+                    }
+                });
+            }
+            tracing::info!("[server] OBS Browser Source disponible en http://localhost:6767/overlay");
+            if let Err(e) = axum::serve(l4, app).await {
+                tracing::error!("[server] Error fatal del servidor HTTP: {}", e);
+            }
+        }
+        (None, Some(l6)) => {
+            tracing::info!(
+                "[server] OBS Browser Source disponible en http://[::1]:6767/overlay (solo IPv6)"
+            );
+            if let Err(e) = axum::serve(l6, app).await {
+                tracing::error!("[server] Error fatal del servidor HTTP (IPv6): {}", e);
+            }
+        }
     }
+}
+
+// Attempts to bind addr up to 3 times with 1 s between retries.
+// This recovers from the port being in TIME_WAIT after a previous instance closed.
+async fn bind_with_retry(addr: &str) -> Option<tokio::net::TcpListener> {
+    for attempt in 0..3u8 {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => return Some(l),
+            Err(e) => {
+                if attempt < 2 {
+                    tracing::warn!(
+                        "[server] Puerto ocupado, reintentando en 1 s ({}/2): {}",
+                        attempt + 1,
+                        e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                } else {
+                    tracing::error!("[server] No se pudo iniciar en {}: {}", addr, e);
+                }
+            }
+        }
+    }
+    None
 }
 
 // =========================================================================================================
