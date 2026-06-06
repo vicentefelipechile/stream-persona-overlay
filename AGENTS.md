@@ -49,14 +49,15 @@ Users register and manage their images through a **Discord bot** (slash commands
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
 | `simple-icons` | Brand SVG icons (Twitch, TikTok, Discord). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
 | `lucide` | UI SVG icons (stroke + fill). Consumed exclusively through `src/icons.ts` — never imported directly in views. |
+| `@fontsource/ibm-plex-sans` + `@fontsource/ibm-plex-mono` | Self-hosted IBM Plex font files. Imported via `@import` in `entry-panel.css` — no Google Fonts CDN, works fully offline. |
 | `ws-transport.ts` (internal) | Drop-in replacement for Tauri API used by the OBS Browser Source overlay |
 
 ### Frontend Design System
 
 | Token | Value |
 |---|---|
-| Font — body | IBM Plex Sans |
-| Font — mono / code | IBM Plex Mono |
+| Font — body | IBM Plex Sans (self-hosted via `@fontsource/ibm-plex-sans`) |
+| Font — mono / code | IBM Plex Mono (self-hosted via `@fontsource/ibm-plex-mono`) |
 | Accent color | `#00c896` (teal-green) |
 | Border radius | ≤ 4px |
 
