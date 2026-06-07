@@ -9,7 +9,7 @@
 // =========================================================================================================
 
 import { invoke } from "@tauri-apps/api/core";
-import { showToast } from "../state";
+import { showToast, isPlatformConnected } from "../state";
 import { Icons } from "../icons";
 
 // =========================================================================================================
@@ -95,7 +95,9 @@ export async function renderTiktok(): Promise<void> {
   const eventSubscribeCooldown = Number(cfg["tiktok_event_subscribe_user_cooldown_ms"]) || 0;
   const eventEnvelopeCooldown = Number(cfg["tiktok_event_envelope_user_cooldown_ms"]) || 0;
 
-  const isConnected = username.length > 0;
+  // Real connection state (TikTok does NOT auto-connect at launch — the user must
+  // press Conectar). Don't infer "connected" from a saved username.
+  const isConnected = isPlatformConnected("tiktok");
 
   const msLabel = (ms: number) => ms === 0 ? "Desactivado" : `${ms / 1000}s`;
   const sRow = (id: string, value: number, min: number, max: number, step: number, label: string, fmt: (v: number) => string) =>
@@ -124,6 +126,15 @@ export async function renderTiktok(): Promise<void> {
       <h1 class="view-title">${Icons.tiktok(20)} TikTok</h1>
       <p class="view-subtitle">Configuración de eventos en directo</p>
     </div>
+
+    ${isConnected ? "" : `
+    <div class="conn-banner">
+      ${Icons.tiktok(18)}
+      <div>
+        <strong>TikTok no está conectado.</strong> No se reciben mensajes ni eventos hasta que pulses
+        <strong>Conectar</strong>. No se conecta solo al abrir la app para no gastar la cuota diaria de TikTool.
+      </div>
+    </div>`}
 
     <div class="card">
       <div class="card-header">

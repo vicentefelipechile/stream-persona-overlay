@@ -10,7 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { once } from "@tauri-apps/api/event";
-import { showToast } from "../state";
+import { showToast, isPlatformConnected } from "../state";
 import { Icons } from "../icons";
 
 // =========================================================================================================
@@ -104,7 +104,10 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
   const globalPreset = String(cfg["chat_global_throughput_preset"] || "off");
   const globalCap = Number(cfg["chat_global_rate_max_per_sec"]) || 0;
 
-  const isConnected = channel.length > 0 && token.length > 0;
+  // Real connection state (Twitch does NOT auto-connect at launch — the user must
+  // press Conectar). Don't infer "connected" from saved channel/token.
+  const isConnected = isPlatformConnected("twitch");
+  const hasCredentials = channel.length > 0 && token.length > 0;
 
   const msLabel = (ms: number) => ms === 0 ? "Desactivado" : `${ms / 1000}s`;
   const sRow = (id: string, value: number, min: number, max: number, step: number, label: string, fmt: (v: number) => string) =>
@@ -134,6 +137,15 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
       <h1 class="view-title">${Icons.twitch(20)} Twitch</h1>
       <p class="view-subtitle">Configuración de eventos y filtros de chat</p>
     </div>
+
+    ${isConnected ? "" : `
+    <div class="conn-banner">
+      ${Icons.twitch(18)}
+      <div>
+        <strong>Twitch no está conectado.</strong> No se recibe el chat hasta que pulses <strong>Conectar</strong>.
+        ${hasCredentials ? "No se conecta solo al abrir la app." : "Configura el canal y el token más abajo y luego pulsa Conectar."}
+      </div>
+    </div>`}
 
     <div class="card">
       <div class="card-header">

@@ -39,6 +39,23 @@
 .badge-tiktok   { background: rgba(255,0,80,0.15); color: #ff0050; }
 .badge-test     { background: rgba(97,150,245,0.15); color: var(--color-info); }
 
+/* Connection notice — shown in a platform view when it is not connected */
+.conn-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: var(--space-5);
+  border-radius: var(--radius-sm);
+  background: rgba(240, 180, 41, 0.10);
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  color: var(--color-text);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.conn-banner svg { flex-shrink: 0; margin-top: 1px; }
+
 /* Spinner / Loading */
 @keyframes spin {
   to { transform: rotate(360deg); }

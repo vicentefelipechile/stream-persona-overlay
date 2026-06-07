@@ -12,8 +12,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-import { AppState, showToast } from "./state";
-import { initRouter } from "./router";
+import { AppState, showToast, setPlatformConnected } from "./state";
+import { initRouter, router, type ViewId } from "./router";
 import { injectNavIcons, Icons } from "./icons";
 import { startTour, maybeAutoStartTour } from "./onboarding/tour";
 
@@ -59,13 +59,17 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Twitch ──────────────────────────────────────────────────────────────────
   await listen<string>("twitch-connected", (event) => {
     const channel = event.payload;
+    setPlatformConnected("twitch", true);
     updateConnectionStatus(true, `Twitch: @${channel}`);
     showToast(`✓ Conectado a @${channel}`, "success");
+    refreshViewIfCurrent(["twitch"]);
   });
 
   await listen<string>("twitch-error", (event) => {
+    setPlatformConnected("twitch", false);
     updateConnectionStatus(false, "Twitch: error");
     showToast(`✗ Twitch: ${event.payload}`, "error");
+    refreshViewIfCurrent(["twitch"]);
   });
 
   const shownUnregistered = new Set<string>();
@@ -78,13 +82,17 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // ── TikTok ──────────────────────────────────────────────────────────────────
   await listen<string>("tiktok-connected", (event) => {
+    setPlatformConnected("tiktok", true);
     updateConnectionStatus(true, `TikTok: @${event.payload}`);
     showToast(`✓ Conectado a @${event.payload}`, "success");
+    refreshViewIfCurrent(["tiktok", "eventos"]);
   });
 
   await listen<string>("tiktok-error", (event) => {
+    setPlatformConnected("tiktok", false);
     updateConnectionStatus(false, "TikTok");
     showToast(`✗ TikTok: ${event.payload}`, "error");
+    refreshViewIfCurrent(["tiktok", "eventos"]);
   });
 
   // ── Discord ─────────────────────────────────────────────────────────────────
@@ -100,6 +108,16 @@ window.addEventListener("DOMContentLoaded", async () => {
 // =========================================================================================================
 // Helpers
 // =========================================================================================================
+
+// Re-render the active view if it is one of `views`, so connection-dependent UI
+// (the "not connected" banner, the badge, the connect/disconnect buttons) reflects
+// the live state when a *-connected / *-error event arrives.
+function refreshViewIfCurrent(views: ViewId[]): void {
+  const current = router?.getCurrent();
+  if (current && views.includes(current)) {
+    void router.navigate(current);
+  }
+}
 
 function updateConnectionStatus(connected: boolean, label: string): void {
   const indicator = document.getElementById("connection-status");

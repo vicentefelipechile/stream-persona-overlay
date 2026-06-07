@@ -9,7 +9,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { showToast, type ChatEventPayload } from "../state";
+import { showToast, isPlatformConnected, type ChatEventPayload } from "../state";
 import { Icons } from "../icons";
 
 // =========================================================================================================
@@ -180,6 +180,15 @@ export async function renderEventos(): Promise<void> {
       <h1>${Icons.tiktokMono(22)} Eventos TikTok</h1>
       <p class="view-subtitle">Feed en vivo de eventos de TikTok y alertas configurables en el overlay.</p>
     </div>
+
+    ${isPlatformConnected("tiktok") ? "" : `
+    <div class="conn-banner">
+      ${Icons.tiktokMono(18)}
+      <div>
+        <strong>TikTok no está conectado.</strong> No llegarán eventos al feed hasta que conectes desde la vista
+        <strong>TikTok</strong>. Aun así puedes configurar las alertas y usar <strong>Probar</strong>.
+      </div>
+    </div>`}
 
     <div class="card">
       <div class="card-header">

@@ -165,6 +165,24 @@ class AppStateClass {
 export const AppState = AppStateClass.getInstance();
 
 // =========================================================================================================
+// Connection state (per platform)
+// =========================================================================================================
+// Nothing auto-connects at launch (only Discord + the OBS server), so both start
+// as `false`. main.ts updates these from the `*-connected` / `*-error` events.
+// Views read them to show a "not connected" notice.
+
+type ConnPlatform = "twitch" | "tiktok";
+const connectionState: Record<ConnPlatform, boolean> = { twitch: false, tiktok: false };
+
+export function setPlatformConnected(platform: ConnPlatform, connected: boolean): void {
+  connectionState[platform] = connected;
+}
+
+export function isPlatformConnected(platform: ConnPlatform): boolean {
+  return connectionState[platform];
+}
+
+// =========================================================================================================
 // Toast Helper
 // =========================================================================================================
 
