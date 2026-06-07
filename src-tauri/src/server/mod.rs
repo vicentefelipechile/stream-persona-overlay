@@ -90,6 +90,7 @@ struct ServerState {
 fn build_router() -> Router<ServerState> {
     Router::new()
         .route("/overlay", get(serve_overlay))
+        .route("/overlay-tiktok", get(serve_overlay_tiktok))
         .route("/persona", get(serve_persona))
         .route("/ws", get(ws_handler))
         // axum 0.7 catch-all syntax is `*path` (no braces). `{*path}` is axum 0.8
@@ -174,20 +175,31 @@ async fn bind_with_retry(addr: &str) -> Option<tokio::net::TcpListener> {
 // =========================================================================================================
 
 async fn serve_overlay(State(s): State<ServerState>) -> Response {
-    if s.dev_mode {
-        return serve_overlay_dev().await;
-    }
-    serve_overlay_production()
+    serve_overlay_file(&s, "overlay-browser.html").await
 }
 
-async fn serve_overlay_dev() -> Response {
+/// GET /overlay-tiktok — the dedicated TikTok event-alert browser source.
+async fn serve_overlay_tiktok(State(s): State<ServerState>) -> Response {
+    serve_overlay_file(&s, "overlay-tiktok.html").await
+}
+
+/// Serves one of the overlay HTML pages, choosing the dev (Vite rewrite) or
+/// production (embedded) path based on `dev_mode`.
+async fn serve_overlay_file(s: &ServerState, filename: &str) -> Response {
+    if s.dev_mode {
+        return serve_overlay_dev(filename).await;
+    }
+    serve_overlay_production(filename)
+}
+
+async fn serve_overlay_dev(filename: &str) -> Response {
     // In dev mode Vite serves from memory at localhost:1420 — dist/ does not exist.
-    // Read overlay-browser.html from the project root and rewrite /src/* references
+    // Read the overlay HTML from the project root and rewrite /src/* references
     // so the browser loads them from the Vite dev server instead of from axum.
     // CARGO_MANIFEST_DIR = src-tauri/ at compile time; parent = project root
     let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .map(|p| p.join("overlay-browser.html"))
+        .map(|p| p.join(filename))
         .unwrap_or_default();
 
     match tokio::fs::read_to_string(&source).await {
@@ -205,15 +217,15 @@ async fn serve_overlay_dev() -> Response {
         Err(_) => (
             StatusCode::NOT_FOUND,
             [(header::CONTENT_TYPE, "text/plain")],
-            "overlay-browser.html not found in project root.".to_string(),
+            format!("{} not found in project root.", filename),
         )
             .into_response(),
     }
 }
 
 #[cfg(not(debug_assertions))]
-fn serve_overlay_production() -> Response {
-    match embedded::FrontendAssets::get("overlay-browser.html") {
+fn serve_overlay_production(filename: &str) -> Response {
+    match embedded::FrontendAssets::get(filename) {
         Some(content) => (
             StatusCode::OK,
             [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
@@ -223,8 +235,10 @@ fn serve_overlay_production() -> Response {
         None => (
             StatusCode::NOT_FOUND,
             [(header::CONTENT_TYPE, "text/plain")],
-            "overlay-browser.html not found in embedded assets. El binario puede estar corrupto."
-                .to_string(),
+            format!(
+                "{} not found in embedded assets. El binario puede estar corrupto.",
+                filename
+            ),
         )
             .into_response(),
     }
@@ -232,7 +246,7 @@ fn serve_overlay_production() -> Response {
 
 // In debug builds serve_overlay always takes the dev_mode branch, so this is unreachable.
 #[cfg(debug_assertions)]
-fn serve_overlay_production() -> Response {
+fn serve_overlay_production(_filename: &str) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         [(header::CONTENT_TYPE, "text/plain")],
@@ -311,10 +325,24 @@ async fn serve_persona(
 
     match tokio::fs::read(&canonical).await {
         Ok(bytes) => {
-            let content_type = if q.path.ends_with(".png") {
+            // Images and alert sounds both flow through this route (paths under
+            // app_data_dir). Audio needs a correct Content-Type for the browser
+            // overlay's <audio>/Audio() to play it.
+            let p = q.path.to_lowercase();
+            let content_type = if p.ends_with(".png") {
                 "image/png"
-            } else if q.path.ends_with(".jpg") || q.path.ends_with(".jpeg") {
+            } else if p.ends_with(".jpg") || p.ends_with(".jpeg") {
                 "image/jpeg"
+            } else if p.ends_with(".gif") {
+                "image/gif"
+            } else if p.ends_with(".webp") {
+                "image/webp"
+            } else if p.ends_with(".mp3") {
+                "audio/mpeg"
+            } else if p.ends_with(".ogg") {
+                "audio/ogg"
+            } else if p.ends_with(".wav") {
+                "audio/wav"
             } else {
                 "application/octet-stream"
             };

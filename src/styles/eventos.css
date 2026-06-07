@@ -1,0 +1,83 @@
+/* =========================================================================================================
+   eventos.css — Eventos view (live feed + per-event alert config cards)
+   ========================================================================================================= */
+
+/* ── Live feed ─────────────────────────────────────────────────────────────── */
+.evt-feed {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.evt-feed-empty {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  padding: 12px 0;
+  text-align: center;
+}
+
+.evt-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--color-bg-alt);
+  font-size: 0.85rem;
+}
+
+.evt-feed-row-noisy {
+  opacity: 0.5;
+}
+
+.evt-feed-time {
+  color: var(--color-text-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.evt-feed-badge {
+  background: rgba(255, 0, 80, 0.15);
+  color: #ff0050;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.evt-feed-user {
+  font-weight: 500;
+}
+
+.evt-feed-meta {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+/* ── Alert config cards ────────────────────────────────────────────────────── */
+.evt-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.evt-card-noisy {
+  border-left: 3px solid #f0b429;
+}
+
+.evt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.evt-asset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

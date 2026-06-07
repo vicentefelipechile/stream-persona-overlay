@@ -74,6 +74,9 @@ pub async fn set_config_cmd(
         "tama_guests_label_prefix" => cache.tama_guests_label_prefix = value.clone(),
         "tama_guest_mouth_open_path" => cache.tama_guest_mouth_open_path = value.clone(),
         "tama_guest_mouth_closed_path" => cache.tama_guest_mouth_closed_path = value.clone(),
+        // Alert config is read by the tiktok handlers at runtime — keep the
+        // cache in sync so edits take effect without restarting.
+        "tiktok_alerts_config" => cache.tiktok_alerts_config = value.clone(),
         _ => {}
     }
 

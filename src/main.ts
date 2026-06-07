@@ -82,6 +82,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     showToast(`✓ Conectado a @${event.payload}`, "success");
   });
 
+  await listen<string>("tiktok-error", (event) => {
+    updateConnectionStatus(false, "TikTok");
+    showToast(`✗ TikTok: ${event.payload}`, "error");
+  });
+
   // ── Discord ─────────────────────────────────────────────────────────────────
   await listen<string>("discord-ready", (event) => {
     showToast(`✓ Bot de Discord listo (@${event.payload})`, "success");

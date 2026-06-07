@@ -17,6 +17,7 @@ use commands::config::{
     disconnect_tiktok, disconnect_twitch, get_available_voices_cmd, get_config_cmd,
     save_animation_config, set_chroma_color, set_config_cmd,
 };
+use commands::alerts::{clear_tiktok_alert_asset, set_tiktok_alert_asset, tiktok_test_alert};
 use commands::control::{
     connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
     validate_twitch_token,
@@ -74,24 +75,17 @@ pub fn run() {
 
             app.manage(app_state.clone());
 
-            // Spawn bots en background (solo si están configurados)
+            // Spawn bots en background.
+            // IMPORTANTE: solo Discord arranca automáticamente. Twitch y TikTok NO
+            // se conectan al inicio — el usuario debe pulsar "Conectar" en cada vista
+            // (`connect_twitch` / `connect_tiktok`). TikTool tiene un límite diario de
+            // peticiones muy bajo, así que abrir/cerrar la app no debe gastar cuota
+            // sin que el usuario lo pida explícitamente.
             let app_handle = app.handle().clone();
             let state_for_discord = app_state.clone();
-            let state_for_twitch = app_state.clone();
-            let state_for_tiktok = app_state.clone();
-            let handle_for_twitch = app_handle.clone();
-            let handle_for_tiktok = app_handle.clone();
 
             let discord_h = tauri::async_runtime::spawn(async move {
                 discord::spawn_discord_bot(state_for_discord, app_handle.clone()).await;
-            });
-
-            let twitch_h = tauri::async_runtime::spawn(async move {
-                twitch::spawn_twitch_client(state_for_twitch, handle_for_twitch).await;
-            });
-
-            let tiktok_h = tauri::async_runtime::spawn(async move {
-                tiktok::spawn_tiktok_client(state_for_tiktok, handle_for_tiktok).await;
             });
 
             // Spawn the OBS Browser Source HTTP/WebSocket server
@@ -132,15 +126,11 @@ pub fn run() {
                 }
             });
 
-            // Guardar handles para poder abortarlos al reiniciar o cerrar
+            // Guardar handles para poder abortarlos al reiniciar o cerrar.
+            // Twitch/TikTok no se arrancan aquí; sus handles se rellenan cuando el
+            // usuario pulsa conectar (connect_twitch / connect_tiktok).
             if let Ok(mut h) = app_state.discord_handle.lock() {
                 *h = Some(discord_h);
-            }
-            if let Ok(mut h) = app_state.twitch_handle.lock() {
-                *h = Some(twitch_h);
-            }
-            if let Ok(mut h) = app_state.tiktok_handle.lock() {
-                *h = Some(tiktok_h);
             }
             if let Ok(mut h) = app_state.server_handle.lock() {
                 *h = Some(server_h);
@@ -196,6 +186,10 @@ pub fn run() {
             tama_remove_pet_state,
             set_guest_image,
             reset_guest_image,
+            // TikTok alerts
+            set_tiktok_alert_asset,
+            clear_tiktok_alert_asset,
+            tiktok_test_alert,
         ])
         .build(tauri::generate_context!())
         .expect("Error iniciando la aplicación Tauri")

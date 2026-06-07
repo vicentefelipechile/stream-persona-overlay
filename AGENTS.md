@@ -43,7 +43,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 | Technology | Use |
 |---|---|
 | Vanilla TypeScript (no framework) | All UI for the admin panel and the overlay |
-| Vite 6 | Bundler and dev server (three entry points: `main`, `overlay`, `overlay_browser`) |
+| Vite 6 | Bundler and dev server (four entry points: `main`, `overlay`, `overlay_browser`, `overlay_tiktok`) |
 | `motion` (v12+) | Animation engine for Tamagotchi pet actions (DOM animate API) |
 | `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` — used by Tauri windows only |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
@@ -79,10 +79,12 @@ Users register and manage their images through a **Discord bot** (slash commands
 ```
 TAURI PROCESS (Rust — single binary)
 |
-+-- tauri::async_runtime::spawn --> discord::spawn_discord_bot()
-+-- tauri::async_runtime::spawn --> twitch::spawn_twitch_client()
-+-- tauri::async_runtime::spawn --> tiktok::spawn_tiktok_client()
-+-- tauri::async_runtime::spawn --> server::start_server()  (axum on port 6767)
++-- tauri::async_runtime::spawn --> discord::spawn_discord_bot()   (auto-start at launch)
++-- tauri::async_runtime::spawn --> server::start_server()  (axum on port 6767, auto-start)
+|   (twitch::spawn_twitch_client / tiktok::spawn_tiktok_client are NOT auto-started —
+|    they spawn only when the user clicks Connect via connect_twitch / connect_tiktok.
+|    Rationale: TikTool has a very low daily request quota, so launching the app must
+|    not consume quota until the user explicitly connects.)
 |
 +-- AppState --- Arc<Mutex<Connection>>              (SQLite — std::sync::Mutex)
              --- Arc<RwLock<AppConfig>>              (in-memory cache — std::sync::RwLock)
@@ -154,10 +156,14 @@ stream-persona-overlay/
 |   |   +-- tamagotchi.ts         # /tamagotchi view — pet admin panel
 |   |   +-- twitch.ts             # /twitch view — Twitch connection, chat filters, events, EventSub
 |   |   +-- tiktok.ts             # /tiktok view — TikTok connection, chat filters, events
+|   |   +-- eventos.ts            # /eventos view — live event feed + per-event alert config
 |   |   +-- overlay.ts            # Entry point for overlay.html (NOT a panel view)
-|   |   +-- overlay-browser.ts    # Entry point for overlay-browser.html (OBS Browser Source)
+|   |   +-- overlay-browser.ts    # Entry point for overlay-browser.html (OBS Browser Source — pets)
+|   |   +-- overlay-tiktok.ts     # Entry point for overlay-tiktok.html (OBS Browser Source — event alerts)
 |   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
 |   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
+|   |   +-- alerts/               # Event-alert overlay system
+|   |   |   +-- AlertManager.ts   # Queues + renders tiktok-alert payloads (image/text/sound/transition)
 |   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
 |   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, PetFloor, BasePet, PetScheduler, PetManager
 |   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, ConfettiAction, HypeTrainAction, _template
@@ -182,9 +188,12 @@ stream-persona-overlay/
 |       +-- logs.css              # Log entries
 |       +-- switch.css            # Switch/toggle component
 |       +-- tamagotchi-panel.css  # Tamagotchi admin panel styles (.tama-* prefix)
+|       +-- eventos.css           # Eventos view — live feed + alert config cards (.evt-* prefix)
 |       +-- onboarding.css        # Onboarding tour popover theming (driver.js, .spo-tour scope)
 |       +-- overlay-base.css      # Overlay window base reset + fade-cover
 |       +-- pets.css              # Pet styles (.tamagotchi-pet, .pet-*)
+|       +-- alerts.css            # Alert overlay styles (.spo-alert*) — used by entry-tiktok.css
+|       +-- entry-tiktok.css      # Entry point for overlay-tiktok.html (imports alerts.css)
 |
 +-- src-tauri/
 |   +-- tauri.conf.json           # Window config, bundle, CSP
@@ -223,11 +232,13 @@ stream-persona-overlay/
 |           +-- users.rs          # get_users, get_user, update_user_cmd, delete_user_cmd, toggle_user_active_cmd, get_recent_logs_cmd
 |           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config, disconnect_twitch, disconnect_tiktok
 |           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
+|           +-- alerts.rs         # set_tiktok_alert_asset, clear_tiktok_alert_asset, tiktok_test_alert
 |
 +-- index.html                    # Admin panel HTML
 +-- overlay.html                  # Overlay window HTML (chroma key, Tauri window)
-+-- overlay-browser.html          # OBS Browser Source HTML (transparent, no Tauri APIs)
-+-- vite.config.ts                # Vite configuration (3 entry points: main, overlay, overlay_browser)
++-- overlay-browser.html          # OBS Browser Source HTML — pets (transparent, no Tauri APIs)
++-- overlay-tiktok.html           # OBS Browser Source HTML — event alerts (transparent, no Tauri APIs)
++-- vite.config.ts                # Vite configuration (4 entry points: main, overlay, overlay_browser, overlay_tiktok)
 +-- tsconfig.json
 +-- package.json
 +-- AGENTS.md                     # This file
@@ -296,7 +307,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `twitch_tts_event_announcements` | `"true"` | Announce events via TTS |
 | `tiktok_username` | `""` | TikTok LIVE username |
 | `tiktok_api_key` | `""` | TikTool API key |
-| `tiktok_ws_endpoint` | `"wss://ws.eulerstream.com"` | TikTool WebSocket endpoint |
+| `tiktok_ws_endpoint` | `"wss://api.tik.tools"` | TikTool WebSocket endpoint |
 | `tiktok_chat_min_length` | `"0"` | Minimum chat message length |
 | `tiktok_chat_max_length` | `"300"` | Maximum chat message length |
 | `tiktok_chat_ignore_users` | `"[]"` | JSON array of TikTok usernames to silently ignore |
@@ -312,6 +323,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tiktok_event_member_enabled` | `"false"` | Enable member join events |
 | `tiktok_event_envelope_enabled` | `"true"` | Enable red envelope events |
 | `tiktok_tts_event_announcements` | `"true"` | Announce events via TTS |
+| `tiktok_alerts_config` | *(JSON)* | Per-event alert settings map (`event_kind` → `{ enabled, image, sound, text, duration_ms, transition }`). Drives the dedicated alert overlay (`overlay-tiktok.html`). `text` supports `{user}`/`{amount}` tokens; `transition` ∈ `fade`/`slide-down`/`slide-up`/`scale`/`none`. `tiktok_like` and `tiktok_member` default to disabled (high-frequency). Asset paths are written by `set_tiktok_alert_asset`; the rest is saved via `set_config_cmd`. |
 | `discord_bot_token` | `""` | Discord bot token |
 | `discord_guild_id` | `""` | Discord server ID |
 | `discord_channel_id` | `""` | Discord channel ID |
@@ -466,6 +478,14 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `toggle_overlay` | `invoke("toggle_overlay")` | Show / hide the overlay window |
 | `send_test_message` | `invoke("send_test_message", { display_name, mouth_open_path, mouth_closed_path })` | Emit a test `chat-message` to spawn a test pet |
 
+### TikTok Alerts (`commands/alerts.rs`)
+
+| Command | TS Signature | Description |
+|---|---|---|
+| `set_tiktok_alert_asset` | `invoke<string>("set_tiktok_alert_asset", { eventKind, assetType: "image" \| "sound", fileName, data: number[] })` | Save a custom alert image (png/jpg/gif/webp) or sound (mp3/ogg/wav), max 5 MB, **no resize** (preserves animated GIFs), to `{app_data_dir}/alerts/`. Writes the path into `tiktok_alerts_config`, refreshes cache, emits `tiktok-alerts-changed`. Returns the saved path. |
+| `clear_tiktok_alert_asset` | `invoke("clear_tiktok_alert_asset", { eventKind, assetType: "image" \| "sound" })` | Clear an event's image/sound reference in `tiktok_alerts_config` (file left on disk). |
+| `tiktok_test_alert` | `invoke("tiktok_test_alert", { eventKind })` | Emit a preview `tiktok-alert` for `eventKind` using sample data (`user="TestUser"`, `amount=100`), ignoring the `enabled` flag. |
+
 ---
 
 ## 8. Tauri Events
@@ -478,6 +498,8 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 |---|---|---|---|---|
 | `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (overlay.ts) | Yes |
 | `chat-event` | `ChatEventPayload` | `twitch/eventsub.rs`, `tiktok/mod.rs` | `eventReactions.ts` (overlay.ts) | Yes |
+| `tiktok-alert` | `TiktokAlertPayload` | `tiktok/mod.rs` (resolved per-event), `commands/alerts.rs` (test) | `AlertManager` (overlay-tiktok.ts) | Yes |
+| `tiktok-alerts-changed` | `AppConfig` (full) | `commands/alerts.rs` (asset set/clear) | `eventos.ts` (admin panel) | No |
 | `animation-config-changed` | `AppConfig` (full) | `commands/config.rs` (`save_animation_config`) | overlay — reload animation params | No |
 | `tama-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `tama_`) | `PetManager._onTamaConfigChanged` — applies all tama settings live | Yes |
 | `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
@@ -486,7 +508,8 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `PetManager` (overlay.ts) | Yes |
 | `twitch-connected` | `string` (channel) | `twitch/mod.rs` (on RoomState) | `main.ts` | No |
 | `twitch-error` | `string` (error msg) | `twitch/mod.rs` | `main.ts` | No |
-| `tiktok-connected` | `string` (username) | `commands/control.rs` | `main.ts` | No |
+| `tiktok-connected` | `string` (username) | `tiktok/mod.rs` (on handshake success) | `main.ts` | No |
+| `tiktok-error` | `string` (error msg) | `tiktok/mod.rs` | `main.ts` | No |
 | `discord-ready` | `string` (bot username) | `discord/mod.rs` | `main.ts` | No |
 | `discord-error` | `string` (error msg) | `discord/mod.rs` | `main.ts` | No |
 
@@ -512,7 +535,7 @@ interface ChatMessagePayload {
 ```typescript
 interface ChatEventPayload {
   platform: string;       // "twitch" | "tiktok"
-  event_kind: string;     // "cheer" | "sub" | "raid" | "follow" | "tiktok_gift" | "tiktok_gift_big" | "tiktok_like" | "tiktok_follow" | "tiktok_share" | "tiktok_subscribe" | "tiktok_envelope"
+  event_kind: string;     // "cheer" | "sub" | "raid" | "follow" | "tiktok_gift" | "tiktok_gift_big" | "tiktok_like" | "tiktok_follow" | "tiktok_share" | "tiktok_subscribe" | "tiktok_envelope" | "tiktok_member"
   username: string;
   user_id: number | null; // null if user not in DB
   display_name: string;
@@ -523,6 +546,21 @@ interface ChatEventPayload {
 ```
 
 > `eventReactions.ts` maps `event_kind` to a tama action via `ACTION_MAP` and calls `pet.executeAction()`. Raid and hype_train fire on a random pet regardless of user_id.
+
+### `TiktokAlertPayload`
+
+```typescript
+interface TiktokAlertPayload {
+  event_kind: string;   // e.g. "tiktok_gift", "tiktok_follow", "tiktok_member"
+  image_path: string;   // absolute OS path (convert via convertFileSrc/browserConvertFileSrc); empty = no image
+  sound_path: string;   // absolute OS path; empty = no sound
+  text: string;         // already-formatted ({user}/{amount} resolved by the backend)
+  duration_ms: number;
+  transition: string;   // "fade" | "slide-down" | "slide-up" | "scale" | "none"
+}
+```
+
+> Emitted as `tiktok-alert`. The backend resolves the per-event alert config (text tokens, asset paths) before emitting, so the overlay (`AlertManager`) only renders + queues. Real events emit only when the event's `enabled` flag is set and after the per-event cooldown filter passes; `tiktok_test_alert` emits regardless of `enabled` for previewing.
 
 ### `TtsStatePayload`
 
@@ -713,15 +751,20 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 ### `tiktok/`
 
-- `spawn_tiktok_client(state, app_handle)`: connects via WebSocket to `wss://ws.tiktok.eulerstream.com/chat?uniqueId={username}`.
-- If `tiktok_username` is empty, returns without connecting.
+- `spawn_tiktok_client(state, app_handle)`: connects via WebSocket to TikTool, building the URL from config as `{tiktok_ws_endpoint}/?uniqueId={username}&apiKey={tiktok_api_key}` (a leading `@` in the username is stripped). The `/` before the query string is **required** — without a path the handshake request line is malformed and Cloudflare (fronting `api.tik.tools`) returns 400.
+- If `tiktok_username` or `tiktok_api_key` is empty, returns without connecting.
+- Emits `tiktok-connected` (username) only after the WS handshake actually succeeds, and `tiktok-error` (message) on failure — so the UI reflects the real connection state rather than a premature "success".
+- Each frame is JSON `{ "event": "<type>", "data": { ... } }`. **The username is nested at `data.user.uniqueId`** (TikTool's real shape); use the `extract_unique_id(data)` helper, which falls back to a flat `data.uniqueId`. The chat text is `data.comment`.
+- Every raw frame is logged at `info!` as `[tiktok/raw] {...}` (diagnostic — lower to `debug!` if too noisy), and each event as `[tiktok] evento recibido: '<type>'`.
 - Handles multiple event types with per-event config gates:
-  - `chat` → user lookup → emit `chat-message` (with min/max length filter + TTS)
+  - `chat` → user lookup → emit `chat-message` (length filter counts **chars**, not bytes, + TTS)
   - `gift` → emit `chat-event` with `event_kind: "tiktok_gift"` or `"tiktok_gift_big"` (only when `repeatEnd = true`)
   - `like` → emit `chat-event` with `event_kind: "tiktok_like"`
   - `social` → emit `chat-event` with `event_kind: "tiktok_follow"` or `"tiktok_share"` (based on `displayType`)
   - `subscribe` → emit `chat-event` with `event_kind: "tiktok_subscribe"`
   - `envelope` → emit `chat-event` with `event_kind: "tiktok_envelope"`
+  - `member` → emit `chat-event` with `event_kind: "tiktok_member"` (gated by `tiktok_event_member_enabled`, default off — high-frequency)
+- After emitting `chat-event`, each gift/like/social/subscribe/member handler calls `maybe_emit_alert(...)`, which reads `tiktok_alerts_config` from the cache and, if the event's alert is `enabled`, emits a fully-resolved `tiktok-alert` (text tokens `{user}`/`{amount}` filled; `{user}` = nickname when present, else uniqueId). `resolve_alert` builds the payload; `emit_test_alert` (used by `tiktok_test_alert`) forces it regardless of `enabled`.
 - All non-chat events also call `state.broadcast_ws("chat-event", &payload)`.
 - **Risk:** TikTool's free sandbox is limited (50 req/day, 1 WS connection). Production requires a paid plan (~$7/week).
 - **Local dev/testing:** When TikTool is unavailable, simulate chat events with a local WebSocket mock server that emits the same JSON structure as TikTool's `chat` events.
@@ -729,12 +772,12 @@ await AppState.setConfig(key, value); // Save and reload cache
 ### `server/`
 
 - `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767. Routes are built by `build_router()` (split out so the `router_builds_without_panicking` test can validate route syntax — see §16 "axum route syntax + silent panics"). **Uses axum 0.7 route syntax** (`/assets/*path`, not the 0.8 `{*path}`).
-- Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprite images from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket).
+- Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /overlay-tiktok` (serves `overlay-tiktok.html` — the dedicated event-alert browser source), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprites **and alert images/sounds** from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket). `serve_overlay_file(filename)` is shared by both overlay routes (dev rewrite vs embedded prod).
 - **Bind strategy**: tries `127.0.0.1:6767` (IPv4 loopback) with up to 3 attempts and 1 s between retries to recover from TIME_WAIT left by a previous instance. Also binds `[::1]:6767` (IPv6 loopback) concurrently — on Windows 10 `localhost` often resolves to `::1` first, so without the IPv6 listener the browser gets connection refused even when the IPv4 server is healthy. If only one address is available the server runs on that address alone; if neither is available the task logs an error and exits.
 - **Dev mode** (`dev_mode = true`): reads `overlay-browser.html` from the project root (not `dist/`) and rewrites `/src/*` references to `http://localhost:1420/src/*` so assets are served by the Vite dev server. Enabled automatically when compiled in debug mode (`cfg(debug_assertions)`).
 - **Production mode**: all frontend assets are embedded at compile time via `rust-embed` (`#[folder = "../dist"]`) — no external `dist/` folder is needed next to the binary.
 - The WebSocket handler subscribes to `AppState.ws_tx` and forwards broadcast messages to each connected client. It also receives commands from the browser overlay (`get_config_cmd`, `tama_upsert_pet_state`, `tama_remove_pet_state`) and executes them against the DB.
-- **Security:** `/persona` canonicalizes both the requested path and `app_data_dir` before calling `starts_with` — this handles the Windows `\\?\` extended-path prefix and prevents path traversal.
+- **Security:** `/persona` canonicalizes both the requested path and `app_data_dir` before calling `starts_with` — this handles the Windows `\\?\` extended-path prefix and prevents path traversal. It sets `Content-Type` by extension and now also serves audio (`mp3`/`ogg`/`wav`) and `gif`/`webp`, since alert assets live under `{app_data_dir}/alerts/`.
 
 ### `tts/`
 
@@ -779,11 +822,13 @@ RUST_LOG=debug npm run tauri dev
 
 ### Simulating TikTok Events Locally
 
-TikTool requires an internet connection and an API key. For offline TikTok development, run a local WebSocket server that mimics TikTool's `chat` JSON format and point `tiktok_username` to a dummy value so the client connects to `ws://localhost:{port}` instead. The event shape expected is:
+TikTool requires an internet connection and an API key. For offline TikTok development, run a local WebSocket server that mimics TikTool's `chat` JSON format and point `tiktok_ws_endpoint` to `ws://localhost:{port}` (the client appends `/?uniqueId=...&apiKey=...`). The event shape expected is:
 
 ```json
-{ "event": "chat", "data": { "uniqueId": "username", "comment": "message text" } }
+{ "event": "chat", "data": { "user": { "uniqueId": "username", "nickname": "Display" }, "comment": "message text" } }
 ```
+
+(The parser also accepts a flat `data.uniqueId` for simpler mocks.)
 
 ---
 

@@ -1,5 +1,18 @@
 use rusqlite::{Connection, Result};
 
+/// Default per-event alert config (see `state::TiktokAlertPayload`). One entry per
+/// supported TikTok event_kind. `like` and `member` default to disabled because
+/// they fire very frequently and would otherwise flood the alert overlay.
+const TIKTOK_ALERTS_DEFAULT: &str = r#"{
+  "tiktok_gift":      { "enabled": true,  "image": "", "sound": "", "text": "{user} donó {amount} monedas", "duration_ms": 5000, "transition": "fade" },
+  "tiktok_gift_big":  { "enabled": true,  "image": "", "sound": "", "text": "¡{user} donó {amount} monedas!", "duration_ms": 7000, "transition": "scale" },
+  "tiktok_follow":    { "enabled": true,  "image": "", "sound": "", "text": "{user} te sigue", "duration_ms": 4000, "transition": "slide-down" },
+  "tiktok_share":     { "enabled": false, "image": "", "sound": "", "text": "{user} compartió el directo", "duration_ms": 4000, "transition": "fade" },
+  "tiktok_subscribe": { "enabled": true,  "image": "", "sound": "", "text": "¡{user} se suscribió!", "duration_ms": 6000, "transition": "scale" },
+  "tiktok_like":      { "enabled": false, "image": "", "sound": "", "text": "{user} dio like", "duration_ms": 3000, "transition": "fade" },
+  "tiktok_member":    { "enabled": false, "image": "", "sound": "", "text": "{user} entró", "duration_ms": 3000, "transition": "fade" }
+}"#;
+
 /// Ejecuta todas las migraciones de la base de datos en orden.
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
@@ -124,7 +137,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("twitch_tts_event_announcements", "true"),
         // ── TikTok config ─────────────────────────────────────────────────
         ("tiktok_api_key", ""),
-        ("tiktok_ws_endpoint", "wss://ws.eulerstream.com"),
+        ("tiktok_ws_endpoint", "wss://api.tik.tools"),
         ("tiktok_chat_min_length", "0"),
         ("tiktok_chat_max_length", "300"),
         ("tiktok_chat_ignore_users", "[]"),
@@ -140,6 +153,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tiktok_event_envelope_enabled", "true"),
         ("tiktok_gift_action_map", "{}"),
         ("tiktok_tts_event_announcements", "true"),
+        // Per-event alert config (image/sound/text/duration/transition).
+        // like + member start disabled because they are high-frequency.
+        ("tiktok_alerts_config", TIKTOK_ALERTS_DEFAULT),
         // ── Anti-spam / rate-limit config (chat) ────────────────────────────
         ("twitch_chat_antispam_preset", "off"),
         ("twitch_chat_user_cooldown_ms", "0"),
@@ -184,6 +200,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             rusqlite::params![key, value],
         )?;
     }
+
+    // Rewrite the stale EulerStream endpoint left in existing DBs — the event
+    // parser is built for TikTool, so the default must point at tik.tools.
+    conn.execute(
+        "UPDATE config SET value = 'wss://api.tik.tools' \
+         WHERE key = 'tiktok_ws_endpoint' AND value LIKE '%eulerstream%'",
+        [],
+    )?;
 
     Ok(())
 }

@@ -103,6 +103,7 @@ const NAV_ICON_MAP: Record<string, (size?: number) => string> = {
     users:       Icons.users,
     logs:        Icons.logs,
     tamagotchi:  Icons.paw,
+    eventos:     Icons.zap,
 };
 
 export function injectNavIcons(): void {

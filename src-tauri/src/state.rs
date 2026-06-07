@@ -236,6 +236,10 @@ pub struct AppConfig {
     pub tiktok_event_envelope_enabled: bool,
     pub tiktok_gift_action_map: String,
     pub tiktok_tts_event_announcements: bool,
+    /// JSON map of TikTok event_kind -> alert settings
+    /// ({ enabled, image, sound, text, duration_ms, transition }).
+    /// Drives the configurable on-overlay alerts (overlay-tiktok.html).
+    pub tiktok_alerts_config: String,
     // ── Anti-spam / rate-limit config (chat) ────────────────────────────────
     pub twitch_chat_antispam_preset: String,
     pub twitch_chat_user_cooldown_ms: u32,
@@ -332,4 +336,25 @@ pub struct ChatEventPayload {
     pub amount: Option<i64>,
     pub text: Option<String>,
     pub extra: serde_json::Value,
+}
+
+// ─── TiktokAlertPayload ──────────────────────────────────────────────────────
+
+/// Fully-resolved alert payload emitted as `tiktok-alert` and consumed by the
+/// dedicated alert overlay (overlay-tiktok.html). The backend resolves the
+/// per-event alert config (text formatting, asset paths) before emitting so the
+/// overlay only has to render and queue.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TiktokAlertPayload {
+    pub event_kind: String,
+    /// Absolute OS path to the alert image (empty = no image). The overlay
+    /// converts it via convertFileSrc / browserConvertFileSrc.
+    pub image_path: String,
+    /// Absolute OS path to the alert sound (empty = no sound).
+    pub sound_path: String,
+    /// Already-formatted display text ({user}/{amount} tokens resolved).
+    pub text: String,
+    pub duration_ms: u32,
+    /// One of: "fade", "slide-down", "slide-up", "scale", "none".
+    pub transition: String,
 }

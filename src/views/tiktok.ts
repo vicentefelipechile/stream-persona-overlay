@@ -68,7 +68,7 @@ export async function renderTiktok(): Promise<void> {
 
   const username = String(cfg["tiktok_username"] || "");
   const api_key = String(cfg["tiktok_api_key"] || "");
-  const ws_endpoint = String(cfg["tiktok_ws_endpoint"] || "wss://ws.eulerstream.com");
+  const ws_endpoint = String(cfg["tiktok_ws_endpoint"] || "wss://api.tik.tools");
   const chat_min_length = Number(cfg["tiktok_chat_min_length"]) || 0;
   const chat_max_length = Number(cfg["tiktok_chat_max_length"]) || 300;
   const event_gift_enabled = String(cfg["tiktok_event_gift_enabled"]) === "true";
@@ -137,11 +137,11 @@ export async function renderTiktok(): Promise<void> {
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;">
           API Key
-          <a href="https://eulerstream.com/" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;">${Icons.externalLink(12)} Obtener en EulerStream</a>
+          <a href="https://tik.tools/" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;">${Icons.externalLink(12)} Obtener en TikTool</a>
         </label>
         <input type="password" id="tiktok-api-key" value="${api_key}" placeholder="API key"/>
         <p style="margin:6px 0 0;font-size:0.8rem;color:var(--text-muted);">
-          <strong>Opcional.</strong> Sin ella solo recibes mensajes de chat. Con ella también recibes regalos, likes, follows y suscripciones en directo (vía EulerStream, servicio de pago).
+          <strong>Obligatoria.</strong> TikTok LIVE no tiene API pública: la conexión se hace vía TikTool, que requiere una API key (tiene plan gratuito). Sin ella no se reciben ni los mensajes de chat.
         </p>
       </div>
       <details style="margin-top: 12px;">
@@ -390,11 +390,17 @@ export async function renderTiktok(): Promise<void> {
 
   document.getElementById("btn-connect-tiktok")?.addEventListener("click", async () => {
     const uname = (document.getElementById("tiktok-username") as HTMLInputElement)?.value;
+    const key = (document.getElementById("tiktok-api-key") as HTMLInputElement)?.value;
     if (!uname) return showToast("Nombre de usuario requerido", "error");
+    if (!key) return showToast("API key requerida (obtén una gratis en tik.tools)", "error");
     try {
-      await invoke("connect_tiktok", { username: uname });
+      // Persist config (api key + endpoint) BEFORE connecting — the backend
+      // client reads the api key from the DB when it spawns.
       await saveConfig();
-      showToast("Conectado a TikTok", "success");
+      await invoke("connect_tiktok", { username: uname });
+      // Don't claim success here — the real outcome arrives via the
+      // "tiktok-connected" / "tiktok-error" events once the WS handshake resolves.
+      showToast("Conectando a TikTok…", "info");
     } catch (e) {
       showToast(String(e), "error");
     }

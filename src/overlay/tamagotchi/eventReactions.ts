@@ -25,6 +25,7 @@ const ACTION_MAP: Record<string, string> = {
   tiktok_share:      "jump",
   tiktok_subscribe:  "dance",
   tiktok_envelope:   "explode",
+  tiktok_member:     "jump",
 };
 
 function onChatEvent(payload: ChatEventPayload): void {

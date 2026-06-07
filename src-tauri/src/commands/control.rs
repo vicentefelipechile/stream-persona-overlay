@@ -157,8 +157,10 @@ pub async fn connect_tiktok(
         *h = Some(handle);
     }
 
-    app.emit("tiktok-connected", &username).map_err(map_err)?;
-    tracing::info!("Conectando a TikTok LIVE: {}", username);
+    // Note: the "tiktok-connected" / "tiktok-error" events are emitted by the
+    // client task itself once the WS handshake actually succeeds or fails —
+    // not here, so the UI reflects the real connection state.
+    tracing::info!("Iniciando conexión a TikTok LIVE: {}", username);
     Ok(())
 }
 

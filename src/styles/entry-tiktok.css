@@ -1,0 +1,6 @@
+/* =========================================================================================================
+   entry-tiktok.css — Entry point for the TikTok alert overlay (overlay-tiktok.html)
+   Standalone, transparent browser source. Does not pull in pet/chroma styles.
+   ========================================================================================================= */
+
+@import './alerts.css';
