@@ -9,9 +9,22 @@
 
 ## 1. What Is This Project?
 
-**Stream Persona Overlay** is a **Tauri v2** desktop application that displays animated Tamagotchi-style pets on the streamer's overlay in real time. When a registered user types in the Twitch or TikTok LIVE chat, their pet (built from two images: mouth open / mouth closed) appears on the overlay floor, walks around, reacts to chat events, and executes random or admin-triggered actions.
+**Stream Persona Overlay** is a **Tauri v2** desktop application — a **toolkit of animated OBS overlays for streamers**, driven by the chat and live events of Twitch and TikTok. It began as a viewer-pet (Tamagotchi) overlay and has grown into a small suite of independent overlay modules that share one Rust backend, one admin panel, and one OBS Browser Source server (axum on port 6767).
 
-Users register and manage their images through a **Discord bot** (slash commands). The persona images (mouth open/closed) are used as the pet sprites.
+### Overlay modules
+
+| Module | Overlay page | What it does |
+|---|---|---|
+| **Viewer pets (Tamagotchi)** | `overlay.html` (Tauri) / `overlay-browser.html` (OBS) | When a registered viewer types in Twitch or TikTok LIVE chat, their pet (two images: mouth open / closed) appears on the overlay floor, walks around, reacts to chat events, and runs random or admin-triggered actions. See Section 16. |
+| **Streamer persona** | `overlay-streamer.html` | The streamer's own animated avatar (4 sprites: mouth × eyes) with mic-driven lip-sync and automatic eye-blink. |
+| **Event alerts** | `overlay-tiktok.html` | Per-event on-screen alerts (gifts, follows, likes, subs…) with custom image / sound / text / transition. |
+
+### Supporting systems
+
+- **Chat & event integrations** — Twitch IRC + EventSub, TikTok LIVE (via TikTool), and a Discord bot for registration.
+- **Cross-cutting infrastructure** — anti-spam filters, per-event cooldowns, TTS lip-sync, the axum OBS Browser Source server, and a first-run onboarding tour.
+
+Viewers register and manage their pet images through the **Discord bot** (slash commands); the two persona images (mouth open / closed) are used as the pet sprites.
 
 ---
 
