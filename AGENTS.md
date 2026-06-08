@@ -374,6 +374,8 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_action_probability` | `"0.15"` | Probability per interval of triggering a random action |
 | `tama_enabled_actions` | `'["jump","popcorn","dance","fight","explode"]'` | JSON array of action IDs in the random pool |
 | `tama_jump_on_speak` | `"false"` | When `"true"`, pets execute a `jump` action in place when their owner sends a chat message instead of walking to the center |
+| `tama_keyword_actions` | *(JSON)* | JSON map of chat keyword → tama action ID (e.g. `{"pelea":"fight","baila":"dance"}`). When a pet's owner types a keyword (whole-word, case-insensitive), that action is forced, taking priority over `tama_jump_on_speak` / walk-to-center. Edited in the Tamagotchi admin view; applied live via `tama-config-changed`. |
+| `tama_name_font_size_px` | `"11"` | Pet name label font size in pixels. Applied live via `tama-config-changed`. |
 | `tama_guests_enabled` | `"false"` | Master toggle — enables guest viewer pets globally |
 | `tama_guests_twitch` | `"true"` | Allow guest pets from Twitch (only effective when master is on) |
 | `tama_guests_tiktok` | `"true"` | Allow guest pets from TikTok (only effective when master is on) |
@@ -381,6 +383,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_guests_label_prefix` | `""` | Optional prefix prepended to the guest display name (e.g. `"[G] "`) |
 | `tama_guest_mouth_open_path` | `""` | Absolute path to a custom guest mouth-open PNG (empty = use bundled `guest_open.png`) |
 | `tama_guest_mouth_closed_path` | `""` | Absolute path to a custom guest mouth-closed PNG (empty = use bundled `guest_closed.png`) |
+| `tama_guest_tiktok_avatar` | `"true"` | When `"true"`, TikTok guest pets use the chatter's TikTok profile picture (`data.user.profilePictureUrl`) as their sprite, taking priority over the bundled/custom guest sprite. The avatar is an `https` URL passed straight to the `<img>` (PetManager skips `convertFileSrc` for `http(s)` paths). |
 | `tama_layout_mode` | `"dynamic"` | `"dynamic"` = pets walk freely; `"static"` = pets queue at a fixed anchor edge |
 | `tama_static_anchor` | `"left"` | Which edge the queue starts from (`"left"` or `"right"`). Only used when `tama_layout_mode = "static"` |
 | `tama_static_spacing_px` | `"100"` | Pixel gap between consecutive pet slots in static mode |

@@ -116,6 +116,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             r#"["jump","popcorn","dance","fight","explode"]"#,
         ),
         ("tama_jump_on_speak", "false"),
+        (
+            "tama_keyword_actions",
+            r#"{"pelea":"fight","baila":"dance","salta":"jump","explota":"explode","palomitas":"popcorn"}"#,
+        ),
+        ("tama_name_font_size_px", "11"),
         // ── Twitch config ─────────────────────────────────────────────────
         ("twitch_eventsub_enabled", "false"),
         ("twitch_chat_min_length", "0"),
@@ -188,6 +193,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_guests_tiktok", "true"),
         ("tama_guests_tts", "false"),
         ("tama_guests_label_prefix", ""),
+        ("tama_guest_tiktok_avatar", "true"),
         // ── Static layout config ─────────────────────────────────────────────
         ("tama_layout_mode", "dynamic"),
         ("tama_static_anchor", "left"),

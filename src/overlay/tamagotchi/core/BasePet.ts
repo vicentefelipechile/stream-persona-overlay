@@ -36,6 +36,7 @@ export interface PetConfig {
   floorY: number;
   initialX?: number;
   staticMode?: boolean;
+  nameFontSizePx?: number;
 }
 
 export interface PetPosition {
@@ -97,6 +98,7 @@ export class BasePet {
 
     this._setupFSMListeners();
     this._resetInactivityTimer();
+    this._applyZIndex();
   }
 
   // =========================================================================================================
@@ -125,10 +127,16 @@ export class BasePet {
              src="${this.config.mouthClosedUrl}"
              style="position:absolute;inset:0;width:100%;opacity:1;object-fit:contain;"/>
       </div>
-      <div class="pet-name">${this.config.displayName}</div>
+      <div class="pet-name" style="font-size:${this.config.nameFontSizePx ?? 11}px;">${this.config.displayName}</div>
     `;
     container.appendChild(el);
     return el;
+  }
+
+  // Z-index follows horizontal position: the further left a pet is, the higher
+  // its z-index, so pets on the left render in front of pets on the right.
+  private _applyZIndex(): void {
+    this.el.style.zIndex = String(Math.round(Math.max(0, window.innerWidth - this.pos.x)));
   }
 
   // =========================================================================================================
@@ -291,6 +299,7 @@ export class BasePet {
         }
 
         this.el.style.left = `${this.pos.x}px`;
+        this._applyZIndex();
       }
 
       this.walkAnimFrame = requestAnimationFrame(step);
@@ -331,6 +340,7 @@ export class BasePet {
     if (dist < 1) {
       this.pos.x = targetX;
       this.el.style.left = `${targetX}px`;
+      this._applyZIndex();
       return;
     }
 
@@ -352,10 +362,12 @@ export class BasePet {
         const t = Math.min(1, (now - startTime) / durationMs);
         this.pos.x = startX + (targetX - startX) * t;
         this.el.style.left = `${this.pos.x}px`;
+        this._applyZIndex();
         if (t < 1) requestAnimationFrame(step);
         else {
           this.pos.x = targetX;
           this.el.style.left = `${targetX}px`;
+          this._applyZIndex();
           this.moveToAbort = null;
           resolve();
         }
@@ -468,6 +480,13 @@ export class BasePet {
   updatePosX(x: number): void {
     this.pos.x          = x;
     this.el.style.left  = `${x}px`;
+    this._applyZIndex();
+  }
+
+  updateNameFontSize(px: number): void {
+    this.config.nameFontSizePx = px;
+    const nameEl = this.el.querySelector<HTMLElement>(".pet-name");
+    if (nameEl) nameEl.style.fontSize = `${px}px`;
   }
 
   updateWalkSpeed(baseSpeed: number): void {

@@ -153,6 +153,19 @@ fn extract_unique_id(data: &serde_json::Value) -> String {
         .to_string()
 }
 
+/// Extracts the chatter's TikTok profile picture URL from event `data`.
+/// Prefers `profilePictureUrl`, falling back to `avatarUrl`. Returns "" if absent.
+fn extract_avatar_url(data: &serde_json::Value) -> String {
+    data.get("user")
+        .and_then(|u| {
+            u.get("profilePictureUrl")
+                .or_else(|| u.get("avatarUrl"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
 /// Returns a human-friendly label for the `{user}` alert token: the nickname
 /// (`data.user.nickname`) when present and non-empty, otherwise the uniqueId.
 fn extract_user_label(data: &serde_json::Value, unique_id: &str) -> String {
@@ -395,7 +408,15 @@ fn handle_chat(
         && cfg.tama_guests_tiktok
         && cfg.tama_enabled
     {
-        let (mouth_open, mouth_closed) = if !cfg.tama_guest_mouth_open_path.is_empty()
+        // Priority: TikTok profile picture (if enabled and present) > custom guest
+        // sprite > bundled default. The avatar URL is used verbatim as both mouth
+        // frames; the overlay passes http(s) URLs straight through to the <img>.
+        let avatar_url = extract_avatar_url(data);
+        let (mouth_open, mouth_closed) = if cfg.tama_guest_tiktok_avatar
+            && !avatar_url.is_empty()
+        {
+            (avatar_url.clone(), avatar_url)
+        } else if !cfg.tama_guest_mouth_open_path.is_empty()
             && !cfg.tama_guest_mouth_closed_path.is_empty()
         {
             (

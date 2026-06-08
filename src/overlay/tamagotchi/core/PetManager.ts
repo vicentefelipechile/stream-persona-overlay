@@ -78,10 +78,14 @@ export class PetManager {
   private static container: HTMLElement;
   private static transport: PetTransport = _tauriTransport;
 
-  private static enabled      = true;
-  private static maxPets      = 8;
-  private static petSizePx    = 80;
-  private static jumpOnSpeak  = false;
+  private static enabled        = true;
+  private static maxPets        = 8;
+  private static petSizePx      = 80;
+  private static jumpOnSpeak    = false;
+  private static nameFontSizePx = 11;
+  // Map of lowercased chat keyword -> action ID. When a pet's owner types a
+  // keyword, that action is forced instead of the normal walk-to-center/jump.
+  private static keywordActions: Record<string, string> = {};
 
   private static layoutMode:    "dynamic" | "static" = "dynamic";
   private static staticAnchor:  "left" | "right"     = "left";
@@ -107,7 +111,9 @@ export class PetManager {
       this.enabled       = String(cfg["tama_enabled"])          === "true";
       this.maxPets       = Number(cfg["tama_max_pets"])         || 8;
       this.petSizePx     = Number(cfg["tama_pet_size_px"])      || 80;
-      this.jumpOnSpeak   = String(cfg["tama_jump_on_speak"])    === "true";
+      this.jumpOnSpeak    = String(cfg["tama_jump_on_speak"])    === "true";
+      this.nameFontSizePx = Number(cfg["tama_name_font_size_px"]) || 11;
+      this.keywordActions = this._parseKeywordActions(cfg["tama_keyword_actions"]);
       this.layoutMode    = String(cfg["tama_layout_mode"])      === "static" ? "static" : "dynamic";
       this.staticAnchor  = String(cfg["tama_static_anchor"])    === "right"  ? "right"  : "left";
       this.staticSpacing = Number(cfg["tama_static_spacing_px"]) || 100;
@@ -180,12 +186,13 @@ export class PetManager {
       const cfg: PetConfig = {
         userId:       payload.user_id,
         displayName:  payload.display_name,
-        mouthOpenUrl:   this.transport.convertFileSrc(payload.mouth_open_path),
-        mouthClosedUrl: this.transport.convertFileSrc(payload.mouth_closed_path),
+        mouthOpenUrl:   this._resolveSrc(payload.mouth_open_path),
+        mouthClosedUrl: this._resolveSrc(payload.mouth_closed_path),
         sizePx:    this.petSizePx,
         floorY:    this.floor.floorY,
         initialX:  spawnX,
         staticMode: this.layoutMode === "static",
+        nameFontSizePx: this.nameFontSizePx,
       };
 
       const pet = new BasePet(this.container, cfg);
@@ -199,11 +206,52 @@ export class PetManager {
     }
 
     const pet = this.pets.get(payload.user_id)!;
+
+    // Keyword-triggered action takes priority over jump-on-speak / walk-to-center.
+    const kwAction = this._matchKeywordAction(payload.message);
+    if (kwAction && !(this.layoutMode === "static" && this.STATIC_BLOCKED_ACTIONS.has(kwAction))) {
+      await pet.executeAction(kwAction);
+      return;
+    }
+
     if (this.jumpOnSpeak) {
       await pet.executeAction("jump");
     } else {
       await pet.onChatMessage();
     }
+  }
+
+  /** Returns the action ID for the first configured keyword found as a whole
+   *  token in `message` (case-insensitive), or null if none matched. */
+  private static _matchKeywordAction(message: string): string | null {
+    const entries = Object.entries(this.keywordActions);
+    if (!entries.length) return null;
+    const tokens = new Set(message.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+    for (const [keyword, action] of entries) {
+      if (keyword && action && tokens.has(keyword)) return action;
+    }
+    return null;
+  }
+
+  /** Parses the tama_keyword_actions JSON map, lowercasing keys. */
+  private static _parseKeywordActions(raw: unknown): Record<string, string> {
+    try {
+      const parsed = JSON.parse(String(raw ?? "{}")) as Record<string, string>;
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (k && typeof v === "string" && v) out[k.toLowerCase()] = v;
+      }
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /** Converts an OS path via the transport, but passes http(s) URLs (e.g. a
+   *  TikTok profile picture used as a guest sprite) through unchanged. */
+  private static _resolveSrc(path: string): string {
+    if (/^https?:\/\//i.test(path)) return path;
+    return this.transport.convertFileSrc(path);
   }
 
   private static _onTtsState(payload: TtsStatePayload): void {
@@ -227,6 +275,13 @@ export class PetManager {
     this.enabled      = String(cfg["tama_enabled"])       === "true";
     this.maxPets      = Number(cfg["tama_max_pets"])      || 8;
     this.jumpOnSpeak  = String(cfg["tama_jump_on_speak"]) === "true";
+    this.keywordActions = this._parseKeywordActions(cfg["tama_keyword_actions"]);
+
+    const newFontSize = Number(cfg["tama_name_font_size_px"]) || 11;
+    if (newFontSize !== this.nameFontSizePx) {
+      this.nameFontSizePx = newFontSize;
+      for (const pet of this.pets.values()) pet.updateNameFontSize(newFontSize);
+    }
 
     const newSizePx   = Number(cfg["tama_pet_size_px"]) || 80;
     if (newSizePx !== this.petSizePx) {

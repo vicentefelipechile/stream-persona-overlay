@@ -11,7 +11,7 @@ import {
     Settings, Users, User, List, AlertTriangle, PawPrint,
     Pencil, Play, Pause, Trash2, RefreshCw,
     Check, X, Copy, Zap, Unplug, Save, Eye, ShieldOff, ExternalLink, Bot, CircleHelp,
-    Webcam, RotateCcw,
+    Webcam, RotateCcw, Plus,
 } from "lucide";
 import type { IconNode } from "lucide";
 
@@ -92,6 +92,7 @@ export const Icons = {
     help:          (size = 14) => ui(CircleHelp, size),
     webcam:        (size = 16) => ui(Webcam, size),
     reset:         (size = 14) => ui(RotateCcw, size),
+    plus:          (size = 14) => ui(Plus, size),
 } as const;
 
 // =========================================================================================================

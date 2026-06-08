@@ -52,6 +52,10 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             }
             "tama_enabled_actions" => cfg.tama_enabled_actions = value,
             "tama_jump_on_speak" => cfg.tama_jump_on_speak = value == "true",
+            "tama_keyword_actions" => cfg.tama_keyword_actions = value,
+            "tama_name_font_size_px" => {
+                cfg.tama_name_font_size_px = value.parse().unwrap_or(11)
+            }
             // ── Twitch config ─────────────────────────────────────────────────
             "twitch_eventsub_enabled" => cfg.twitch_eventsub_enabled = value == "true",
             "twitch_chat_min_length" => cfg.twitch_chat_min_length = value.parse().unwrap_or(0),
@@ -182,6 +186,7 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_guests_label_prefix" => cfg.tama_guests_label_prefix = value,
             "tama_guest_mouth_open_path" => cfg.tama_guest_mouth_open_path = value,
             "tama_guest_mouth_closed_path" => cfg.tama_guest_mouth_closed_path = value,
+            "tama_guest_tiktok_avatar" => cfg.tama_guest_tiktok_avatar = value == "true",
             // ── Static layout config ──────────────────────────────────────────
             "tama_layout_mode" => cfg.tama_layout_mode = value,
             "tama_static_anchor" => cfg.tama_static_anchor = value,

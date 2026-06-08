@@ -199,6 +199,11 @@ pub struct AppConfig {
     pub tama_action_probability: f64,
     pub tama_enabled_actions: String,
     pub tama_jump_on_speak: bool,
+    /// JSON map of chat keyword -> tama action ID (e.g. {"pelea":"fight"}).
+    /// When a registered pet's owner types a keyword, that action is forced.
+    pub tama_keyword_actions: String,
+    /// Pet name label font size in pixels.
+    pub tama_name_font_size_px: u32,
     // ── Twitch config ────────────────────────────────────────────────────────
     pub twitch_eventsub_enabled: bool,
     pub twitch_chat_min_length: u32,
@@ -276,6 +281,9 @@ pub struct AppConfig {
     pub tama_guest_mouth_open_path: String,
     /// Absolute path to a custom guest mouth-closed sprite (empty = use bundled default)
     pub tama_guest_mouth_closed_path: String,
+    /// When true, TikTok guest pets use the chatter's TikTok profile picture as
+    /// their sprite (takes priority over the bundled/custom default guest sprite).
+    pub tama_guest_tiktok_avatar: bool,
     // ── Static layout config ─────────────────────────────────────────────────
     /// "dynamic" (free walk) or "static" (fixed queue at anchor edge)
     pub tama_layout_mode: String,

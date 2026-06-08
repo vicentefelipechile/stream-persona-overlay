@@ -71,7 +71,9 @@ export async function renderTamagotchi(): Promise<void> {
   const actionCheckSecs = Number(cfg["tama_action_check_secs"])    || 8;
   const actionProb      = Number(cfg["tama_action_probability"])   || 0.15;
   const jumpOnSpeak     = String(cfg["tama_jump_on_speak"])        === "true";
+  const nameFontSize    = Number(cfg["tama_name_font_size_px"])    || 11;
   const guestsEnabled   = String(cfg["tama_guests_enabled"])       === "true";
+  const guestTiktokAvatar = String(cfg["tama_guest_tiktok_avatar"] ?? "true") === "true";
   const guestsTwitch    = String(cfg["tama_guests_twitch"])        === "true";
   const guestsTiktok    = String(cfg["tama_guests_tiktok"])        === "true";
   const guestsTts       = String(cfg["tama_guests_tts"])           === "true";
@@ -88,6 +90,13 @@ export async function renderTamagotchi(): Promise<void> {
     enabledActions = JSON.parse(String(cfg["tama_enabled_actions"] ?? "[]"));
   } catch (_) {
     enabledActions = ["jump", "popcorn", "dance", "fight", "explode"];
+  }
+
+  let keywordActions: Record<string, string> = {};
+  try {
+    keywordActions = JSON.parse(String(cfg["tama_keyword_actions"] ?? "{}"));
+  } catch (_) {
+    keywordActions = {};
   }
 
   const allActionMeta = ActionRegistry.getAllMeta().filter(m => m.probability > 0 || enabledActions.includes(m.id));
@@ -125,6 +134,7 @@ export async function renderTamagotchi(): Promise<void> {
         ${_slider("cfg-inactivity", "cfg-inactivity-val", "Inactividad antes de dormir",  inactivityMins,  " min", 1,    30,  1)}
         ${_slider("cfg-check",      "cfg-check-val",      "Intervalo acciones aleatorias",actionCheckSecs, "s",    3,    30,  1)}
         ${_slider("cfg-prob",       "cfg-prob-val",       "Probabilidad por intervalo",   actionProb,      "",     0,    1,   0.05)}
+        ${_slider("cfg-name-font",  "cfg-name-font-val",  "Tamaño nombre",                nameFontSize,    "px",   8,    32,  1)}
       </div>
       <div class="tama-setting-row">
         <div>
@@ -205,6 +215,16 @@ export async function renderTamagotchi(): Promise<void> {
               <span class="switch-track"></span>
             </label>
           </div>
+          <div class="tama-setting-row">
+            <div>
+              <div class="tama-setting-label">${Icons.tiktok(14)} Usar foto de perfil de TikTok</div>
+              <div class="tama-setting-desc">Los invitados de TikTok usan su foto de perfil como sprite (tiene prioridad sobre el sprite por defecto/personalizado)</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="guests-tiktok-avatar" ${guestTiktokAvatar ? "checked" : ""}/>
+              <span class="switch-track"></span>
+            </label>
+          </div>
           <div class="form-group">
             <label for="guests-prefix">Prefijo del nombre</label>
             <input type="text" id="guests-prefix" value="${guestsPrefix}" placeholder="[G] " style="max-width:200px;"/>
@@ -265,6 +285,20 @@ export async function renderTamagotchi(): Promise<void> {
           </label>
         `}).join("")}
       </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header">
+        <h2 class="section-title">Palabras Clave → Acción</h2>
+        <span id="kw-badge" class="badge badge-active">${Object.keys(keywordActions).length}</span>
+      </div>
+      <p style="font-size:13px;color:var(--color-text-muted);margin:0 0 var(--space-4);">
+        Cuando el dueño de una mascota escribe una de estas palabras en el chat, se fuerza la acción indicada (coincidencia por palabra completa, sin distinguir mayúsculas).
+      </p>
+      <div id="kw-rows" style="display:flex;flex-direction:column;gap:var(--space-3);">
+        ${_renderKeywordRows(keywordActions, allActionMeta)}
+      </div>
+      <button class="btn btn-secondary btn-sm" id="kw-add" style="margin-top:var(--space-4);display:inline-flex;align-items:center;gap:6px;">${Icons.plus(14)} Añadir palabra</button>
     </div>
 
     <div class="card" style="margin-top:var(--space-5);">
@@ -352,6 +386,45 @@ export async function renderTamagotchi(): Promise<void> {
       .catch(err => showToast(String(err), "error"));
   });
 
+  container.querySelector<HTMLInputElement>("#guests-tiktok-avatar")!.addEventListener("change", (e) => {
+    invoke("set_config_cmd", { key: "tama_guest_tiktok_avatar", value: (e.target as HTMLInputElement).checked ? "true" : "false" })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  // Keyword → action editor
+  const kwRowsEl = container.querySelector<HTMLElement>("#kw-rows")!;
+  const kwBadge  = container.querySelector<HTMLElement>("#kw-badge")!;
+
+  function _saveKeywords(): void {
+    const map: Record<string, string> = {};
+    kwRowsEl.querySelectorAll<HTMLElement>(".kw-row").forEach(row => {
+      const kw     = row.querySelector<HTMLInputElement>(".kw-keyword")!.value.trim().toLowerCase();
+      const action = row.querySelector<HTMLSelectElement>(".kw-action")!.value;
+      if (kw && action) map[kw] = action;
+    });
+    kwBadge.textContent = String(Object.keys(map).length);
+    invoke("set_config_cmd", { key: "tama_keyword_actions", value: JSON.stringify(map) })
+      .catch(err => showToast(String(err), "error"));
+  }
+
+  container.querySelector("#kw-add")!.addEventListener("click", () => {
+    kwRowsEl.querySelector(".kw-empty")?.remove();
+    const firstAction = allActionMeta[0]?.id ?? "jump";
+    kwRowsEl.insertAdjacentHTML("beforeend", _keywordRowHtml("", firstAction, allActionMeta));
+    kwRowsEl.querySelector<HTMLInputElement>(".kw-row:last-child .kw-keyword")?.focus();
+  });
+
+  kwRowsEl.addEventListener("change", () => _saveKeywords());
+  kwRowsEl.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest(".kw-remove");
+    if (!btn) return;
+    btn.closest(".kw-row")?.remove();
+    if (!kwRowsEl.querySelector(".kw-row")) {
+      kwRowsEl.innerHTML = `<p class="kw-empty" style="color:var(--color-text-muted);font-size:13px;">No hay palabras clave configuradas.</p>`;
+    }
+    _saveKeywords();
+  });
+
   container.querySelector<HTMLInputElement>("#guests-prefix")!.addEventListener("change", (e) => {
     invoke("set_config_cmd", { key: "tama_guests_label_prefix", value: (e.target as HTMLInputElement).value })
       .catch(err => showToast(String(err), "error"));
@@ -406,6 +479,7 @@ export async function renderTamagotchi(): Promise<void> {
   _bindRange("cfg-inactivity", "cfg-inactivity-val", " min");
   _bindRange("cfg-check",      "cfg-check-val",      "s");
   _bindRange("cfg-prob",       "cfg-prob-val",       "");
+  _bindRange("cfg-name-font",  "cfg-name-font-val",  "px");
 
   container.querySelector<HTMLInputElement>("#cfg-jump-on-speak")!.addEventListener("change", (e) => {
     const value = (e.target as HTMLInputElement).checked ? "true" : "false";
@@ -443,6 +517,7 @@ export async function renderTamagotchi(): Promise<void> {
     ["cfg-inactivity", "tama_inactivity_mins"],
     ["cfg-check",      "tama_action_check_secs"],
     ["cfg-prob",       "tama_action_probability"],
+    ["cfg-name-font",  "tama_name_font_size_px"],
   ];
   sliderMap.forEach(([inputId, key]) => {
     container.querySelector<HTMLInputElement>(`#${inputId}`)!.addEventListener("change", (e) => {
@@ -530,6 +605,30 @@ function _slider(
              min="${min}" max="${max}" step="${step}" value="${value}"/>
     </div>
   `;
+}
+
+type KwActionMeta = { id: string; label: string; icon: string };
+
+function _keywordRowHtml(keyword: string, action: string, meta: KwActionMeta[]): string {
+  const opts = meta
+    .map(m => `<option value="${m.id}" ${m.id === action ? "selected" : ""}>${m.icon} ${m.label}</option>`)
+    .join("");
+  const safeKw = keyword.replace(/"/g, "&quot;");
+  return `
+    <div class="kw-row" style="display:flex;gap:var(--space-3);align-items:center;">
+      <input type="text" class="kw-keyword" value="${safeKw}" placeholder="palabra" style="flex:1;min-width:0;"/>
+      <span style="color:var(--color-text-muted);flex-shrink:0;">→</span>
+      <select class="kw-action" style="flex:1;min-width:0;">${opts}</select>
+      <button class="btn btn-danger btn-sm kw-remove" title="Eliminar" style="flex-shrink:0;">${Icons.trash()}</button>
+    </div>`;
+}
+
+function _renderKeywordRows(map: Record<string, string>, meta: KwActionMeta[]): string {
+  const entries = Object.entries(map);
+  if (!entries.length) {
+    return `<p class="kw-empty" style="color:var(--color-text-muted);font-size:13px;">No hay palabras clave configuradas.</p>`;
+  }
+  return entries.map(([k, v]) => _keywordRowHtml(k, v, meta)).join("");
 }
 
 function _renderPetsList(pets: PetStateRow[]): string {
