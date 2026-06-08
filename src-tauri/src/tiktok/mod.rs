@@ -23,7 +23,11 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
             return;
         };
         let cfg = crate::db::config::get_config(&db).unwrap_or_default();
-        (cfg.tiktok_username, cfg.tiktok_api_key, cfg.tiktok_ws_endpoint)
+        (
+            cfg.tiktok_username,
+            cfg.tiktok_api_key,
+            cfg.tiktok_ws_endpoint,
+        )
     };
 
     // Strip a leading "@" — the TikTool API expects a bare uniqueId
@@ -233,7 +237,8 @@ fn maybe_emit_alert(
         return;
     }
 
-    if let Some(payload) = resolve_alert(&cfg.tiktok_alerts_config, event_kind, user_label, amount) {
+    if let Some(payload) = resolve_alert(&cfg.tiktok_alerts_config, event_kind, user_label, amount)
+    {
         emit_alert(state, app_handle, &payload);
     }
 }
@@ -268,7 +273,10 @@ fn handle_tiktok_event(state: &AppState, app_handle: &AppHandle, json: &serde_js
     let data = match json.get("data") {
         Some(d) => d,
         None => {
-            tracing::info!("[tiktok] evento '{}' sin campo 'data' — ignorado", event_type);
+            tracing::info!(
+                "[tiktok] evento '{}' sin campo 'data' — ignorado",
+                event_type
+            );
             return;
         }
     };
@@ -292,9 +300,7 @@ fn handle_tiktok_event(state: &AppState, app_handle: &AppHandle, json: &serde_js
         "envelope" if cfg.tiktok_event_envelope_enabled => {
             handle_envelope(state, app_handle, data, &cfg)
         }
-        "member" if cfg.tiktok_event_member_enabled => {
-            handle_member(state, app_handle, data, &cfg)
-        }
+        "member" if cfg.tiktok_event_member_enabled => handle_member(state, app_handle, data, &cfg),
         _ => {}
     }
 }
@@ -512,7 +518,14 @@ fn handle_gift(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(state, app_handle, cfg, event_kind, &user_label, Some(gift_amount));
+    maybe_emit_alert(
+        state,
+        app_handle,
+        cfg,
+        event_kind,
+        &user_label,
+        Some(gift_amount),
+    );
 }
 
 fn handle_like(
@@ -672,7 +685,14 @@ fn handle_subscribe(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(state, app_handle, cfg, "tiktok_subscribe", &user_label, None);
+    maybe_emit_alert(
+        state,
+        app_handle,
+        cfg,
+        "tiktok_subscribe",
+        &user_label,
+        None,
+    );
 }
 
 fn handle_envelope(

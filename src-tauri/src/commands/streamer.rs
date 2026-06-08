@@ -84,7 +84,9 @@ pub async fn set_streamer_sprite(
     let config_key = slot_key(&slot)?;
     let ext = sniff_extension(&image_data)?;
 
-    let dest_path = state.app_data_dir.join(format!("streamer_{}.{}", slot, ext));
+    let dest_path = state
+        .app_data_dir
+        .join(format!("streamer_{}.{}", slot, ext));
     std::fs::write(&dest_path, &image_data)
         .map_err(|e| format!("Error guardando imagen: {}", e))?;
 

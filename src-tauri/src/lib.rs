@@ -13,11 +13,11 @@ pub mod tiktok;
 pub mod tts;
 pub mod twitch;
 
+use commands::alerts::{clear_tiktok_alert_asset, set_tiktok_alert_asset, tiktok_test_alert};
 use commands::config::{
     disconnect_tiktok, disconnect_twitch, get_available_voices_cmd, get_config_cmd,
     save_animation_config, set_chroma_color, set_config_cmd,
 };
-use commands::alerts::{clear_tiktok_alert_asset, set_tiktok_alert_asset, tiktok_test_alert};
 use commands::control::{
     connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
     validate_twitch_token,

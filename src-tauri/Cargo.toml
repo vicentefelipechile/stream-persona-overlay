@@ -1,6 +1,6 @@
 [package]
 name = "stream-persona-overlay"
-version = "0.4.0"
+version = "0.4.1"
 description = "Stream Persona Overlay — Tauri v2 app for Twitch/TikTok persona display"
 authors = ["SummerTYT <vicentefelipechile>"]
 edition = "2021"
