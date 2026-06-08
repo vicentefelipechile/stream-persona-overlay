@@ -1,0 +1,160 @@
+/* =========================================================================================================
+   streamer-panel.css — Streamer persona admin view (#/streamer), .str-* prefix
+   ========================================================================================================= */
+
+/* Extra bottom breathing room + separation between cards in this view */
+.str-card {
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-8, 32px);
+}
+
+/* Sprite upload grid — fixed 2×2: top row = eyes open, bottom row = eyes closed */
+.str-sprite-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.str-sprite-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-2, rgba(255, 255, 255, 0.02));
+}
+
+.str-sprite-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background:
+    repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 20px 20px;
+  overflow: hidden;
+}
+
+.str-sprite-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.str-sprite-placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.str-sprite-label {
+  font-size: 13px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.str-sprite-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Live preview */
+.str-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Static stage holds the checkered background so the talk animation (applied to
+   the inner sprite layer) never moves the background. */
+.str-preview-stage {
+  position: relative;
+  width: 360px;
+  height: 360px;
+  max-width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  background:
+    repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 20px 20px;
+}
+
+.streamer-persona-preview {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+}
+
+.streamer-sprite-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  /* Hard cut (no cross-fade) to avoid the white flicker between blink sprites. */
+}
+
+.str-preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Talk animations — reuse the same keyframes as the overlay (defined here for the panel). */
+.streamer-persona-preview[data-talk="bounce"] { animation: streamer-bounce 0.32s ease-in-out infinite; }
+.streamer-persona-preview[data-talk="abs-bounce"] { animation: streamer-abs-bounce 0.42s infinite; }
+.streamer-persona-preview[data-talk="tremor"] { animation: streamer-tremor 0.09s linear infinite; }
+.streamer-persona-preview[data-talk="sway"]   { animation: streamer-sway 0.7s ease-in-out infinite; }
+.streamer-persona-preview[data-talk="pulse"]  { animation: streamer-pulse 0.45s ease-in-out infinite; }
+.streamer-persona-preview[data-talk="squash"] { animation: streamer-squash 0.5s ease-in-out infinite; }
+.streamer-persona-preview[data-talk="jelly"]  { animation: streamer-jelly 0.7s ease-in-out infinite; }
+
+@keyframes streamer-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5%); }
+}
+@keyframes streamer-abs-bounce {
+  0%   { transform: translateY(0);    animation-timing-function: ease-out; }
+  50%  { transform: translateY(-5%); animation-timing-function: ease-in; }
+  100% { transform: translateY(0); }
+}
+@keyframes streamer-tremor {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-1.2%, 0.6%); }
+  50% { transform: translate(1.2%, -0.6%); }
+  75% { transform: translate(-0.6%, 1.2%); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes streamer-sway {
+  0%, 100% { transform: rotate(-2.5deg); }
+  50% { transform: rotate(2.5deg); }
+}
+@keyframes streamer-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+@keyframes streamer-squash {
+  0%, 100% { transform: scaleX(1) scaleY(1); }
+  40% { transform: scaleX(0.95) scaleY(1.05); }
+  70% { transform: scaleX(1.06) scaleY(0.94); }
+}
+@keyframes streamer-jelly {
+  0%, 100% { transform: skewX(0deg) skewY(0deg); }
+  25% { transform: skewX(-4deg) skewY(2deg); }
+  50% { transform: skewX(3deg) skewY(-1.5deg); }
+  75% { transform: skewX(-1.5deg) skewY(1deg); }
+}

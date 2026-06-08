@@ -203,14 +203,15 @@ export async function renderEventos(): Promise<void> {
     </div>
 
     <div class="card" style="margin-top: var(--space-5);">
-      <div class="card-header">
-        <h2 class="section-title">Overlay de alertas (OBS)</h2>
-      </div>
-      <p style="margin:0;font-size:0.85rem;color:var(--text-muted);">
-        Añade una <strong>Fuente de Navegador</strong> en OBS apuntando a
-        <code>http://localhost:6767/overlay-tiktok</code> y posiciónala/escálala a tu gusto.
-        Pulsa <strong>Probar</strong> en cualquier evento para previsualizarla.
+      <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
+      <p class="view-subtitle" style="margin:8px 0;">
+        Agregá esta URL como <strong>Browser Source</strong> en OBS y posicionála/escalála a tu gusto.
+        Pulsá <strong>Probar</strong> en cualquier evento para previsualizarla.
       </p>
+      <div style="display:flex;gap:8px;">
+        <input id="evt-obs-url" type="text" readonly value="http://localhost:6767/overlay-tiktok" style="flex:1;"/>
+        <button id="evt-copy-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
+      </div>
     </div>
 
     <div style="margin-top: var(--space-5);">
@@ -221,6 +222,16 @@ export async function renderEventos(): Promise<void> {
       ${ALERT_EVENTS.map(cardHtml).join("")}
     </div>
   `;
+
+  // ── OBS Browser Source URL copy ───────────────────────────────────────────
+  container.querySelector("#evt-copy-url")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText("http://localhost:6767/overlay-tiktok");
+      showToast("URL copiada al portapapeles", "success");
+    } catch {
+      showToast("No se pudo copiar al portapapeles", "error");
+    }
+  });
 
   // ── Sliders initial fill ──────────────────────────────────────────────────
   for (const m of ALERT_EVENTS) syncSlider(`evt-${m.kind}-dur`, durLabel);

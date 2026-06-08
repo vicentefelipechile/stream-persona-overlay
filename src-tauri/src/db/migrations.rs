@@ -192,6 +192,19 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_layout_mode", "dynamic"),
         ("tama_static_anchor", "left"),
         ("tama_static_spacing_px", "100"),
+        // ── Streamer persona config ──────────────────────────────────────────
+        ("streamer_persona_enabled", "true"),
+        ("streamer_sprite_mo_eo", ""),
+        ("streamer_sprite_mc_eo", ""),
+        ("streamer_sprite_mo_ec", ""),
+        ("streamer_sprite_mc_ec", ""),
+        ("streamer_blink_interval_ms", "4000"),
+        ("streamer_blink_duration_ms", "150"),
+        ("streamer_talk_animation", "bounce"),
+        ("streamer_size_px", "512"),
+        ("streamer_anchor", "center"),
+        ("streamer_mic_threshold", "20"),
+        ("streamer_mic_device_id", ""),
     ];
 
     for (key, value) in &defaults {

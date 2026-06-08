@@ -1,0 +1,6 @@
+/* =========================================================================================================
+   entry-streamer.css — Entry point for the streamer persona overlay (overlay-streamer.html)
+   Standalone, transparent browser source. Does not pull in pet/chroma styles.
+   ========================================================================================================= */
+
+@import './streamer-overlay.css';

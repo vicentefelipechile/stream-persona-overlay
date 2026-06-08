@@ -10,10 +10,11 @@ export default defineConfig(async () => ({
   build: {
     rollupOptions: {
       input: {
-        main:            resolve(__dirname, "index.html"),
-        overlay:         resolve(__dirname, "overlay.html"),
-        overlay_browser: resolve(__dirname, "overlay-browser.html"),
-        overlay_tiktok:  resolve(__dirname, "overlay-tiktok.html"),
+        main:             resolve(__dirname, "index.html"),
+        overlay:          resolve(__dirname, "overlay.html"),
+        overlay_browser:  resolve(__dirname, "overlay-browser.html"),
+        overlay_tiktok:   resolve(__dirname, "overlay-tiktok.html"),
+        overlay_streamer: resolve(__dirname, "overlay-streamer.html"),
       },
     },
   },

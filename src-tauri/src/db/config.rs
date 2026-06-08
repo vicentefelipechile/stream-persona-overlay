@@ -186,6 +186,23 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_layout_mode" => cfg.tama_layout_mode = value,
             "tama_static_anchor" => cfg.tama_static_anchor = value,
             "tama_static_spacing_px" => cfg.tama_static_spacing_px = value.parse().unwrap_or(100),
+            // ── Streamer persona config ───────────────────────────────────────
+            "streamer_persona_enabled" => cfg.streamer_persona_enabled = value == "true",
+            "streamer_sprite_mo_eo" => cfg.streamer_sprite_mo_eo = value,
+            "streamer_sprite_mc_eo" => cfg.streamer_sprite_mc_eo = value,
+            "streamer_sprite_mo_ec" => cfg.streamer_sprite_mo_ec = value,
+            "streamer_sprite_mc_ec" => cfg.streamer_sprite_mc_ec = value,
+            "streamer_blink_interval_ms" => {
+                cfg.streamer_blink_interval_ms = value.parse().unwrap_or(4000)
+            }
+            "streamer_blink_duration_ms" => {
+                cfg.streamer_blink_duration_ms = value.parse().unwrap_or(150)
+            }
+            "streamer_talk_animation" => cfg.streamer_talk_animation = value,
+            "streamer_size_px" => cfg.streamer_size_px = value.parse().unwrap_or(512),
+            "streamer_anchor" => cfg.streamer_anchor = value,
+            "streamer_mic_threshold" => cfg.streamer_mic_threshold = value.parse().unwrap_or(20),
+            "streamer_mic_device_id" => cfg.streamer_mic_device_id = value,
             _ => {}
         }
     }

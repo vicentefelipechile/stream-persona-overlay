@@ -1,0 +1,189 @@
+/* =========================================================================================================
+   streamer-overlay.css — Streamer persona overlay (overlay-streamer.html)
+   Four stacked sprites, anchored to the bottom of the transparent browser source,
+   with talk-animation keyframes selected via the [data-talk] attribute.
+   ========================================================================================================= */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#streamer-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* =========================================================================================================
+   Persona — anchored to the bottom; horizontal anchor via [data-anchor]
+   ========================================================================================================= */
+
+.streamer-persona {
+  --streamer-size: 512px;
+  position: absolute;
+  bottom: 0;
+  width: var(--streamer-size);
+  height: var(--streamer-size);
+  /* transform-origin at the feet so talk animations feel grounded */
+  transform-origin: 50% 100%;
+}
+
+.streamer-persona[data-anchor="center"] {
+  left: 50%;
+  margin-left: calc(var(--streamer-size) / -2);
+}
+.streamer-persona[data-anchor="left"] {
+  left: 0;
+}
+.streamer-persona[data-anchor="right"] {
+  right: 0;
+}
+
+/* Stacked sprites — exactly one visible per frame (opacity toggled by JS). */
+.streamer-sprite {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  /* Hard cut between sprites — a cross-fade would blend two stacked sprites at
+     ~0.5 opacity each mid-transition, letting the background bleed through and
+     causing a white flicker on every blink. Blinks should be instant anyway. */
+  image-rendering: auto;
+  user-select: none;
+}
+
+/* =========================================================================================================
+   Talk animations — applied to the persona via [data-talk]; "none" = no motion.
+   The animation runs on the container so it composes with the sprite swap.
+   ========================================================================================================= */
+
+.streamer-persona[data-talk="bounce"] {
+  animation: streamer-bounce 0.32s ease-in-out infinite;
+}
+.streamer-persona[data-talk="abs-bounce"] {
+  animation: streamer-abs-bounce 0.42s infinite;
+}
+.streamer-persona[data-talk="tremor"] {
+  animation: streamer-tremor 0.09s linear infinite;
+}
+.streamer-persona[data-talk="sway"] {
+  animation: streamer-sway 0.7s ease-in-out infinite;
+}
+.streamer-persona[data-talk="pulse"] {
+  animation: streamer-pulse 0.45s ease-in-out infinite;
+}
+.streamer-persona[data-talk="squash"] {
+  animation: streamer-squash 0.5s ease-in-out infinite;
+}
+.streamer-persona[data-talk="jelly"] {
+  animation: streamer-jelly 0.7s ease-in-out infinite;
+}
+
+@keyframes streamer-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5%);
+  }
+}
+
+/* "Dry"/abs(sin) bounce: like a bouncing ball — decelerates up to a rounded apex
+   (ease-out), accelerates down to a sharp ground contact (ease-in), then snaps
+   straight back up without sinking into the floor. */
+@keyframes streamer-abs-bounce {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: ease-out;
+  }
+  50% {
+    transform: translateY(-5%);
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes streamer-tremor {
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-1.2%, 0.6%);
+  }
+  50% {
+    transform: translate(1.2%, -0.6%);
+  }
+  75% {
+    transform: translate(-0.6%, 1.2%);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes streamer-sway {
+  0%,
+  100% {
+    transform: rotate(-2.5deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+
+@keyframes streamer-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+/* Squash & stretch — feet planted (transform-origin at 50% 100%): stretches
+   tall+thin, then squashes wide+short, like classic cartoon juice. */
+@keyframes streamer-squash {
+  0%,
+  100% {
+    transform: scaleX(1) scaleY(1);
+  }
+  40% {
+    transform: scaleX(0.95) scaleY(1.05);
+  }
+  70% {
+    transform: scaleX(1.06) scaleY(0.94);
+  }
+}
+
+/* Jelly — skew wobble pivoting at the feet, like jello shaking. */
+@keyframes streamer-jelly {
+  0%,
+  100% {
+    transform: skewX(0deg) skewY(0deg);
+  }
+  25% {
+    transform: skewX(-4deg) skewY(2deg);
+  }
+  50% {
+    transform: skewX(3deg) skewY(-1.5deg);
+  }
+  75% {
+    transform: skewX(-1.5deg) skewY(1deg);
+  }
+}

@@ -11,6 +11,7 @@ import {
     Settings, Users, User, List, AlertTriangle, PawPrint,
     Pencil, Play, Pause, Trash2, RefreshCw,
     Check, X, Copy, Zap, Unplug, Save, Eye, ShieldOff, ExternalLink, Bot, CircleHelp,
+    Webcam, RotateCcw,
 } from "lucide";
 import type { IconNode } from "lucide";
 
@@ -89,6 +90,8 @@ export const Icons = {
     externalLink:  (size = 14) => ui(ExternalLink, size),
     bot:           (size = 14) => ui(Bot, size),
     help:          (size = 14) => ui(CircleHelp, size),
+    webcam:        (size = 16) => ui(Webcam, size),
+    reset:         (size = 14) => ui(RotateCcw, size),
 } as const;
 
 // =========================================================================================================
@@ -104,6 +107,7 @@ const NAV_ICON_MAP: Record<string, (size?: number) => string> = {
     logs:        Icons.logs,
     tamagotchi:  Icons.paw,
     eventos:     Icons.zap,
+    streamer:    Icons.webcam,
 };
 
 export function injectNavIcons(): void {

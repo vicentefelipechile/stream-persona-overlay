@@ -22,6 +22,7 @@ use commands::control::{
     connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
     validate_twitch_token,
 };
+use commands::streamer::{reset_streamer_sprite, set_streamer_sprite};
 use commands::tamagotchi::{
     reset_guest_image, set_guest_image, tama_get_pet_states, tama_remove_pet_state,
     tama_set_enabled, tama_trigger_action, tama_upsert_pet_state,
@@ -186,6 +187,9 @@ pub fn run() {
             tama_remove_pet_state,
             set_guest_image,
             reset_guest_image,
+            // Streamer persona
+            set_streamer_sprite,
+            reset_streamer_sprite,
             // TikTok alerts
             set_tiktok_alert_asset,
             clear_tiktok_alert_asset,

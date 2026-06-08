@@ -43,7 +43,7 @@ Users register and manage their images through a **Discord bot** (slash commands
 | Technology | Use |
 |---|---|
 | Vanilla TypeScript (no framework) | All UI for the admin panel and the overlay |
-| Vite 6 | Bundler and dev server (four entry points: `main`, `overlay`, `overlay_browser`, `overlay_tiktok`) |
+| Vite 6 | Bundler and dev server (five entry points: `main`, `overlay`, `overlay_browser`, `overlay_tiktok`, `overlay_streamer`) |
 | `motion` (v12+) | Animation engine for Tamagotchi pet actions (DOM animate API) |
 | `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` — used by Tauri windows only |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
@@ -157,13 +157,19 @@ stream-persona-overlay/
 |   |   +-- twitch.ts             # /twitch view — Twitch connection, chat filters, events, EventSub
 |   |   +-- tiktok.ts             # /tiktok view — TikTok connection, chat filters, events
 |   |   +-- eventos.ts            # /eventos view — live event feed + per-event alert config
+|   |   +-- streamer.ts           # /streamer view — streamer persona config (sprites, blink, talk anim, mic)
 |   |   +-- overlay.ts            # Entry point for overlay.html (NOT a panel view)
 |   |   +-- overlay-browser.ts    # Entry point for overlay-browser.html (OBS Browser Source — pets)
 |   |   +-- overlay-tiktok.ts     # Entry point for overlay-tiktok.html (OBS Browser Source — event alerts)
+|   |   +-- overlay-streamer.ts   # Entry point for overlay-streamer.html (OBS Browser Source — streamer persona)
 |   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
 |   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
 |   |   +-- alerts/               # Event-alert overlay system
 |   |   |   +-- AlertManager.ts   # Queues + renders tiktok-alert payloads (image/text/sound/transition)
+|   |   +-- streamer/             # Streamer persona overlay system
+|   |   |   +-- BlinkScheduler.ts # Timestamp-based eye-blink state machine (no per-frame recompute)
+|   |   |   +-- MicLevel.ts       # getUserMedia + AnalyserNode mic level meter (0–100, smoothed)
+|   |   |   +-- StreamerPersona.ts# 4-sprite renderer + rAF loop (mouth from mic, eyes from scheduler)
 |   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
 |   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, PetFloor, BasePet, PetScheduler, PetManager
 |   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, ConfettiAction, HypeTrainAction, _template
@@ -189,11 +195,14 @@ stream-persona-overlay/
 |       +-- switch.css            # Switch/toggle component
 |       +-- tamagotchi-panel.css  # Tamagotchi admin panel styles (.tama-* prefix)
 |       +-- eventos.css           # Eventos view — live feed + alert config cards (.evt-* prefix)
+|       +-- streamer-panel.css     # Streamer persona admin view (.str-* prefix) + preview keyframes
 |       +-- onboarding.css        # Onboarding tour popover theming (driver.js, .spo-tour scope)
 |       +-- overlay-base.css      # Overlay window base reset + fade-cover
 |       +-- pets.css              # Pet styles (.tamagotchi-pet, .pet-*)
 |       +-- alerts.css            # Alert overlay styles (.spo-alert*) — used by entry-tiktok.css
 |       +-- entry-tiktok.css      # Entry point for overlay-tiktok.html (imports alerts.css)
+|       +-- streamer-overlay.css  # Streamer persona overlay styles + talk-animation keyframes
+|       +-- entry-streamer.css    # Entry point for overlay-streamer.html (imports streamer-overlay.css)
 |
 +-- src-tauri/
 |   +-- tauri.conf.json           # Window config, bundle, CSP
@@ -233,12 +242,14 @@ stream-persona-overlay/
 |           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config, disconnect_twitch, disconnect_tiktok
 |           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
 |           +-- alerts.rs         # set_tiktok_alert_asset, clear_tiktok_alert_asset, tiktok_test_alert
+|           +-- streamer.rs       # set_streamer_sprite, reset_streamer_sprite
 |
 +-- index.html                    # Admin panel HTML
 +-- overlay.html                  # Overlay window HTML (chroma key, Tauri window)
 +-- overlay-browser.html          # OBS Browser Source HTML — pets (transparent, no Tauri APIs)
 +-- overlay-tiktok.html           # OBS Browser Source HTML — event alerts (transparent, no Tauri APIs)
-+-- vite.config.ts                # Vite configuration (4 entry points: main, overlay, overlay_browser, overlay_tiktok)
++-- overlay-streamer.html         # OBS Browser Source HTML — streamer persona (transparent, no Tauri APIs)
++-- vite.config.ts                # Vite configuration (5 entry points: main, overlay, overlay_browser, overlay_tiktok, overlay_streamer)
 +-- tsconfig.json
 +-- package.json
 +-- AGENTS.md                     # This file
@@ -360,6 +371,19 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_layout_mode` | `"dynamic"` | `"dynamic"` = pets walk freely; `"static"` = pets queue at a fixed anchor edge |
 | `tama_static_anchor` | `"left"` | Which edge the queue starts from (`"left"` or `"right"`). Only used when `tama_layout_mode = "static"` |
 | `tama_static_spacing_px` | `"100"` | Pixel gap between consecutive pet slots in static mode |
+| **Streamer persona** | | |
+| `streamer_persona_enabled` | `"true"` | Master toggle for the streamer persona overlay (`overlay-streamer.html`) |
+| `streamer_sprite_mo_eo` | `""` | Path to the mouth-open / eyes-open sprite (saved by `set_streamer_sprite`) |
+| `streamer_sprite_mc_eo` | `""` | Path to the mouth-closed / eyes-open sprite |
+| `streamer_sprite_mo_ec` | `""` | Path to the mouth-open / eyes-closed sprite |
+| `streamer_sprite_mc_ec` | `""` | Path to the mouth-closed / eyes-closed sprite |
+| `streamer_blink_interval_ms` | `"4000"` | Time the eyes stay open between blinks (ms) |
+| `streamer_blink_duration_ms` | `"150"` | Duration of a single blink, eyes closed (ms) |
+| `streamer_talk_animation` | `"bounce"` | Talk animation: `none`/`bounce`/`abs-bounce`/`tremor`/`sway`/`pulse`/`squash`/`jelly` (`abs-bounce` = dry/abs(sin) bouncing-ball jump; `squash` = squash & stretch; `jelly` = skew wobble) |
+| `streamer_size_px` | `"512"` | Sprite display size in pixels |
+| `streamer_anchor` | `"center"` | Horizontal anchor: `left`/`center`/`right` |
+| `streamer_mic_threshold` | `"20"` | Mic level (0–100) above which the mouth opens |
+| `streamer_mic_device_id` | `""` | Selected microphone deviceId (empty = system default) |
 | **Anti-spam — Twitch chat** | | |
 | `twitch_chat_antispam_preset` | `"off"` | Named preset: `off`, `light`, `normal`, `strict`, `lockdown`, `custom` |
 | `twitch_chat_user_cooldown_ms` | `"0"` | Min ms between two messages from the same Twitch user (0 = disabled) |
@@ -486,6 +510,13 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `clear_tiktok_alert_asset` | `invoke("clear_tiktok_alert_asset", { eventKind, assetType: "image" \| "sound" })` | Clear an event's image/sound reference in `tiktok_alerts_config` (file left on disk). |
 | `tiktok_test_alert` | `invoke("tiktok_test_alert", { eventKind })` | Emit a preview `tiktok-alert` for `eventKind` using sample data (`user="TestUser"`, `amount=100`), ignoring the `enabled` flag. |
 
+### Streamer Persona (`commands/streamer.rs`)
+
+| Command | TS Signature | Description |
+|---|---|---|
+| `set_streamer_sprite` | `invoke("set_streamer_sprite", { slot: "mo_eo" \| "mc_eo" \| "mo_ec" \| "mc_ec", imageData: number[] })` | Save a streamer persona sprite for the given mouth×eyes slot. These are the streamer's own assets, so bytes are written **verbatim at full quality** (png/jpg/webp/gif, max 25 MB, **no resize / no re-encode** — only the header is sniffed to validate + pick the extension) to `{app_data_dir}/streamer_{slot}.{ext}`. Writes the path into the matching `streamer_sprite_*` key, refreshes cache, emits `streamer-config-changed`. |
+| `reset_streamer_sprite` | `invoke("reset_streamer_sprite", { slot })` | Clear the slot's `streamer_sprite_*` key (file left on disk). |
+
 ---
 
 ## 8. Tauri Events
@@ -502,6 +533,7 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | `tiktok-alerts-changed` | `AppConfig` (full) | `commands/alerts.rs` (asset set/clear) | `eventos.ts` (admin panel) | No |
 | `animation-config-changed` | `AppConfig` (full) | `commands/config.rs` (`save_animation_config`) | overlay — reload animation params | No |
 | `tama-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `tama_`) | `PetManager._onTamaConfigChanged` — applies all tama settings live | Yes |
+| `streamer-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `streamer_`), `commands/streamer.rs` (sprite set/reset) | `StreamerPersona.applyConfig` (overlay-streamer.ts) — applies sprites/timing/anim live | Yes |
 | `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
@@ -672,12 +704,40 @@ Disable the connect button and show "Conectando…" while waiting; re-enable in 
 
 ---
 
+### OBS Browser Source URL block (mandatory for every browser-source overlay)
+
+Every admin view that owns a browser-source overlay (`overlay-browser`, `overlay-tiktok`, `overlay-streamer`, …) must expose its URL with the **same standard block** — a `.section-title` titled exactly **"OBS Browser Source"** with the `externalLink` icon, a read-only input holding the full URL, and a **"Copiar"** button. Do **not** inline the URL inside a `<code>` tag or prose. This keeps every overlay discoverable in the same place/shape across views (config / eventos / streamer all use it).
+
+```typescript
+// In the view's innerHTML (inside a `.card`):
+`<div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
+ <p class="view-subtitle" style="margin:8px 0;">Agregá esta URL como <strong>Browser Source</strong> en OBS:</p>
+ <div style="display:flex;gap:8px;">
+   <input id="xxx-obs-url" type="text" readonly value="http://localhost:6767/overlay-xxx" style="flex:1;"/>
+   <button id="xxx-copy-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
+ </div>`
+
+// After render — copy handler with toast:
+container.querySelector("#xxx-copy-url")?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText("http://localhost:6767/overlay-xxx");
+    showToast("URL copiada al portapapeles", "success");
+  } catch {
+    showToast("No se pudo copiar al portapapeles", "error");
+  }
+});
+```
+
+The port is always `6767` (the axum server, Section 14 / `server/mod.rs`); the path matches the route registered in `build_router()` for that overlay.
+
+---
+
 ### ViewRouter
 
 The router in `router.ts` is manual, hash-based (`#/config`, `#/users`, etc.).
 
 ```typescript
-export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok";
+export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok" | "eventos" | "streamer";
 ```
 
 - To add a new view: add an entry in `routes`, create the file under `src/views/`, and add `data-view="new-view"` to the sidebar in `index.html`.

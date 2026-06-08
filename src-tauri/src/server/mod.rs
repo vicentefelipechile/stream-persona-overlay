@@ -91,6 +91,7 @@ fn build_router() -> Router<ServerState> {
     Router::new()
         .route("/overlay", get(serve_overlay))
         .route("/overlay-tiktok", get(serve_overlay_tiktok))
+        .route("/overlay-streamer", get(serve_overlay_streamer))
         .route("/persona", get(serve_persona))
         .route("/ws", get(ws_handler))
         // axum 0.7 catch-all syntax is `*path` (no braces). `{*path}` is axum 0.8
@@ -181,6 +182,11 @@ async fn serve_overlay(State(s): State<ServerState>) -> Response {
 /// GET /overlay-tiktok — the dedicated TikTok event-alert browser source.
 async fn serve_overlay_tiktok(State(s): State<ServerState>) -> Response {
     serve_overlay_file(&s, "overlay-tiktok.html").await
+}
+
+/// GET /overlay-streamer — the streamer persona browser source.
+async fn serve_overlay_streamer(State(s): State<ServerState>) -> Response {
+    serve_overlay_file(&s, "overlay-streamer.html").await
 }
 
 /// Serves one of the overlay HTML pages, choosing the dev (Vite rewrite) or

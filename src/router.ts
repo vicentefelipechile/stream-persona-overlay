@@ -15,12 +15,13 @@ import { renderTamagotchi } from "./views/tamagotchi";
 import { renderTwitch } from "./views/twitch";
 import { renderTiktok } from "./views/tiktok";
 import { renderEventos } from "./views/eventos";
+import { renderStreamer } from "./views/streamer";
 
 // =========================================================================================================
 // Types & Configuration
 // =========================================================================================================
 
-export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok" | "eventos";
+export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok" | "eventos" | "streamer";
 
 type ViewRenderer = () => Promise<void>;
 
@@ -32,6 +33,7 @@ const routes: Record<ViewId, ViewRenderer> = {
   twitch:     renderTwitch,
   tiktok:     renderTiktok,
   eventos:    renderEventos,
+  streamer:   renderStreamer,
 };
 
 // =========================================================================================================

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stream Overlay — Streamer Persona (OBS Browser Source)</title>
+    <link rel="stylesheet" href="/src/styles/entry-streamer.css" />
+    <script type="module" src="/src/views/overlay-streamer.ts" defer></script>
+  </head>
+  <body style="background: transparent;">
+    <!-- Dedicated browser source for the streamer persona (PNGTuber-style).
+         Transparent — OBS handles transparency natively. The persona anchors to
+         the bottom of the source; position/scale it in OBS. Microphone access
+         must be granted for the mouth to react to the streamer's voice. -->
+    <div id="streamer-container"></div>
+  </body>
+</html>

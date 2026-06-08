@@ -77,21 +77,43 @@ pub async fn set_config_cmd(
         // Alert config is read by the tiktok handlers at runtime — keep the
         // cache in sync so edits take effect without restarting.
         "tiktok_alerts_config" => cache.tiktok_alerts_config = value.clone(),
+        // ── Streamer persona cache (read live by overlay-streamer) ─────────────
+        "streamer_persona_enabled" => cache.streamer_persona_enabled = value == "true",
+        "streamer_sprite_mo_eo" => cache.streamer_sprite_mo_eo = value.clone(),
+        "streamer_sprite_mc_eo" => cache.streamer_sprite_mc_eo = value.clone(),
+        "streamer_sprite_mo_ec" => cache.streamer_sprite_mo_ec = value.clone(),
+        "streamer_sprite_mc_ec" => cache.streamer_sprite_mc_ec = value.clone(),
+        "streamer_blink_interval_ms" => {
+            cache.streamer_blink_interval_ms = value.parse().unwrap_or(4000)
+        }
+        "streamer_blink_duration_ms" => {
+            cache.streamer_blink_duration_ms = value.parse().unwrap_or(150)
+        }
+        "streamer_talk_animation" => cache.streamer_talk_animation = value.clone(),
+        "streamer_size_px" => cache.streamer_size_px = value.parse().unwrap_or(512),
+        "streamer_anchor" => cache.streamer_anchor = value.clone(),
+        "streamer_mic_threshold" => cache.streamer_mic_threshold = value.parse().unwrap_or(20),
+        "streamer_mic_device_id" => cache.streamer_mic_device_id = value.clone(),
         _ => {}
     }
 
     let is_tama = key.starts_with("tama_");
+    let is_streamer = key.starts_with("streamer_");
     drop(cache);
 
-    if is_tama {
+    if is_tama || is_streamer {
         let full_config = {
             let db = state.db.lock().map_err(map_err)?;
             get_config(&db).map_err(map_err)?
         };
-        app.emit("tama-config-changed", &full_config)
-            .map_err(map_err)?;
-        state.broadcast_ws("tama-config-changed", &full_config);
-        tracing::info!("[config] tama-config-changed emitido (key={})", key);
+        let event = if is_tama {
+            "tama-config-changed"
+        } else {
+            "streamer-config-changed"
+        };
+        app.emit(event, &full_config).map_err(map_err)?;
+        state.broadcast_ws(event, &full_config);
+        tracing::info!("[config] {} emitido (key={})", event, key);
     }
     Ok(())
 }

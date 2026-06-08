@@ -282,6 +282,31 @@ pub struct AppConfig {
     /// "left" or "right" — which side the queue starts from
     pub tama_static_anchor: String,
     pub tama_static_spacing_px: u32,
+    // ── Streamer persona config ───────────────────────────────────────────────
+    /// Master toggle for the streamer persona overlay (overlay-streamer.html)
+    pub streamer_persona_enabled: bool,
+    /// Absolute path to the mouth-open / eyes-open sprite (empty = unset)
+    pub streamer_sprite_mo_eo: String,
+    /// Absolute path to the mouth-closed / eyes-open sprite
+    pub streamer_sprite_mc_eo: String,
+    /// Absolute path to the mouth-open / eyes-closed sprite
+    pub streamer_sprite_mo_ec: String,
+    /// Absolute path to the mouth-closed / eyes-closed sprite
+    pub streamer_sprite_mc_ec: String,
+    /// Milliseconds the eyes stay open between blinks
+    pub streamer_blink_interval_ms: u32,
+    /// Milliseconds a single blink lasts (eyes closed)
+    pub streamer_blink_duration_ms: u32,
+    /// Talk animation kind: "none" | "bounce" | "tremor" | "sway" | "pulse"
+    pub streamer_talk_animation: String,
+    /// Sprite display size in pixels
+    pub streamer_size_px: u32,
+    /// Horizontal anchor: "left" | "center" | "right"
+    pub streamer_anchor: String,
+    /// Microphone level threshold (0–100) above which the mouth opens
+    pub streamer_mic_threshold: u32,
+    /// Selected microphone deviceId (empty = system default)
+    pub streamer_mic_device_id: String,
 }
 
 // =========================================================================================================
