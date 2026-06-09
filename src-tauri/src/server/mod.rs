@@ -107,44 +107,60 @@ pub async fn start_server(app_state: AppState, _dist_dir: PathBuf, dev_mode: boo
 
     let app = build_router().with_state(state);
 
-    // Bind IPv4 loopback with retries in case a previous instance left the port in TIME_WAIT.
-    let listener_v4 = bind_with_retry("127.0.0.1:6767").await;
+    // Addresses we try to listen on. Both IPv4 (127.0.0.1) and IPv6 (::1) loopback are bound
+    // because on Windows 'localhost' may resolve to either.
+    //   :6767 — historical port used by the OBS Browser Source (http://localhost:6767/overlay).
+    //   :80   — standard HTTP port, required for the "eso.tilin.com" trick. TikTok LIVE Studio rejects
+    //           any URL containing "localhost", a raw IP, or an explicit port, but accepts
+    //           http://eso.tilin.com/ . Mapping eso.tilin.com -> 127.0.0.1 in the hosts file plus this
+    //           port-80 listener makes that URL resolve to this same server. Port 80 is often taken
+    //           (IIS, Skype, http.sys); if the bind fails we skip it and keep serving on :6767.
+    let addrs = ["127.0.0.1:6767", "[::1]:6767", "127.0.0.1:80", "[::1]:80"];
 
-    // Also bind IPv6 loopback: on Windows 10, 'localhost' often resolves to ::1 rather than
-    // 127.0.0.1, causing browsers and OBS to connect to the IPv6 address. Without this second
-    // listener the connection would be refused even though the IPv4 server is running.
-    let listener_v6 = tokio::net::TcpListener::bind("[::1]:6767").await.ok();
+    let mut listeners = Vec::new();
+    for addr in addrs {
+        // The primary IPv4 :6767 listener retries in case a previous instance left it in TIME_WAIT.
+        let listener = if addr == "127.0.0.1:6767" {
+            bind_with_retry(addr).await
+        } else {
+            match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => Some(l),
+                Err(e) => {
+                    tracing::warn!("[server] No se pudo escuchar en {} (se omite): {}", addr, e);
+                    None
+                }
+            }
+        };
+        if let Some(l) = listener {
+            tracing::info!("[server] Escuchando en {}", addr);
+            listeners.push(l);
+        }
+    }
 
-    match (listener_v4, listener_v6) {
-        (None, None) => {
-            tracing::error!(
-                "[server] No se pudo iniciar el servidor en ninguna dirección — puerto 6767 en uso."
-            );
-        }
-        (Some(l4), maybe_v6) => {
-            if let Some(l6) = maybe_v6 {
-                let app6 = app.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = axum::serve(l6, app6).await {
-                        tracing::error!("[server] Error en listener IPv6: {}", e);
-                    }
-                });
+    if listeners.is_empty() {
+        tracing::error!(
+            "[server] No se pudo iniciar el servidor en ninguna dirección — ¿puertos 6767 y 80 en uso?"
+        );
+        return;
+    }
+
+    tracing::info!(
+        "[server] OBS: http://localhost:6767/overlay — TikTok LIVE: http://eso.tilin.com/overlay (requiere entrada en hosts y puerto 80 libre)"
+    );
+
+    // Serve on every bound listener: spawn all but the last as background tasks and await the last
+    // so this function lives for the whole server lifetime.
+    let main = listeners.pop().expect("listeners is non-empty");
+    for l in listeners {
+        let app = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(l, app).await {
+                tracing::error!("[server] Error en listener secundario: {}", e);
             }
-            tracing::info!(
-                "[server] OBS Browser Source disponible en http://localhost:6767/overlay"
-            );
-            if let Err(e) = axum::serve(l4, app).await {
-                tracing::error!("[server] Error fatal del servidor HTTP: {}", e);
-            }
-        }
-        (None, Some(l6)) => {
-            tracing::info!(
-                "[server] OBS Browser Source disponible en http://[::1]:6767/overlay (solo IPv6)"
-            );
-            if let Err(e) = axum::serve(l6, app).await {
-                tracing::error!("[server] Error fatal del servidor HTTP (IPv6): {}", e);
-            }
-        }
+        });
+    }
+    if let Err(e) = axum::serve(main, app).await {
+        tracing::error!("[server] Error fatal del servidor HTTP: {}", e);
     }
 }
 

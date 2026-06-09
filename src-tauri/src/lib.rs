@@ -25,7 +25,7 @@ use commands::control::{
 use commands::streamer::{reset_streamer_sprite, set_streamer_sprite};
 use commands::tamagotchi::{
     reset_guest_image, set_guest_image, tama_get_pet_states, tama_remove_pet_state,
-    tama_set_enabled, tama_trigger_action, tama_upsert_pet_state,
+    tama_reset_all, tama_set_enabled, tama_trigger_action, tama_upsert_pet_state,
 };
 use commands::users::{
     delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd,
@@ -181,6 +181,7 @@ pub fn run() {
             send_test_message,
             // Tamagotchi
             tama_trigger_action,
+            tama_reset_all,
             tama_set_enabled,
             tama_get_pet_states,
             tama_upsert_pet_state,

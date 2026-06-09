@@ -60,6 +60,22 @@ pub async fn tama_trigger_action(
     Ok(())
 }
 
+/// Emits a tama-reset event so every overlay (the Tauri window and any OBS/TikTok
+/// Browser Source) destroys and recreates all active pets from scratch. Used to
+/// recover pets that froze mid-action (e.g. a broken fight) without restarting
+/// the connection.
+#[tauri::command]
+pub async fn tama_reset_all(app: tauri::AppHandle) -> CmdResult<()> {
+    app.emit("tama-reset", ()).map_err(map_err)?;
+
+    // Also broadcast to OBS Browser Source WebSocket clients.
+    let state = app.state::<AppState>();
+    state.broadcast_ws("tama-reset", &serde_json::Value::Null);
+
+    tracing::info!("[tama] Reset all pets requested");
+    Ok(())
+}
+
 /// Persists tama_enabled to the config table.
 #[tauri::command]
 pub async fn tama_set_enabled(enabled: bool, state: State<'_, AppState>) -> CmdResult<()> {

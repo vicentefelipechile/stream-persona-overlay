@@ -40,6 +40,14 @@ import "../actions/FightAction";
 import "../actions/ExplodeAction";
 import "../actions/DanceAction";
 import "../actions/SleepAction";
+import "../actions/DrinkWaterAction";
+import "../actions/EatFoodAction";
+import "../actions/SingAction";
+import "../actions/NapAction";
+import "../actions/CoffeeAction";
+import "../actions/RainbowBarfAction";
+import "../actions/LoveAction";
+import "../actions/GhostAction";
 
 // =========================================================================================================
 // Payload Types
@@ -147,6 +155,9 @@ export class PetManager {
     });
     await this.transport.listen<Record<string, unknown>>("tama-config-changed", e => {
       this._onTamaConfigChanged(e.payload);
+    });
+    await this.transport.listen<unknown>("tama-reset", () => {
+      this.resetAll().catch(console.error);
     });
 
     // Recompute floor Y (and static X for right-anchored pets) on window resize
@@ -333,6 +344,34 @@ export class PetManager {
   static shutdown(): void {
     this._scheduler?.stop();
     this.pets.clear();
+  }
+
+  /** Destroys every active pet and recreates it from its stored config, yielding
+   *  a clean DOM/FSM/timer state. Recovers pets that froze (e.g. mid-fight)
+   *  without restarting the connection. Triggered by the admin panel via the
+   *  "tama-reset" event. Identity (sprites, name, slot) is preserved; only the
+   *  broken runtime state is wiped. */
+  static async resetAll(): Promise<void> {
+    if (!this.pets.size) return;
+
+    // Snapshot configs before tearing anything down.
+    const configs = Array.from(this.pets.values()).map(p => p.config);
+    for (const pet of this.pets.values()) pet.destroy();
+    this.pets.clear();
+
+    // Recreate each pet fresh; spawn all in parallel so they pop back together.
+    const fresh = configs.map(cfg => {
+      const pet = new BasePet(this.container, { ...cfg, floorY: this.floor.floorY });
+      pet.setDespawnCallback(() => {
+        this.pets.delete(cfg.userId);
+        this.floor.remove(cfg.userId);
+        this.staticFloor?.releaseSlot(cfg.userId);
+      });
+      this.pets.set(cfg.userId, pet);
+      return pet;
+    });
+    await Promise.all(fresh.map(p => p.spawn()));
+    console.info(`[tama] Reset ${fresh.length} pet(s)`);
   }
 
   static get(userId: number): BasePet | undefined {

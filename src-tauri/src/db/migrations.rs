@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 
 /// Default per-event alert config (see `state::TiktokAlertPayload`). One entry per
 /// supported TikTok event_kind. `like` and `member` default to disabled because
@@ -118,7 +118,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_jump_on_speak", "false"),
         (
             "tama_keyword_actions",
-            r#"{"pelea":"fight","baila":"dance","salta":"jump","explota":"explode","palomitas":"popcorn"}"#,
+            r#"{"pelea":"fight","baila":"dance","salta":"jump","explota":"explode","palomitas":"popcorn","agua":"drink_water","comida":"eat_food","cantar":"sing","dormir":"nap","cafe":"coffee","arcoiris":"rainbow_barf","amor":"love","boo":"ghost"}"#,
         ),
         ("tama_name_font_size_px", "11"),
         // ── Twitch config ─────────────────────────────────────────────────
@@ -228,5 +228,70 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    seed_tama_commands_v1(conn)?;
+
+    Ok(())
+}
+
+/// One-time, gated seed that merges the v1 batch of Spanish chat commands
+/// (agua, comida, cantar, dormir, cafe, arcoiris, amor, boo) into an existing
+/// install's `tama_keyword_actions` map. Fresh installs already get these via the
+/// default above, so this only affects databases created before the commands
+/// existed. Gated by a sentinel key so it runs exactly once — a keyword the user
+/// later deletes is never re-added. Existing keyword mappings are preserved.
+fn seed_tama_commands_v1(conn: &Connection) -> Result<()> {
+    const SENTINEL: &str = "tama_commands_seed_v1";
+
+    let already = conn
+        .query_row(
+            "SELECT 1 FROM config WHERE key = ?1",
+            [SENTINEL],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if already {
+        return Ok(());
+    }
+
+    const NEW_COMMANDS: &[(&str, &str)] = &[
+        ("agua", "drink_water"),
+        ("comida", "eat_food"),
+        ("cantar", "sing"),
+        ("dormir", "nap"),
+        ("cafe", "coffee"),
+        ("arcoiris", "rainbow_barf"),
+        ("amor", "love"),
+        ("boo", "ghost"),
+    ];
+
+    let current: String = conn
+        .query_row(
+            "SELECT value FROM config WHERE key = 'tama_keyword_actions'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or_else(|| "{}".to_string());
+
+    let mut map: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&current).unwrap_or_default();
+    for (keyword, action) in NEW_COMMANDS {
+        map.entry((*keyword).to_string())
+            .or_insert_with(|| serde_json::Value::String((*action).to_string()));
+    }
+    let merged = serde_json::to_string(&map).unwrap_or(current);
+
+    conn.execute(
+        "INSERT INTO config (key, value) VALUES ('tama_keyword_actions', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![merged],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO config (key, value) VALUES (?1, 'true')",
+        rusqlite::params![SENTINEL],
+    )?;
+
+    tracing::info!("[migrations] Comandos de tamagotchi v1 sembrados en keyword map");
     Ok(())
 }

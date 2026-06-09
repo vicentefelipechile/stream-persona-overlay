@@ -22,6 +22,14 @@ import "../overlay/tamagotchi/actions/DanceAction";
 import "../overlay/tamagotchi/actions/SleepAction";
 import "../overlay/tamagotchi/actions/ConfettiAction";
 import "../overlay/tamagotchi/actions/HypeTrainAction";
+import "../overlay/tamagotchi/actions/DrinkWaterAction";
+import "../overlay/tamagotchi/actions/EatFoodAction";
+import "../overlay/tamagotchi/actions/SingAction";
+import "../overlay/tamagotchi/actions/NapAction";
+import "../overlay/tamagotchi/actions/CoffeeAction";
+import "../overlay/tamagotchi/actions/RainbowBarfAction";
+import "../overlay/tamagotchi/actions/LoveAction";
+import "../overlay/tamagotchi/actions/GhostAction";
 
 // =========================================================================================================
 // Types
@@ -330,7 +338,10 @@ export async function renderTamagotchi(): Promise<void> {
     <div class="card" style="margin-top:var(--space-5);margin-bottom:var(--space-8);">
       <div class="card-header">
         <h2 class="section-title">Mascotas Activas</h2>
-        <button class="btn btn-outline btn-sm" id="btn-refresh-pets" style="display:inline-flex;align-items:center;gap:4px;">${Icons.refresh()} Actualizar</button>
+        <div style="display:inline-flex;gap:var(--space-2);">
+          <button class="btn btn-outline btn-sm" id="btn-reset-pets" style="display:inline-flex;align-items:center;gap:4px;" title="Destruye y recrea todas las mascotas (recupera las que se quedaron congeladas) sin reiniciar la conexión.">${Icons.reset()} Reiniciar todos</button>
+          <button class="btn btn-outline btn-sm" id="btn-refresh-pets" style="display:inline-flex;align-items:center;gap:4px;">${Icons.refresh()} Actualizar</button>
+        </div>
       </div>
       <div id="pets-list">
         ${_renderPetsList(pets)}
@@ -552,6 +563,15 @@ export async function renderTamagotchi(): Promise<void> {
     try {
       await invoke("tama_trigger_action", { userId, actionId, input: {} });
       showToast("Acción disparada", "success");
+    } catch (e) {
+      showToast(`Error: ${String(e)}`, "error");
+    }
+  });
+
+  container.querySelector("#btn-reset-pets")!.addEventListener("click", async () => {
+    try {
+      await invoke("tama_reset_all");
+      showToast("Mascotas reiniciadas", "success");
     } catch (e) {
       showToast(`Error: ${String(e)}`, "error");
     }

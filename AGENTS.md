@@ -847,7 +847,7 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 ### `server/`
 
-- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767. Routes are built by `build_router()` (split out so the `router_builds_without_panicking` test can validate route syntax — see §16 "axum route syntax + silent panics"). **Uses axum 0.7 route syntax** (`/assets/*path`, not the 0.8 `{*path}`).
+- `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767 (and best-effort on port 80 for the TikTok LIVE `eso.tilin.com` trick — see §16). Routes are built by `build_router()` (split out so the `router_builds_without_panicking` test can validate route syntax — see §16 "axum route syntax + silent panics"). **Uses axum 0.7 route syntax** (`/assets/*path`, not the 0.8 `{*path}`).
 - Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /overlay-tiktok` (serves `overlay-tiktok.html` — the dedicated event-alert browser source), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprites **and alert images/sounds** from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket). `serve_overlay_file(filename)` is shared by both overlay routes (dev rewrite vs embedded prod).
 - **Bind strategy**: tries `127.0.0.1:6767` (IPv4 loopback) with up to 3 attempts and 1 s between retries to recover from TIME_WAIT left by a previous instance. Also binds `[::1]:6767` (IPv6 loopback) concurrently — on Windows 10 `localhost` often resolves to `::1` first, so without the IPv6 listener the browser gets connection refused even when the IPv4 server is healthy. If only one address is available the server runs on that address alone; if neither is available the task logs an error and exits.
 - **Dev mode** (`dev_mode = true`): reads `overlay-browser.html` from the project root (not `dist/`) and rewrites `/src/*` references to `http://localhost:1420/src/*` so assets are served by the Vite dev server. Enabled automatically when compiled in debug mode (`cfg(debug_assertions)`).
@@ -1130,6 +1130,22 @@ Without this, subsequent action animations start from a polluted inline transfor
 ## 16. OBS Browser Source
 
 An alternative to the chroma-key Window Capture workflow. The streamer adds `http://localhost:6767/overlay` as a **Browser Source** in OBS — the background is natively transparent, no chroma key or filters needed.
+
+### TikTok LIVE Studio (port 80 + `hosts` trick)
+
+TikTok LIVE Studio's Browser Source field runs a **client-side regex** that rejects any URL containing `localhost`, a raw IP, or an explicit port (it renders the source locally, like OBS — it does *not* fetch the URL server-side). So `http://localhost:6767/overlay` is refused, but `http://eso.tilin.com/overlay` is accepted.
+
+Two pieces make a fully **local** overlay pass that filter:
+
+1. **`start_server` also binds port 80** (`127.0.0.1:80` + `[::1]:80`) in addition to `:6767`, so the URL needs no port. The bind is best-effort — if port 80 is taken (IIS, Skype, `http.sys`) it logs a warning and keeps serving on `:6767` only. See `server/mod.rs`.
+2. **A `hosts` entry** maps a real-looking domain to loopback (one-time, requires admin):
+
+   ```powershell
+   Add-Content -Path "$env:windir\System32\drivers\etc\hosts" -Value "`n127.0.0.1`teso.tilin.com`n127.0.0.1`toverlay.streampersona.app" -Encoding ASCII
+   ipconfig /flushdns
+   ```
+
+The streamer then uses `http://eso.tilin.com/overlay`, `…/overlay-streamer`, `…/overlay-tiktok` (or `overlay.streampersona.app` if the short domain looks suspicious). The URL resolves to the local server; nothing is exposed to the internet. `ws-transport.ts` derives its WS/HTTP base from `window.location` (not a hardcoded `localhost:6767`), so the overlay connects back to whatever host it was served from — `localhost:6767` in OBS or `eso.tilin.com:80` in TikTok.
 
 ### How it works
 

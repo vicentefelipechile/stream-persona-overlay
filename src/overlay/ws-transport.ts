@@ -1,8 +1,9 @@
 // =========================================================================================================
 // WebSocket Transport (OBS Browser Source)
 // =========================================================================================================
-// Thin client that connects to ws://localhost:6767/ws and mirrors the Tauri
-// API surface so overlay modules work unchanged in a plain browser context.
+// Thin client that connects to /ws on the same origin the overlay was served
+// from and mirrors the Tauri API surface so overlay modules work unchanged in a
+// plain browser context.
 //
 // Exports:
 //   wsListen(event, handler)  — equivalent to listen() from @tauri-apps/api/event
@@ -10,8 +11,11 @@
 //   browserConvertFileSrc(p)  — equivalent to convertFileSrc() from @tauri-apps/api/core
 // =========================================================================================================
 
-const WS_URL    = "ws://localhost:6767/ws";
-const HTTP_BASE = "http://localhost:6767";
+// Derived from window.location so the overlay connects back to whatever host it
+// was served from: localhost:6767 in OBS, or the spoofed "eso.tilin.com" (mapped to
+// 127.0.0.1 via the hosts file, served on port 80) that TikTok LIVE Studio accepts.
+const WS_URL    = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
+const HTTP_BASE = `${location.protocol}//${location.host}`;
 
 // =========================================================================================================
 // Connection

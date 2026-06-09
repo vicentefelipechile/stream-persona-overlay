@@ -239,6 +239,21 @@ export class BasePet {
     if (this.fsm.state !== "despawning") this.fsm.transition("despawning");
   }
 
+  /** Hard, synchronous teardown used by PetManager.resetAll() to recreate a pet
+   *  from scratch. Stops every loop/timer/action and removes the DOM element
+   *  immediately — no despawn animation, no despawnCallback, no DB delete, since
+   *  the caller owns the pets map and will recreate the pet right after. This is
+   *  state-agnostic on purpose: it recovers pets whose FSM/animation got stuck. */
+  destroy(): void {
+    this._stopCurrentAction();
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
+    this.props.hideAll();
+    this.el.remove();
+  }
+
   // =========================================================================================================
   // Movement
   // =========================================================================================================

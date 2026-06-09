@@ -46,6 +46,31 @@ Each overlay is available as an **OBS Browser Source** (native transparency, no 
 
 The viewer-pet overlay can also be added as a **Window Capture**: open the overlay window from the admin panel and apply a chroma-key filter in OBS.
 
+## TikTok LIVE Studio
+
+TikTok LIVE Studio rejects any Browser Source URL containing `localhost`, a raw IP, or an explicit port (`:6767`) — it shows *"Introduce una URL válida"*. To work around this the app also serves the overlays on **port 80**, and you map a fake domain to your own machine via the Windows `hosts` file.
+
+**One-time setup** — run PowerShell **as Administrator**:
+
+```powershell
+Add-Content -Path "$env:windir\System32\drivers\etc\hosts" -Value "`n127.0.0.1`teso.tilin.com`n127.0.0.1`toverlay.streampersona.app" -Encoding ASCII
+ipconfig /flushdns
+```
+
+This maps both `eso.tilin.com` and `overlay.streampersona.app` to `127.0.0.1`. Now use the port-less, `localhost`-free URLs in TikTok LIVE Studio:
+
+| Overlay | TikTok LIVE Studio URL |
+|---|---|
+| Viewer pets | `http://eso.tilin.com/overlay` |
+| Streamer persona | `http://eso.tilin.com/overlay-streamer` |
+| Event alerts | `http://eso.tilin.com/overlay-tiktok` |
+
+> Use `overlay.streampersona.app` instead of `eso.tilin.com` if a viewer finds the short domain suspicious — both resolve to the same local server.
+
+The URL passes TikTok's text validation (no `localhost`, no port) but resolves to your own PC, where the overlay renders locally and connects back to the same host over WebSocket. Nothing is exposed to the internet.
+
+**Caveats:** port 80 must be free (IIS, Skype, or Windows `http.sys` may hold it — check with `Get-NetTCPConnection -LocalPort 80 -State Listen`), and editing `hosts` requires admin. If `http://eso.tilin.com/...` fails to load, confirm the server logged `Escuchando en 127.0.0.1:80` at startup.
+
 ## Project Structure
 
 ```
