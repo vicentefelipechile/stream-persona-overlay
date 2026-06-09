@@ -186,7 +186,21 @@ export function isPlatformConnected(platform: ConnPlatform): boolean {
 // Toast Helper
 // =========================================================================================================
 
+type ToastType = "success" | "error" | "info";
+
+interface QueuedToast {
+  message:  string;
+  type:     ToastType;
+  duration: number;
+}
+
 let toastContainer: HTMLElement | null = null;
+
+// Toasts requested while the panel window is not focused are parked here and
+// flushed when it regains focus — see showToast() for the rationale.
+const toastQueue: QueuedToast[] = [];
+const MAX_QUEUED = 8;
+let focusFlushWired = false;
 
 function getToastContainer(): HTMLElement {
   if (!toastContainer) {
@@ -197,11 +211,7 @@ function getToastContainer(): HTMLElement {
   return toastContainer;
 }
 
-export function showToast(
-  message: string,
-  type: "success" | "error" | "info" = "success",
-  duration = 3000
-): void {
+function renderToast(message: string, type: ToastType, duration: number): void {
   const container = getToastContainer();
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
@@ -214,4 +224,42 @@ export function showToast(
     toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
     setTimeout(() => toast.remove(), 300);
   }, duration);
+}
+
+function flushToastQueue(): void {
+  if (!document.hasFocus() || toastQueue.length === 0) return;
+  const pending = toastQueue.splice(0);
+  for (const t of pending) renderToast(t.message, t.type, t.duration);
+}
+
+function wireFocusFlush(): void {
+  if (focusFlushWired) return;
+  focusFlushWired = true;
+  // "focus" covers Alt-Tab / clicking the window chrome; "pointerdown" covers a
+  // click that lands inside the WebView before the focus event fires.
+  window.addEventListener("focus", flushToastQueue);
+  window.addEventListener("pointerdown", flushToastQueue);
+}
+
+/**
+ * Shows a transient toast. When the panel window is not focused the toast is
+ * queued instead of shown and the whole queue is flushed the next time the window
+ * regains focus — otherwise background notices (connection problems, etc.) would
+ * appear and fade out while the streamer is looking at OBS, not the panel.
+ */
+export function showToast(
+  message: string,
+  type: ToastType = "success",
+  duration = 3000
+): void {
+  wireFocusFlush();
+
+  if (!document.hasFocus()) {
+    // Cap the backlog so a flapping connection can't queue hundreds of toasts.
+    if (toastQueue.length >= MAX_QUEUED) toastQueue.shift();
+    toastQueue.push({ message, type, duration });
+    return;
+  }
+
+  renderToast(message, type, duration);
 }

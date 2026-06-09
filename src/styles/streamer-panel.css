@@ -8,6 +8,32 @@
   padding-bottom: var(--space-8, 32px);
 }
 
+/* Two-column layout pairing "Parpadeo y animación" with "Vista previa" so the
+   sliders and the live preview sit side by side. Collapses to one column when
+   there isn't enough width. */
+.str-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  align-items: start;
+  margin-bottom: var(--space-6);
+}
+
+.str-two-col > .str-card {
+  margin-bottom: 0;
+}
+
+/* Inside the narrower two-column layout, stack the "Parpadeo y animación" sliders
+   and selects in a single column instead of the default 2×N grid. */
+.str-two-col .tama-sliders-grid,
+.str-two-col .config-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 980px) {
+  .str-two-col { grid-template-columns: 1fr; }
+}
+
 /* Sprite upload grid — fixed 2×2: top row = eyes open, bottom row = eyes closed */
 .str-sprite-grid {
   display: grid;

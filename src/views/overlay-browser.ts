@@ -9,6 +9,7 @@
 import { wsListen, wsInvoke, browserConvertFileSrc } from "../overlay/ws-transport";
 import { PetManager } from "../overlay/tamagotchi/core/PetManager";
 import type { PetTransport } from "../overlay/tamagotchi/core/PetManager";
+import { initOverlayNotifications } from "../overlay/overlay-notifications";
 
 // =========================================================================================================
 // Initialization
@@ -33,4 +34,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   PetManager.init(tamagotchiContainer, browserTransport).catch(err => {
     console.warn("[tamagotchi] PetManager init failed:", err);
   });
+
+  // Surface connection notices (e.g. TikTok connected / connection lost) on-overlay.
+  initOverlayNotifications(wsListen);
 });

@@ -9,6 +9,7 @@ pub mod db;
 pub mod discord;
 pub mod server;
 pub mod state;
+pub mod streamer_mic;
 pub mod tiktok;
 pub mod tts;
 pub mod twitch;
@@ -22,7 +23,9 @@ use commands::control::{
     connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
     validate_twitch_token,
 };
-use commands::streamer::{reset_streamer_sprite, set_streamer_sprite};
+use commands::streamer::{
+    reset_streamer_sprite, set_streamer_sprite, streamer_list_mics, streamer_mic_apply,
+};
 use commands::tamagotchi::{
     reset_guest_image, set_guest_image, tama_get_pet_states, tama_remove_pet_state,
     tama_reset_all, tama_set_enabled, tama_trigger_action, tama_upsert_pet_state,
@@ -75,6 +78,23 @@ pub fn run() {
             }
 
             app.manage(app_state.clone());
+
+            // Start native mic capture if the streamer persona is enabled. Runs in
+            // the backend (no browser permission prompt); broadcasts only the
+            // resulting speaking state to the overlay.
+            {
+                let (enabled, device_id, threshold) = {
+                    let cfg = app_state.config_cache.read().expect("config cache poisoned");
+                    (
+                        cfg.streamer_persona_enabled,
+                        cfg.streamer_mic_device_id.clone(),
+                        cfg.streamer_mic_threshold,
+                    )
+                };
+                app_state
+                    .streamer_mic
+                    .apply(&app_state, enabled, &device_id, threshold);
+            }
 
             // Spawn bots en background.
             // IMPORTANTE: solo Discord arranca automáticamente. Twitch y TikTok NO
@@ -191,6 +211,8 @@ pub fn run() {
             // Streamer persona
             set_streamer_sprite,
             reset_streamer_sprite,
+            streamer_list_mics,
+            streamer_mic_apply,
             // TikTok alerts
             set_tiktok_alert_asset,
             clear_tiktok_alert_asset,

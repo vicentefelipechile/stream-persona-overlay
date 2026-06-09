@@ -14,6 +14,44 @@ use crate::{
     },
 };
 
+/// Pushes a connection notice to every overlay at once: the Tauri "overlay"
+/// window (via `emit_to`, so the admin panel doesn't double-toast) and all
+/// OBS/TikTok Browser Sources (via WS broadcast). The streamer usually watches
+/// the overlay, not the panel, so this is how a connection problem reaches them.
+/// `level` is one of "success" | "error" | "info".
+pub(crate) fn notify_overlay(app: &AppHandle, state: &AppState, level: &str, message: &str) {
+    let payload = serde_json::json!({ "level": level, "message": message });
+    let _ = app.emit_to("overlay", "overlay-notification", &payload);
+    state.broadcast_ws("overlay-notification", &payload);
+}
+
+/// A TikTok connection transition, surfaced to both the admin panel and the overlay.
+enum TiktokStatus<'a> {
+    /// Handshake succeeded — carries the connected username.
+    Connected(&'a str),
+    /// Connection failed, was rejected, or dropped — carries a human-friendly reason.
+    Error(String),
+}
+
+/// Surfaces a TikTok connection transition to every UI at once: the admin panel
+/// (via `tiktok-connected`/`tiktok-error`, which also drive the connection badge)
+/// and every overlay (via `notify_overlay`). Routing both through one place means
+/// a transition can't update one UI while leaving the other stale — the bug this
+/// fixes, where a mid-stream disconnect only logged to the terminal and left the
+/// panel showing a stale "Conectado".
+fn emit_tiktok_status(app: &AppHandle, state: &AppState, status: TiktokStatus) {
+    match status {
+        TiktokStatus::Connected(username) => {
+            let _ = app.emit("tiktok-connected", username);
+            notify_overlay(app, state, "success", &format!("TikTok conectado: @{username}"));
+        }
+        TiktokStatus::Error(message) => {
+            let _ = app.emit("tiktok-error", &message);
+            notify_overlay(app, state, "error", &format!("TikTok: {message}"));
+        }
+    }
+}
+
 /// Conecta a TikTool WebSocket API y escucha eventos de chat de TikTok LIVE.
 /// Si el username está vacío, no hace nada.
 pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
@@ -40,9 +78,10 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
 
     if api_key.is_empty() {
         tracing::error!("API key de TikTok no configurada — cliente no iniciado (obtén una en https://tik.tools)");
-        let _ = app_handle.emit(
-            "tiktok-error",
-            "API key no configurada (obtén una gratis en tik.tools)",
+        emit_tiktok_status(
+            &app_handle,
+            &state,
+            TiktokStatus::Error("API key no configurada (obtén una gratis en tik.tools)".to_string()),
         );
         return;
     }
@@ -89,14 +128,18 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
                 tracing::error!("No se pudo conectar a TikTok WS: {}", e);
                 e.to_string()
             };
-            let _ = app_handle.emit("tiktok-error", format!("No se pudo conectar: {}", detail));
+            emit_tiktok_status(
+                &app_handle,
+                &state,
+                TiktokStatus::Error(format!("No se pudo conectar: {}", detail)),
+            );
             return;
         }
     };
 
     // Handshake succeeded — now the connection is genuinely established.
     tracing::info!("Conectado a TikTok LIVE: @{}", tiktok_username);
-    let _ = app_handle.emit("tiktok-connected", tiktok_username);
+    emit_tiktok_status(&app_handle, &state, TiktokStatus::Connected(tiktok_username));
 
     let (_, mut read) = ws_stream.split();
 
@@ -130,11 +173,23 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
                     Some(r) => r.to_string(),
                     None => "conexión cerrada".to_string(),
                 };
-                let _ = app_handle.emit("tiktok-error", format!("Desconectado: {}", msg));
+                emit_tiktok_status(
+                    &app_handle,
+                    &state,
+                    TiktokStatus::Error(format!("Desconectado: {}", msg)),
+                );
                 break;
             }
             Err(e) => {
+                // Mid-stream read error (the connection dropped without a Close
+                // frame). Previously this only logged to the terminal and left
+                // both the panel badge and the overlay showing a stale "Conectado".
                 tracing::error!("Error en TikTok WS: {}", e);
+                emit_tiktok_status(
+                    &app_handle,
+                    &state,
+                    TiktokStatus::Error("conexión perdida".to_string()),
+                );
                 break;
             }
             _ => {}

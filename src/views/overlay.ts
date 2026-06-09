@@ -8,6 +8,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { PetManager } from "../overlay/tamagotchi/core/PetManager";
+import { initOverlayNotifications } from "../overlay/overlay-notifications";
 
 // =========================================================================================================
 // Initialization
@@ -53,6 +54,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   PetManager.init(tamagotchiContainer).catch(err => {
     console.warn("[tamagotchi] PetManager init failed:", err);
   });
+
+  // Surface connection notices (e.g. TikTok connected / connection lost) on-overlay.
+  initOverlayNotifications(listen);
 
   // =========================================================================================================
   // Tauri Event Listeners

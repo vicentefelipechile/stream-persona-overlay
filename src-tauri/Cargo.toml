@@ -47,6 +47,10 @@ image = "0.25"
 # TTS
 tts = "0.26"
 
+# Native microphone capture (streamer persona mouth sync) — runs in the backend
+# so the OBS overlay never has to request browser mic permissions.
+cpal = "0.15"
+
 # Utils
 anyhow = "1"
 tracing = "0.1"

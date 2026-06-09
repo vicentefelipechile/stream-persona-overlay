@@ -23,6 +23,7 @@ use tauri::{Emitter, State};
 use crate::{
     db::config::{get_config, set_config_value},
     state::AppState,
+    streamer_mic::MicDevice,
 };
 
 type CmdResult<T> = Result<T, String>;
@@ -142,5 +143,35 @@ pub async fn reset_streamer_sprite(
     state.broadcast_ws("streamer-config-changed", &full_config);
 
     tracing::info!("[streamer] Sprite '{}' restablecido", slot);
+    Ok(())
+}
+
+// ─── Native microphone ───────────────────────────────────────────────────────
+
+/// Lists the available audio input devices so the panel can populate its picker.
+/// Capture happens natively in the backend, so this replaces the old browser-side
+/// `navigator.mediaDevices.enumerateDevices()` (which forced a mic permission prompt).
+#[tauri::command]
+pub async fn streamer_list_mics() -> CmdResult<Vec<MicDevice>> {
+    Ok(crate::streamer_mic::list_input_devices())
+}
+
+/// (Re)configures native mic capture from the current streamer config. The panel
+/// calls this after toggling the persona, picking a device, or moving the threshold;
+/// `lib.rs` also calls it once at startup. Only the resulting `streamer-speaking`
+/// boolean is broadcast to the overlay — no audio leaves the backend.
+#[tauri::command]
+pub async fn streamer_mic_apply(state: State<'_, AppState>) -> CmdResult<()> {
+    let (enabled, device_id, threshold) = {
+        let cfg = state.config_cache.read().map_err(map_err)?;
+        (
+            cfg.streamer_persona_enabled,
+            cfg.streamer_mic_device_id.clone(),
+            cfg.streamer_mic_threshold,
+        )
+    };
+    state
+        .streamer_mic
+        .apply(state.inner(), enabled, &device_id, threshold);
     Ok(())
 }

@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tauri::{Emitter, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     db::config::{get_config, set_config_value},
@@ -234,8 +234,10 @@ pub async fn disconnect_twitch(state: State<'_, AppState>) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn disconnect_tiktok(state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn disconnect_tiktok(state: State<'_, AppState>, app: AppHandle) -> CmdResult<()> {
     state.abort_tiktok();
+    // The panel knows it asked for this, but the overlay doesn't — mirror it there.
+    crate::tiktok::notify_overlay(&app, state.inner(), "info", "TikTok desconectado");
     tracing::info!("[tiktok] Desconectado");
     Ok(())
 }

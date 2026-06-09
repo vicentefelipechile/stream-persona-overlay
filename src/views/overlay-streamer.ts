@@ -9,6 +9,7 @@
 
 import { wsListen, wsInvoke, browserConvertFileSrc } from "../overlay/ws-transport";
 import { StreamerPersona, type StreamerConfig } from "../overlay/streamer/StreamerPersona";
+import { initOverlayNotifications } from "../overlay/overlay-notifications";
 
 // Config values arrive from Rust serialized with their real types, but events and
 // older callers may send strings. Read defensively (same pattern as the panel).
@@ -51,4 +52,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   wsListen<Record<string, unknown>>("streamer-config-changed", (e) => {
     persona.applyConfig(toStreamerConfig(e.payload));
   });
+
+  // Mouth sync: the backend captures the mic natively and broadcasts only the
+  // speaking state, so this overlay never touches getUserMedia.
+  wsListen<{ speaking: boolean }>("streamer-speaking", (e) => {
+    persona.setSpeaking(!!e.payload?.speaking);
+  });
+
+  // Surface connection notices (e.g. TikTok connected / connection lost) on-overlay.
+  initOverlayNotifications(wsListen);
 });

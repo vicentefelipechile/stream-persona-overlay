@@ -5,6 +5,7 @@ use tauri::async_runtime::JoinHandle;
 use tokio::sync::broadcast;
 
 use crate::chat_filters::ChatFilters;
+use crate::streamer_mic::StreamerMic;
 
 // =========================================================================================================
 // AppState
@@ -48,6 +49,9 @@ pub struct AppState {
     pub server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// Rate-limiter and anti-spam filter state shared across all chat handlers.
     pub chat_filters: Arc<Mutex<ChatFilters>>,
+    /// Native microphone capture for the streamer persona mouth sync. Owns the
+    /// active cpal session; broadcasts `streamer-speaking` to the overlay.
+    pub streamer_mic: Arc<StreamerMic>,
 }
 
 impl AppState {
@@ -65,6 +69,7 @@ impl AppState {
             ws_tx,
             server_handle: Arc::new(Mutex::new(None)),
             chat_filters: Arc::new(Mutex::new(ChatFilters::default())),
+            streamer_mic: Arc::new(StreamerMic::new()),
         }
     }
 
@@ -136,6 +141,7 @@ impl AppState {
         self.abort_twitch_eventsub();
         self.abort_tiktok();
         self.abort_server();
+        self.streamer_mic.stop();
     }
 }
 

@@ -14,7 +14,6 @@
 // =========================================================================================================
 
 import { BlinkScheduler, type EyeState } from "./BlinkScheduler";
-import { MicLevel } from "./MicLevel";
 
 type Slot = "mo_eo" | "mc_eo" | "mo_ec" | "mc_ec";
 
@@ -41,14 +40,12 @@ export class StreamerPersona {
   private root: HTMLElement;
   private imgs: Record<Slot, HTMLImageElement>;
   private blink: BlinkScheduler;
-  private mic = new MicLevel();
 
-  private threshold = 20;
   private talkAnim: TalkAnimation = "bounce";
-  private micDeviceId = "";
   private enabled = true;
-  // Mouth "hang time" so it doesn't snap shut between syllables.
-  private mouthOpenUntil = 0;
+  // Speaking state pushed from the backend (native mic capture broadcasts the
+  // `streamer-speaking` boolean — threshold + hang time are applied there).
+  private speaking = false;
   private rafId = 0;
 
   private convert: (path: string) => string;
@@ -84,27 +81,25 @@ export class StreamerPersona {
   async init(cfg: StreamerConfig): Promise<void> {
     this.applyConfig(cfg);
     this.blink.start(performance.now());
-    if (this.enabled) await this.mic.start(this.micDeviceId);
     this.loop();
   }
 
   destroy(): void {
     cancelAnimationFrame(this.rafId);
-    void this.mic.stop();
+  }
+
+  /** Updates the speaking state from the backend `streamer-speaking` broadcast. */
+  setSpeaking(on: boolean): void {
+    this.speaking = on;
   }
 
   // ── Config ───────────────────────────────────────────────────────────────--
 
   applyConfig(cfg: StreamerConfig): void {
-    const wasEnabled = this.enabled;
-    const prevDevice = this.micDeviceId;
-
     this.enabled = cfg.streamer_persona_enabled;
-    this.threshold = cfg.streamer_mic_threshold;
     this.talkAnim = TALK_ANIMATIONS.includes(cfg.streamer_talk_animation as TalkAnimation)
       ? (cfg.streamer_talk_animation as TalkAnimation)
       : "none";
-    this.micDeviceId = cfg.streamer_mic_device_id;
 
     this.blink.setTiming(
       cfg.streamer_blink_interval_ms,
@@ -125,13 +120,6 @@ export class StreamerPersona {
       : "center";
 
     this.root.style.display = this.enabled ? "" : "none";
-
-    // React to enable/device changes after init.
-    if (this.enabled && (!wasEnabled || prevDevice !== this.micDeviceId)) {
-      void this.mic.start(this.micDeviceId);
-    } else if (!this.enabled && wasEnabled) {
-      void this.mic.stop();
-    }
   }
 
   private setSrc(slot: Slot, path: string): void {
@@ -156,11 +144,8 @@ export class StreamerPersona {
 
     const now = performance.now();
 
-    // 1. Mouth from mic level (with short hang time).
-    if (this.mic.level() > this.threshold) {
-      this.mouthOpenUntil = now + 90;
-    }
-    const mouthOpen = now < this.mouthOpenUntil;
+    // 1. Mouth from the backend-provided speaking state.
+    const mouthOpen = this.speaking;
 
     // 2. Eyes from the scheduler.
     const eyes: EyeState = this.blink.tick(now);

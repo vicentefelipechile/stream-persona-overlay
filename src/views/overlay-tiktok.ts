@@ -10,6 +10,7 @@
 import { wsListen, browserConvertFileSrc } from "../overlay/ws-transport";
 import { AlertManager } from "../overlay/alerts/AlertManager";
 import type { TiktokAlertPayload } from "../overlay/alerts/AlertManager";
+import { initOverlayNotifications } from "../overlay/overlay-notifications";
 
 window.addEventListener("DOMContentLoaded", () => {
   const root = document.getElementById("alert-root");
@@ -25,6 +26,9 @@ window.addEventListener("DOMContentLoaded", () => {
   }).catch((err) => {
     console.warn("[overlay-tiktok] no se pudo registrar el listener tiktok-alert:", err);
   });
+
+  // Surface connection notices (e.g. TikTok connected / connection lost) on-overlay.
+  initOverlayNotifications(wsListen);
 
   console.log("[overlay-tiktok] listo — esperando alertas");
 });

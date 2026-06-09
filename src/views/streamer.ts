@@ -15,6 +15,12 @@ import { BlinkScheduler } from "../overlay/streamer/BlinkScheduler";
 
 type Slot = "mo_eo" | "mc_eo" | "mo_ec" | "mc_ec";
 
+/** An audio input device reported by the native backend (`streamer_list_mics`). */
+interface MicDevice {
+  id: string;
+  name: string;
+}
+
 // Cache-buster: the sprite file is overwritten in place, so its URL is identical
 // across re-uploads and the webview would show the stale cached image. Appending
 // a per-render token forces a fresh load.
@@ -100,6 +106,20 @@ export async function renderStreamer(): Promise<void> {
     </div>
 
     <div class="card str-card">
+      <div class="card-header"><h2 class="section-title">Micrófono</h2></div>
+      <p class="view-subtitle" style="margin-bottom:12px;">El overlay abre la boca cuando tu voz supera el umbral. En OBS, permití el acceso al micrófono en la fuente del navegador.</p>
+      <div class="config-grid">
+        <div class="form-group">
+          <label for="str-mic">Dispositivo de entrada</label>
+          <select id="str-mic"><option value="">Micrófono por defecto</option></select>
+        </div>
+        <div class="form-group">
+          ${_slider("str-threshold", "str-threshold-val", "Umbral de voz", threshold, "", 0, 80, 1)}
+        </div>
+      </div>
+    </div>
+
+    <div class="card str-card">
       <div class="card-header"><h2 class="section-title">Sprites del personaje</h2></div>
       <p class="view-subtitle" style="margin-bottom:12px;">Subí las 4 combinaciones de boca y ojos (PNG con transparencia, máx. 2&nbsp;MB). Se redimensionan a 512×512.</p>
       <div class="str-sprite-grid">
@@ -107,6 +127,7 @@ export async function renderStreamer(): Promise<void> {
       </div>
     </div>
 
+    <div class="str-two-col">
     <div class="card str-card">
       <div class="card-header"><h2 class="section-title">Parpadeo y animación</h2></div>
       <div class="tama-sliders-grid">
@@ -131,20 +152,6 @@ export async function renderStreamer(): Promise<void> {
     </div>
 
     <div class="card str-card">
-      <div class="card-header"><h2 class="section-title">Micrófono</h2></div>
-      <p class="view-subtitle" style="margin-bottom:12px;">El overlay abre la boca cuando tu voz supera el umbral. En OBS, permití el acceso al micrófono en la fuente del navegador.</p>
-      <div class="config-grid">
-        <div class="form-group">
-          <label for="str-mic">Dispositivo de entrada</label>
-          <select id="str-mic"><option value="">Micrófono por defecto</option></select>
-        </div>
-        <div class="form-group">
-          ${_slider("str-threshold", "str-threshold-val", "Umbral de voz", threshold, "", 0, 80, 1)}
-        </div>
-      </div>
-    </div>
-
-    <div class="card str-card">
       <div class="card-header"><h2 class="section-title">Vista previa</h2></div>
       <div class="str-preview-wrap">
         <div class="str-preview-stage">
@@ -155,6 +162,7 @@ export async function renderStreamer(): Promise<void> {
         </div>
         <button id="str-preview-talk" class="btn btn-secondary btn-sm">Simular hablar</button>
       </div>
+    </div>
     </div>
 
     <div class="card str-card">
@@ -174,14 +182,21 @@ export async function renderStreamer(): Promise<void> {
   const save = (key: string, value: string) =>
     invoke("set_config_cmd", { key, value }).catch(err => showToast(String(err), "error"));
 
+  // Reconfigure native mic capture after a streamer setting changes (enable,
+  // device, threshold). Capture runs in the backend, so the overlay never asks
+  // for mic permissions — it just receives the resulting speaking state over WS.
+  const applyMic = () =>
+    invoke("streamer_mic_apply").catch(err => console.warn("[streamer] mic apply:", err));
+
   // Enable toggle
   const enabledEl = container.querySelector<HTMLInputElement>("#str-enabled")!;
-  enabledEl.addEventListener("change", () => {
+  enabledEl.addEventListener("change", async () => {
     const on = enabledEl.checked;
     const txt = container.querySelector("#str-status-text")!;
     txt.textContent = on ? "Activo" : "Inactivo";
     txt.classList.toggle("tama-system-status--on", on);
-    save("streamer_persona_enabled", on ? "true" : "false");
+    await save("streamer_persona_enabled", on ? "true" : "false");
+    applyMic();
   });
 
   // Sliders → live label + save on release
@@ -193,7 +208,13 @@ export async function renderStreamer(): Promise<void> {
   _bindSave("str-interval",  "streamer_blink_interval_ms");
   _bindSave("str-duration",  "streamer_blink_duration_ms");
   _bindSave("str-size",      "streamer_size_px");
-  _bindSave("str-threshold", "streamer_mic_threshold");
+
+  // Threshold saves like the others, but also re-applies it to the live capture.
+  const thresholdEl = container.querySelector<HTMLInputElement>("#str-threshold")!;
+  thresholdEl.addEventListener("change", async () => {
+    await save("streamer_mic_threshold", thresholdEl.value);
+    applyMic();
+  });
 
   // Selects
   const talkEl = container.querySelector<HTMLSelectElement>("#str-talk")!;
@@ -210,8 +231,15 @@ export async function renderStreamer(): Promise<void> {
     container.querySelector(`#str-reset-${slot}`)?.addEventListener("click", () => _resetSprite(slot));
   }
 
-  // Microphone device list
-  void _populateMics(container.querySelector<HTMLSelectElement>("#str-mic")!, micDeviceId, save);
+  // Microphone device list (enumerated natively — no browser permission prompt)
+  void _populateMics(
+    container.querySelector<HTMLSelectElement>("#str-mic")!,
+    micDeviceId,
+    async (deviceId) => {
+      await save("streamer_mic_device_id", deviceId);
+      applyMic();
+    },
+  );
 
   // OBS URL copy
   container.querySelector("#str-copy-url")!.addEventListener("click", async () => {
@@ -308,31 +336,24 @@ async function _resetSprite(slot: Slot): Promise<void> {
 async function _populateMics(
   select: HTMLSelectElement,
   current: string,
-  save: (key: string, value: string) => void,
+  onChange: (deviceId: string) => void,
 ): Promise<void> {
+  // Devices are enumerated by the native backend (cpal), so listing them needs no
+  // getUserMedia call and triggers no browser mic permission prompt.
   try {
-    // Requesting access first makes device labels available.
-    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
-    tmp.getTracks().forEach(t => t.stop());
-  } catch {
-    /* permission denied — we can still list devices, just without labels */
-  }
-
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const mics = devices.filter(d => d.kind === "audioinput");
-    mics.forEach((d, i) => {
+    const mics = await invoke<MicDevice[]>("streamer_list_mics");
+    for (const mic of mics) {
       const opt = document.createElement("option");
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Micrófono ${i + 1}`;
-      if (d.deviceId === current) opt.selected = true;
+      opt.value = mic.id;
+      opt.textContent = mic.name;
+      if (mic.id === current) opt.selected = true;
       select.appendChild(opt);
-    });
+    }
   } catch (e) {
     console.warn("[streamer] No se pudieron listar micrófonos:", e);
   }
 
-  select.addEventListener("change", () => save("streamer_mic_device_id", select.value));
+  select.addEventListener("change", () => onChange(select.value));
 }
 
 // =========================================================================================================
