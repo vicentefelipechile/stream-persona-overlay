@@ -74,6 +74,16 @@ pub async fn set_config_cmd(
         "tama_guests_label_prefix" => cache.tama_guests_label_prefix = value.clone(),
         "tama_guest_mouth_open_path" => cache.tama_guest_mouth_open_path = value.clone(),
         "tama_guest_mouth_closed_path" => cache.tama_guest_mouth_closed_path = value.clone(),
+        // ── Grid layout cache (read live by the grid reconfigure below) ────────
+        "tama_layout_mode" => cache.tama_layout_mode = value.clone(),
+        "tama_grid_high_precision" => cache.tama_grid_high_precision = value == "true",
+        "tama_grid_perspective" => cache.tama_grid_perspective = value == "true",
+        "tama_grid_near_scale" => cache.tama_grid_near_scale = value.parse().unwrap_or(1.3),
+        "tama_grid_far_scale" => cache.tama_grid_far_scale = value.parse().unwrap_or(0.6),
+        "tama_grid_floor_top_frac" => {
+            cache.tama_grid_floor_top_frac = value.parse().unwrap_or(0.55)
+        }
+        "tama_grid_wander_enabled" => cache.tama_grid_wander_enabled = value == "true",
         // Alert config is read by the tiktok handlers at runtime — keep the
         // cache in sync so edits take effect without restarting.
         "tiktok_alerts_config" => cache.tiktok_alerts_config = value.clone(),
@@ -97,9 +107,24 @@ pub async fn set_config_cmd(
         _ => {}
     }
 
+    // A change to a grid-shaping key resizes the authoritative grid in place and
+    // re-emits cells to every client. Only the dimension keys trigger a rebuild.
+    let rebuild_grid = matches!(
+        key.as_str(),
+        "tama_layout_mode" | "tama_grid_high_precision"
+    );
+    let (small_mode, high_precision) = (
+        cache.tama_layout_mode == "static",
+        cache.tama_grid_high_precision,
+    );
+
     let is_tama = key.starts_with("tama_");
     let is_streamer = key.starts_with("streamer_");
     drop(cache);
+
+    if rebuild_grid {
+        state.grid.reconfigure(&app, small_mode, high_precision);
+    }
 
     if is_tama || is_streamer {
         let full_config = {

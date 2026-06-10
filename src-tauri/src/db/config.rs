@@ -53,9 +53,7 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_enabled_actions" => cfg.tama_enabled_actions = value,
             "tama_jump_on_speak" => cfg.tama_jump_on_speak = value == "true",
             "tama_keyword_actions" => cfg.tama_keyword_actions = value,
-            "tama_name_font_size_px" => {
-                cfg.tama_name_font_size_px = value.parse().unwrap_or(11)
-            }
+            "tama_name_font_size_px" => cfg.tama_name_font_size_px = value.parse().unwrap_or(11),
             // ── Twitch config ─────────────────────────────────────────────────
             "twitch_eventsub_enabled" => cfg.twitch_eventsub_enabled = value == "true",
             "twitch_chat_min_length" => cfg.twitch_chat_min_length = value.parse().unwrap_or(0),
@@ -187,8 +185,16 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_guest_mouth_open_path" => cfg.tama_guest_mouth_open_path = value,
             "tama_guest_mouth_closed_path" => cfg.tama_guest_mouth_closed_path = value,
             "tama_guest_tiktok_avatar" => cfg.tama_guest_tiktok_avatar = value == "true",
-            // ── Static layout config ──────────────────────────────────────────
+            // ── Grid layout config ────────────────────────────────────────────
             "tama_layout_mode" => cfg.tama_layout_mode = value,
+            "tama_grid_high_precision" => cfg.tama_grid_high_precision = value == "true",
+            "tama_grid_perspective" => cfg.tama_grid_perspective = value == "true",
+            "tama_grid_near_scale" => cfg.tama_grid_near_scale = value.parse().unwrap_or(1.3),
+            "tama_grid_far_scale" => cfg.tama_grid_far_scale = value.parse().unwrap_or(0.6),
+            "tama_grid_floor_top_frac" => {
+                cfg.tama_grid_floor_top_frac = value.parse().unwrap_or(0.55)
+            }
+            "tama_grid_wander_enabled" => cfg.tama_grid_wander_enabled = value == "true",
             "tama_static_anchor" => cfg.tama_static_anchor = value,
             "tama_static_spacing_px" => cfg.tama_static_spacing_px = value.parse().unwrap_or(100),
             // ── Streamer persona config ───────────────────────────────────────

@@ -43,7 +43,12 @@ fn emit_tiktok_status(app: &AppHandle, state: &AppState, status: TiktokStatus) {
     match status {
         TiktokStatus::Connected(username) => {
             let _ = app.emit("tiktok-connected", username);
-            notify_overlay(app, state, "success", &format!("TikTok conectado: @{username}"));
+            notify_overlay(
+                app,
+                state,
+                "success",
+                &format!("TikTok conectado: @{username}"),
+            );
         }
         TiktokStatus::Error(message) => {
             let _ = app.emit("tiktok-error", &message);
@@ -81,7 +86,9 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
         emit_tiktok_status(
             &app_handle,
             &state,
-            TiktokStatus::Error("API key no configurada (obtén una gratis en tik.tools)".to_string()),
+            TiktokStatus::Error(
+                "API key no configurada (obtén una gratis en tik.tools)".to_string(),
+            ),
         );
         return;
     }
@@ -139,7 +146,11 @@ pub async fn spawn_tiktok_client(state: AppState, app_handle: AppHandle) {
 
     // Handshake succeeded — now the connection is genuinely established.
     tracing::info!("Conectado a TikTok LIVE: @{}", tiktok_username);
-    emit_tiktok_status(&app_handle, &state, TiktokStatus::Connected(tiktok_username));
+    emit_tiktok_status(
+        &app_handle,
+        &state,
+        TiktokStatus::Connected(tiktok_username),
+    );
 
     let (_, mut read) = ws_stream.split();
 
@@ -467,9 +478,7 @@ fn handle_chat(
         // sprite > bundled default. The avatar URL is used verbatim as both mouth
         // frames; the overlay passes http(s) URLs straight through to the <img>.
         let avatar_url = extract_avatar_url(data);
-        let (mouth_open, mouth_closed) = if cfg.tama_guest_tiktok_avatar
-            && !avatar_url.is_empty()
-        {
+        let (mouth_open, mouth_closed) = if cfg.tama_guest_tiktok_avatar && !avatar_url.is_empty() {
             (avatar_url.clone(), avatar_url)
         } else if !cfg.tama_guest_mouth_open_path.is_empty()
             && !cfg.tama_guest_mouth_closed_path.is_empty()

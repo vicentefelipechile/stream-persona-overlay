@@ -1,17 +1,19 @@
 // =========================================================================================================
 // PET MANAGER
 // =========================================================================================================
-// Singleton that owns all active tamagotchi pets. Listens to the same Tauri
-// events as overlay.ts (chat-message, tts-state) so pets can react in parallel
-// with the main persona bubbles. Also handles the tama-action event fired by
-// the admin panel to trigger manual or automated actions.
+// Singleton that owns all active tamagotchi pets. Positioning is now backend-
+// authoritative: the Rust `GridManager` assigns each pet a grid cell and broadcasts
+// `tama-grid-config` / `tama-grid-update` / `tama-grid-remove`. PetManager translates
+// cells to pixels via `Grid2D` and tells each `BasePet` where to be — pets never
+// decide their own position. It still listens to chat-message / tts-state / tama-action
+// for spawning, lip-sync, and actions.
 // =========================================================================================================
 
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { BasePet, configureBasePetInvoke } from "./BasePet";
-import type { PetConfig } from "./BasePet";
-import { StaticFloor } from "./StaticFloor";
+import type { PetConfig, Cell } from "./BasePet";
+import { Grid2D } from "./Grid2D";
 
 // =========================================================================================================
 // Transport Interface
@@ -29,7 +31,6 @@ const _tauriTransport: PetTransport = {
   invoke:         (command, args)  => invoke(command, args),
   convertFileSrc: convertFileSrc,
 };
-import { PetFloor } from "./PetFloor";
 import { PetScheduler } from "./PetScheduler";
 
 // Import all actions so they self-register on module load
@@ -75,32 +76,32 @@ interface TamaActionPayload {
   input: Record<string, unknown>;
 }
 
+interface GridConfigPayload { cols: number; rows: number; }
+interface GridUpdatePayload { user_id: number; cell_x: number; cell_y: number; }
+interface GridRemovePayload { user_id: number; }
+interface GridSnapshot { cols: number; rows: number; cells: GridUpdatePayload[]; }
+
 // =========================================================================================================
 // PetManager
 // =========================================================================================================
 
 export class PetManager {
   private static pets      = new Map<number, BasePet>();
-  private static floor:     PetFloor;
+  private static grid      = new Grid2D();
   private static _scheduler: PetScheduler;
   private static container: HTMLElement;
   private static transport: PetTransport = _tauriTransport;
+
+  // Tracks each pet's last known cell so a resize can re-translate without a backend
+  // round-trip (the cell is authoritative, the pixels are derived).
+  private static cells = new Map<number, Cell>();
 
   private static enabled        = true;
   private static maxPets        = 8;
   private static petSizePx      = 80;
   private static jumpOnSpeak    = false;
   private static nameFontSizePx = 11;
-  // Map of lowercased chat keyword -> action ID. When a pet's owner types a
-  // keyword, that action is forced instead of the normal walk-to-center/jump.
   private static keywordActions: Record<string, string> = {};
-
-  private static layoutMode:    "dynamic" | "static" = "dynamic";
-  private static staticAnchor:  "left" | "right"     = "left";
-  private static staticSpacing: number                = 100;
-  private static staticFloor:   StaticFloor | null    = null;
-
-  private static readonly STATIC_BLOCKED_ACTIONS = new Set(["fight", "hype_train"]);
 
   // =========================================================================================================
   // Init
@@ -110,39 +111,26 @@ export class PetManager {
     this.container = container;
     if (transport) {
       this.transport = transport;
-      // Wire BasePet's module-level invoke to the same transport
       configureBasePetInvoke((cmd, args) => transport.invoke(cmd, args));
     }
 
     try {
       const cfg = await this.transport.invoke<Record<string, unknown>>("get_config_cmd");
-      this.enabled       = String(cfg["tama_enabled"])          === "true";
-      this.maxPets       = Number(cfg["tama_max_pets"])         || 8;
-      this.petSizePx     = Number(cfg["tama_pet_size_px"])      || 80;
-      this.jumpOnSpeak    = String(cfg["tama_jump_on_speak"])    === "true";
+      this.enabled        = String(cfg["tama_enabled"])           === "true";
+      this.maxPets        = Number(cfg["tama_max_pets"])          || 8;
+      this.petSizePx      = Number(cfg["tama_pet_size_px"])       || 80;
+      this.jumpOnSpeak    = String(cfg["tama_jump_on_speak"])     === "true";
       this.nameFontSizePx = Number(cfg["tama_name_font_size_px"]) || 11;
       this.keywordActions = this._parseKeywordActions(cfg["tama_keyword_actions"]);
-      this.layoutMode    = String(cfg["tama_layout_mode"])      === "static" ? "static" : "dynamic";
-      this.staticAnchor  = String(cfg["tama_static_anchor"])    === "right"  ? "right"  : "left";
-      this.staticSpacing = Number(cfg["tama_static_spacing_px"]) || 100;
+      this.grid.setConfig({
+        perspective:  String(cfg["tama_grid_perspective"]) === "true",
+        nearScale:    Number(cfg["tama_grid_near_scale"])    || 1.3,
+        farScale:     Number(cfg["tama_grid_far_scale"])     || 0.6,
+        floorTopFrac: Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
+      });
     } catch (_) {}
 
-    const floorY = window.innerHeight - this.petSizePx - 28;
-    this.floor = new PetFloor({ y: floorY, thickness: 20, minSpacing: 100 });
-
-    if (this.layoutMode === "static") {
-      this.staticFloor = new StaticFloor({
-        anchor:    this.staticAnchor,
-        spacingPx: this.staticSpacing,
-        petSizePx: this.petSizePx,
-        floorY,
-      });
-    }
-
-    const blockedActions = this.layoutMode === "static"
-      ? Array.from(this.STATIC_BLOCKED_ACTIONS)
-      : [];
-    this._scheduler = new PetScheduler(this.pets, blockedActions);
+    this._scheduler = new PetScheduler(this.pets, []);
 
     await this.transport.listen<ChatMessagePayload>("chat-message", e => {
       this._onChatMessage(e.payload).catch(console.error);
@@ -160,22 +148,30 @@ export class PetManager {
       this.resetAll().catch(console.error);
     });
 
-    // Recompute floor Y (and static X for right-anchored pets) on window resize
+    // Grid events — backend-authoritative positioning.
+    await this.transport.listen<GridConfigPayload>("tama-grid-config", e => {
+      this.grid.setDimensions(e.payload.cols, e.payload.rows);
+      this._retranslateAll();
+    });
+    await this.transport.listen<GridUpdatePayload>("tama-grid-update", e => {
+      this._onGridUpdate(e.payload, true);
+    });
+    await this.transport.listen<GridRemovePayload>("tama-grid-remove", e => {
+      this.cells.delete(e.payload.user_id);
+    });
+
+    // Rehydrate dims + existing cells (for clients that connect after pets exist).
+    try {
+      const snap = await this.transport.invoke<GridSnapshot>("tama_grid_get_state");
+      this.grid.setDimensions(snap.cols, snap.rows);
+      for (const c of snap.cells) this._onGridUpdate(c, false);
+    } catch (_) {}
+
+    // Re-translate every pet's cell to pixels on resize (cells stay authoritative).
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     window.addEventListener("resize", () => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        const newFloorY = window.innerHeight - this.petSizePx - 28;
-        this.floor.floorY = newFloorY;
-        if (this.staticFloor) this.staticFloor.floorY = newFloorY;
-        for (const pet of this.pets.values()) {
-          pet.updateFloorY(newFloorY);
-          if (this.staticFloor) {
-            const newX = this.staticFloor.getSlotX(pet.userId);
-            if (newX !== null) pet.updatePosX(newX);
-          }
-        }
-      }, 100);
+      resizeTimer = setTimeout(() => this._retranslateAll(), 100);
     });
   }
 
@@ -190,37 +186,34 @@ export class PetManager {
     if (!this.pets.has(payload.user_id)) {
       if (this.pets.size >= this.maxPets) return;
 
-      const spawnX = this.layoutMode === "static"
-        ? this.staticFloor!.assignSlot(payload.user_id)
-        : this.floor.getSpawnX(payload.user_id, this.petSizePx);
-
       const cfg: PetConfig = {
-        userId:       payload.user_id,
-        displayName:  payload.display_name,
+        userId:        payload.user_id,
+        displayName:   payload.display_name,
         mouthOpenUrl:   this._resolveSrc(payload.mouth_open_path),
         mouthClosedUrl: this._resolveSrc(payload.mouth_closed_path),
-        sizePx:    this.petSizePx,
-        floorY:    this.floor.floorY,
-        initialX:  spawnX,
-        staticMode: this.layoutMode === "static",
+        sizePx:         this.petSizePx,
         nameFontSizePx: this.nameFontSizePx,
       };
 
       const pet = new BasePet(this.container, cfg);
       pet.setDespawnCallback(() => {
+        // BasePet already invoked tama_remove_pet_state, which frees the backend
+        // grid cell; just drop the local references here.
         this.pets.delete(payload.user_id);
-        this.floor.remove(payload.user_id);
-        this.staticFloor?.releaseSlot(payload.user_id);
+        this.cells.delete(payload.user_id);
       });
       this.pets.set(payload.user_id, pet);
       await pet.spawn();
+
+      // Ask the backend to assign a cell; the resulting tama-grid-update places it.
+      this.transport.invoke("tama_grid_ensure", { userId: payload.user_id }).catch(() => {});
     }
 
     const pet = this.pets.get(payload.user_id)!;
 
-    // Keyword-triggered action takes priority over jump-on-speak / walk-to-center.
+    // Keyword-triggered action takes priority over jump-on-speak.
     const kwAction = this._matchKeywordAction(payload.message);
-    if (kwAction && !(this.layoutMode === "static" && this.STATIC_BLOCKED_ACTIONS.has(kwAction))) {
+    if (kwAction) {
       await pet.executeAction(kwAction);
       return;
     }
@@ -229,6 +222,25 @@ export class PetManager {
       await pet.executeAction("jump");
     } else {
       await pet.onChatMessage();
+    }
+  }
+
+  private static _onGridUpdate(payload: GridUpdatePayload, animateMove: boolean): void {
+    const cell: Cell = { x: payload.cell_x, y: payload.cell_y };
+    this.cells.set(payload.user_id, cell);
+    const pet = this.pets.get(payload.user_id);
+    if (!pet) return;
+    const px = this.grid.cellToPx(cell.x, cell.y, pet.size);
+    pet.applyCell(cell, px, animateMove).catch(() => {});
+  }
+
+  /** Re-derive pixels for every pet from its authoritative cell (resize / config). */
+  private static _retranslateAll(): void {
+    for (const [userId, pet] of this.pets) {
+      const cell = this.cells.get(userId);
+      if (!cell) continue;
+      const px = this.grid.cellToPx(cell.x, cell.y, pet.size);
+      pet.applyCell(cell, px, false).catch(() => {});
     }
   }
 
@@ -269,17 +281,7 @@ export class PetManager {
     if (!this.enabled) return;
     const pet = this.pets.get(payload.user_id);
     if (!pet) return;
-
     pet.setMouth(payload.speaking);
-
-    if (!payload.speaking) {
-      if (pet.fsm.state === "talking") {
-        pet.returnFromFocus().catch(() => {});
-      } else if (pet.fsm.state === "approaching") {
-        // TTS finished before the pet reached center — flag it so _doApproach returns immediately on arrival.
-        pet.markTtsFinished();
-      }
-    }
   }
 
   private static _onTamaConfigChanged(cfg: Record<string, unknown>): void {
@@ -294,31 +296,20 @@ export class PetManager {
       for (const pet of this.pets.values()) pet.updateNameFontSize(newFontSize);
     }
 
-    const newSizePx   = Number(cfg["tama_pet_size_px"]) || 80;
+    const newSizePx = Number(cfg["tama_pet_size_px"]) || 80;
     if (newSizePx !== this.petSizePx) {
       this.petSizePx = newSizePx;
-      const newFloorY = window.innerHeight - newSizePx - 28;
-      this.floor.floorY = newFloorY;
-      if (this.staticFloor) {
-        this.staticFloor.floorY = newFloorY;
-        this.staticFloor.updatePetSizePx(newSizePx);
-      }
-      for (const pet of this.pets.values()) {
-        pet.updateSize(newSizePx);
-        pet.updateFloorY(newFloorY);
-        if (this.staticFloor) {
-          const newX = this.staticFloor.getSlotX(pet.userId);
-          if (newX !== null) pet.updatePosX(newX);
-        }
-      }
+      for (const pet of this.pets.values()) pet.updateSize(newSizePx);
     }
 
-    const newWalkSpeed = Number(cfg["tama_walk_speed"]) || 0.6;
-    const newBaseSpeed = newWalkSpeed * 60;
-    if (newBaseSpeed !== BasePet.walkSpeedBase) {
-      BasePet.walkSpeedBase = newBaseSpeed;
-      for (const pet of this.pets.values()) pet.updateWalkSpeed(newBaseSpeed);
-    }
+    // Apply perspective / floor-band changes live, then re-translate.
+    this.grid.setConfig({
+      perspective:  String(cfg["tama_grid_perspective"]) === "true",
+      nearScale:    Number(cfg["tama_grid_near_scale"])    || 1.3,
+      farScale:     Number(cfg["tama_grid_far_scale"])     || 0.6,
+      floorTopFrac: Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
+    });
+    this._retranslateAll();
 
     BasePet.inactivityMs = (Number(cfg["tama_inactivity_mins"]) || 5) * 60 * 1000;
 
@@ -332,7 +323,6 @@ export class PetManager {
   }
 
   private static async _onTamaAction(payload: TamaActionPayload): Promise<void> {
-    if (this.layoutMode === "static" && this.STATIC_BLOCKED_ACTIONS.has(payload.action_id)) return;
     const pet = this.pets.get(payload.user_id);
     if (pet) await pet.executeAction(payload.action_id, payload.input);
   }
@@ -344,33 +334,48 @@ export class PetManager {
   static shutdown(): void {
     this._scheduler?.stop();
     this.pets.clear();
+    this.cells.clear();
   }
 
-  /** Destroys every active pet and recreates it from its stored config, yielding
-   *  a clean DOM/FSM/timer state. Recovers pets that froze (e.g. mid-fight)
-   *  without restarting the connection. Triggered by the admin panel via the
-   *  "tama-reset" event. Identity (sprites, name, slot) is preserved; only the
-   *  broken runtime state is wiped. */
+  /** The cell currently assigned to a pet, or null. Used by actions (e.g. fight). */
+  static getCell(userId: number): Cell | null {
+    const c = this.cells.get(userId);
+    return c ? { ...c } : null;
+  }
+
+  /** The shared Grid2D, so actions can translate cells to pixels. */
+  static getGrid(): Grid2D { return this.grid; }
+
+  /** Ask the backend to move a pet to the free cell nearest a target. The resulting
+   *  tama-grid-update animates the pet. Used by fight/actions. */
+  static requestMove(userId: number, cellX: number, cellY: number): void {
+    this.transport.invoke("tama_grid_move", { userId, cellX, cellY }).catch(() => {});
+  }
+
+  /** Destroys every active pet and recreates it from its stored config, yielding a
+   *  clean DOM/FSM/timer state. Triggered by the admin panel via "tama-reset". */
   static async resetAll(): Promise<void> {
     if (!this.pets.size) return;
 
-    // Snapshot configs before tearing anything down.
     const configs = Array.from(this.pets.values()).map(p => p.config);
     for (const pet of this.pets.values()) pet.destroy();
     this.pets.clear();
 
-    // Recreate each pet fresh; spawn all in parallel so they pop back together.
     const fresh = configs.map(cfg => {
-      const pet = new BasePet(this.container, { ...cfg, floorY: this.floor.floorY });
+      const pet = new BasePet(this.container, cfg);
       pet.setDespawnCallback(() => {
         this.pets.delete(cfg.userId);
-        this.floor.remove(cfg.userId);
-        this.staticFloor?.releaseSlot(cfg.userId);
+        this.cells.delete(cfg.userId);
       });
       this.pets.set(cfg.userId, pet);
       return pet;
     });
     await Promise.all(fresh.map(p => p.spawn()));
+
+    // Re-assign cells from the backend so the recreated pets get placed.
+    for (const cfg of configs) {
+      this.transport.invoke("tama_grid_ensure", { userId: cfg.userId }).catch(() => {});
+    }
     console.info(`[tama] Reset ${fresh.length} pet(s)`);
   }
 

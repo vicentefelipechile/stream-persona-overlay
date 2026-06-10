@@ -5,6 +5,7 @@ use tauri::async_runtime::JoinHandle;
 use tokio::sync::broadcast;
 
 use crate::chat_filters::ChatFilters;
+use crate::grid::GridManager;
 use crate::streamer_mic::StreamerMic;
 
 // =========================================================================================================
@@ -52,6 +53,10 @@ pub struct AppState {
     /// Native microphone capture for the streamer persona mouth sync. Owns the
     /// active cpal session; broadcasts `streamer-speaking` to the overlay.
     pub streamer_mic: Arc<StreamerMic>,
+    /// Authoritative 2D grid that places every pet on a cell. Rust assigns cells
+    /// and broadcasts `tama-grid-*` so the overlay and OBS Browser Source render
+    /// the same positions instead of each deriving them from `window.innerWidth`.
+    pub grid: Arc<GridManager>,
 }
 
 impl AppState {
@@ -70,6 +75,7 @@ impl AppState {
             server_handle: Arc::new(Mutex::new(None)),
             chat_filters: Arc::new(Mutex::new(ChatFilters::default())),
             streamer_mic: Arc::new(StreamerMic::new()),
+            grid: Arc::new(GridManager::new()),
         }
     }
 
@@ -290,10 +296,23 @@ pub struct AppConfig {
     /// When true, TikTok guest pets use the chatter's TikTok profile picture as
     /// their sprite (takes priority over the bundled/custom default guest sprite).
     pub tama_guest_tiktok_avatar: bool,
-    // ── Static layout config ─────────────────────────────────────────────────
-    /// "dynamic" (free walk) or "static" (fixed queue at anchor edge)
+    // ── Grid layout config ───────────────────────────────────────────────────
+    /// Reinterpreted for the 2D grid: "static" => small floor grid (6x1),
+    /// anything else (incl. legacy "dynamic") => normal grid (150x30).
     pub tama_layout_mode: String,
-    /// "left" or "right" — which side the queue starts from
+    /// Doubles both grid axes when true (the "Matriz de alta precisión" toggle).
+    pub tama_grid_high_precision: bool,
+    /// Enables the perspective scale (front rows larger, back rows smaller).
+    pub tama_grid_perspective: bool,
+    /// Scale applied to pets on the front-most row (perspective on).
+    pub tama_grid_near_scale: f64,
+    /// Scale applied to pets on the back-most row (perspective on).
+    pub tama_grid_far_scale: f64,
+    /// Fraction of the viewport height where the floor band starts (0–1).
+    pub tama_grid_floor_top_frac: f64,
+    /// When true, the backend periodically nudges pets to a free neighbor cell.
+    pub tama_grid_wander_enabled: bool,
+    /// Legacy keys — kept so get_config/set_config don't drop them, no longer used.
     pub tama_static_anchor: String,
     pub tama_static_spacing_px: u32,
     // ── Streamer persona config ───────────────────────────────────────────────
@@ -351,6 +370,17 @@ pub struct ChatMessagePayload {
     pub mouth_open_path: String,
     pub mouth_closed_path: String,
     pub voice_id: String,
+}
+
+// ─── GridUpdatePayload ───────────────────────────────────────────────────────
+
+/// Emitted as `tama-grid-update` whenever the backend assigns or moves a pet to a
+/// cell. The overlay translates the cell to pixels (with a perspective scale).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GridUpdatePayload {
+    pub user_id: i64,
+    pub cell_x: u16,
+    pub cell_y: u16,
 }
 
 // ─── TtsStatePayload ─────────────────────────────────────────────────────────

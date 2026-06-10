@@ -177,14 +177,14 @@ stream-persona-overlay/
 |   |   +-- overlay-streamer.ts   # Entry point for overlay-streamer.html (OBS Browser Source — streamer persona)
 |   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
 |   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
+|   |   +-- overlay-notifications.ts # Pill toasts for overlay-notification events (Tauri + WS), used by all overlay views
 |   |   +-- alerts/               # Event-alert overlay system
 |   |   |   +-- AlertManager.ts   # Queues + renders tiktok-alert payloads (image/text/sound/transition)
 |   |   +-- streamer/             # Streamer persona overlay system
 |   |   |   +-- BlinkScheduler.ts # Timestamp-based eye-blink state machine (no per-frame recompute)
-|   |   |   +-- MicLevel.ts       # getUserMedia + AnalyserNode mic level meter (0–100, smoothed)
-|   |   |   +-- StreamerPersona.ts# 4-sprite renderer + rAF loop (mouth from mic, eyes from scheduler)
+|   |   |   +-- StreamerPersona.ts# 4-sprite renderer + rAF loop (mouth from streamer-speaking event, eyes from scheduler)
 |   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
-|   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, PetFloor, BasePet, PetScheduler, PetManager
+|   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, Grid2D, BasePet, PetScheduler, PetManager
 |   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, ConfettiAction, HypeTrainAction, _template
 |   |       +-- props/            # PropRenderer, PropAssetLoader
 |   |       +-- eventReactions.ts # chat-event listener → maps event_kind to pet action
@@ -240,6 +240,10 @@ stream-persona-overlay/
 |       |   +-- commands/
 |       |       +-- persona.rs    # /persona: set-username, upload-open, upload-closed, preview, remove
 |       |       +-- admin.rs      # /admin commands (streamer role only): get-user, toggle-active, delete-user
+|       +-- streamer_mic/
+|       |   +-- mod.rs            # Native mic capture (cpal/WASAPI) — StreamerMic, list_input_devices(), broadcasts streamer-speaking
+|       +-- grid/
+|       |   +-- mod.rs            # GridManager — backend-authoritative 2D pet grid; assigns cells, wander tick, broadcasts tama-grid-*
 |       +-- twitch/
 |       |   +-- mod.rs            # spawn_twitch_client() — TwitchIRC, on_message --> emit "chat-message"
 |       |   +-- eventsub.rs       # spawn_twitch_eventsub() — WS to Twitch EventSub, registers subs via Helix, emits "chat-event"
@@ -255,7 +259,7 @@ stream-persona-overlay/
 |           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config, disconnect_twitch, disconnect_tiktok
 |           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
 |           +-- alerts.rs         # set_tiktok_alert_asset, clear_tiktok_alert_asset, tiktok_test_alert
-|           +-- streamer.rs       # set_streamer_sprite, reset_streamer_sprite
+|           +-- streamer.rs       # set_streamer_sprite, reset_streamer_sprite, streamer_list_mics, streamer_mic_apply
 |
 +-- index.html                    # Admin panel HTML
 +-- overlay.html                  # Overlay window HTML (chroma key, Tauri window)
@@ -291,7 +295,7 @@ users        -- discord_id (UNIQUE), display_name, twitch_username, tiktok_usern
 personas     -- user_id (UNIQUE FK), mouth_open_path, mouth_closed_path
 config       -- key TEXT PRIMARY KEY, value TEXT  (key-value store)
 message_log  -- platform, username, message, user_id (nullable FK), shown, event_kind (DEFAULT 'chat'), amount (nullable), dropped_reason (nullable TEXT)
-pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x, is_sleeping
+pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x (legacy), cell_x, cell_y, is_sleeping
 ```
 
 > **`message_log.dropped_reason`**: When a chat message is filtered by the anti-spam system, `log_message_dropped()` inserts a row with `dropped_reason` set to one of `"cooldown"`, `"duplicate"`, `"rate_window"`, or `"global_rate"`. Allowed messages use the standard `log_message()` function and have `dropped_reason = NULL`. The logs view displays dropped messages with a badge and reduced opacity.
@@ -384,9 +388,15 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_guest_mouth_open_path` | `""` | Absolute path to a custom guest mouth-open PNG (empty = use bundled `guest_open.png`) |
 | `tama_guest_mouth_closed_path` | `""` | Absolute path to a custom guest mouth-closed PNG (empty = use bundled `guest_closed.png`) |
 | `tama_guest_tiktok_avatar` | `"true"` | When `"true"`, TikTok guest pets use the chatter's TikTok profile picture (`data.user.profilePictureUrl`) as their sprite, taking priority over the bundled/custom guest sprite. The avatar is an `https` URL passed straight to the `<img>` (PetManager skips `convertFileSrc` for `http(s)` paths). |
-| `tama_layout_mode` | `"dynamic"` | `"dynamic"` = pets walk freely; `"static"` = pets queue at a fixed anchor edge |
-| `tama_static_anchor` | `"left"` | Which edge the queue starts from (`"left"` or `"right"`). Only used when `tama_layout_mode = "static"` |
-| `tama_static_spacing_px` | `"100"` | Pixel gap between consecutive pet slots in static mode |
+| `tama_layout_mode` | `"dynamic"` | Reinterpreted for the 2D grid: `"static"` => small floor grid (6×1), anything else (incl. legacy `"dynamic"`) => normal grid (150×30). Changing it rebuilds the grid live (`GridManager::reconfigure`). |
+| `tama_grid_high_precision` | `"false"` | Doubles both grid axes (the "Matriz de alta precisión" toggle: 6×1→12×2, 150×30→300×60). Rebuilds the grid live. |
+| `tama_grid_perspective` | `"true"` | Front rows (higher `cellY`) render larger, back rows smaller. Applied live by the overlay (`Grid2D`). |
+| `tama_grid_near_scale` | `"1.3"` | Sprite scale on the front-most row when perspective is on. |
+| `tama_grid_far_scale` | `"0.6"` | Sprite scale on the back-most row when perspective is on. |
+| `tama_grid_floor_top_frac` | `"0.55"` | Fraction of viewport height where the floor band starts (0–1). |
+| `tama_grid_wander_enabled` | `"true"` | When on, the backend periodically nudges pets to a free neighbor cell (wander tick on a tokio interval). Requires an overlay reload to start/stop the task. |
+| `tama_static_anchor` | `"left"` | **Legacy** — no longer used by the grid system (kept so get/set config don't drop it). |
+| `tama_static_spacing_px` | `"100"` | **Legacy** — no longer used by the grid system. |
 | **Streamer persona** | | |
 | `streamer_persona_enabled` | `"true"` | Master toggle for the streamer persona overlay (`overlay-streamer.html`) |
 | `streamer_sprite_mo_eo` | `""` | Path to the mouth-open / eyes-open sprite (saved by `set_streamer_sprite`) |
@@ -399,7 +409,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `streamer_size_px` | `"512"` | Sprite display size in pixels |
 | `streamer_anchor` | `"center"` | Horizontal anchor: `left`/`center`/`right` |
 | `streamer_mic_threshold` | `"20"` | Mic level (0–100) above which the mouth opens |
-| `streamer_mic_device_id` | `""` | Selected microphone deviceId (empty = system default) |
+| `streamer_mic_device_id` | `""` | Selected cpal input device name (empty = system default). Captured natively in Rust — see `streamer_mic/` |
 | **Anti-spam — Twitch chat** | | |
 | `twitch_chat_antispam_preset` | `"off"` | Named preset: `off`, `light`, `normal`, `strict`, `lockdown`, `custom` |
 | `twitch_chat_user_cooldown_ms` | `"0"` | Min ms between two messages from the same Twitch user (0 = disabled) |
@@ -493,7 +503,7 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `set_chroma_color` | `invoke("set_chroma_color", { color })` | Update color and emit `chroma-color-changed` |
 | `save_animation_config` | `invoke("save_animation_config", { animation_in, animation_out, visible_duration_secs, idle_wiggle, idle_breathe, glow_effect, glow_color, outline_effect, persona_size_px, audio_threshold, max_visible_personas })` | Persist all animation fields at once and emit `animation-config-changed` |
 | `disconnect_twitch` | `invoke("disconnect_twitch")` | Abort Twitch IRC + EventSub clients |
-| `disconnect_tiktok` | `invoke("disconnect_tiktok")` | Abort TikTok WS client |
+| `disconnect_tiktok` | `invoke("disconnect_tiktok")` | Abort TikTok WS client and emit an `info`-level `overlay-notification` ("TikTok desconectado") via `notify_overlay` |
 
 ### Tamagotchi (`commands/tamagotchi.rs`)
 
@@ -501,9 +511,12 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 |---|---|---|
 | `tama_trigger_action` | `invoke("tama_trigger_action", { user_id, action_id, input })` | Emit `tama-action` event to overlay so PetManager forwards it to the target pet |
 | `tama_set_enabled` | `invoke("tama_set_enabled", { enabled })` | Persist `tama_enabled` config key |
-| `tama_get_pet_states` | `invoke<PetStateRow[]>("tama_get_pet_states")` | Return all active pet rows joined with display_name from users |
-| `tama_upsert_pet_state` | `invoke("tama_upsert_pet_state", { user_id, display_name, floor_x, is_sleeping })` | Sync pet position/state to DB (called by overlay on spawn and state change) |
-| `tama_remove_pet_state` | `invoke("tama_remove_pet_state", { user_id })` | Delete pet row from DB (called by overlay on despawn) |
+| `tama_get_pet_states` | `invoke<PetStateRow[]>("tama_get_pet_states")` | Return all active pet rows (incl. `cell_x`/`cell_y`) joined with display_name from users |
+| `tama_upsert_pet_state` | `invoke("tama_upsert_pet_state", { user_id, display_name, cell_x, cell_y, is_sleeping })` | Sync a pet's cell + sleep state to DB (called by overlay on spawn / state change) |
+| `tama_remove_pet_state` | `invoke("tama_remove_pet_state", { user_id })` | Free the pet's grid cell (broadcasts `tama-grid-remove`) and delete its DB row (overlay on despawn) |
+| `tama_grid_ensure` | `invoke("tama_grid_ensure", { user_id })` | Ensure the pet has a grid cell (allocating one on first call) and broadcast `tama-grid-update`. Called by the overlay when a pet spawns. The backend is authoritative for placement. |
+| `tama_grid_get_state` | `invoke<GridSnapshot>("tama_grid_get_state")` | Returns `{ cols, rows, cells: GridUpdatePayload[] }` so a client connecting after pets exist can rehydrate dims + every cell. |
+| `tama_grid_move` | `invoke("tama_grid_move", { user_id, cell_x, cell_y })` | Move a pet to the free cell nearest a target (the grid resolves it) and broadcast the update. Used by actions (e.g. fight) instead of hard-coded screen positions. |
 | `set_guest_image` | `invoke("set_guest_image", { imageType: "open" \| "closed", imageData: number[] })` | Upload a custom PNG/JPEG sprite for guest pets (max 2 MB). Resizes to 512×512 PNG, saves to `{app_data_dir}/guest_open\|closed.png`, updates `tama_guest_mouth_open\|closed_path` config key and emits `tama-config-changed`. |
 | `reset_guest_image` | `invoke("reset_guest_image", { imageType: "open" \| "closed" })` | Clear the custom guest image, reverting to the bundled default. |
 
@@ -532,6 +545,8 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 |---|---|---|
 | `set_streamer_sprite` | `invoke("set_streamer_sprite", { slot: "mo_eo" \| "mc_eo" \| "mo_ec" \| "mc_ec", imageData: number[] })` | Save a streamer persona sprite for the given mouth×eyes slot. These are the streamer's own assets, so bytes are written **verbatim at full quality** (png/jpg/webp/gif, max 25 MB, **no resize / no re-encode** — only the header is sniffed to validate + pick the extension) to `{app_data_dir}/streamer_{slot}.{ext}`. Writes the path into the matching `streamer_sprite_*` key, refreshes cache, emits `streamer-config-changed`. |
 | `reset_streamer_sprite` | `invoke("reset_streamer_sprite", { slot })` | Clear the slot's `streamer_sprite_*` key (file left on disk). |
+| `streamer_list_mics` | `invoke<MicDevice[]>("streamer_list_mics")` | List native audio input devices (`{ id, name }`, `id` = cpal device name, empty = system default) for the panel's device picker. Replaces the old browser `navigator.mediaDevices.enumerateDevices()`. |
+| `streamer_mic_apply` | `invoke("streamer_mic_apply")` | (Re)configure native mic capture from the current `streamer_persona_enabled` / `streamer_mic_device_id` / `streamer_mic_threshold` config. Called by the panel after toggling the persona, changing device, or moving the threshold; also called once at startup in `lib.rs`. |
 
 ---
 
@@ -550,14 +565,19 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | `animation-config-changed` | `AppConfig` (full) | `commands/config.rs` (`save_animation_config`) | overlay — reload animation params | No |
 | `tama-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `tama_`) | `PetManager._onTamaConfigChanged` — applies all tama settings live | Yes |
 | `streamer-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `streamer_`), `commands/streamer.rs` (sprite set/reset) | `StreamerPersona.applyConfig` (overlay-streamer.ts) — applies sprites/timing/anim live | Yes |
-| `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync + returnToFloor) | Yes |
+| `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync only) | Yes |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
 | `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `PetManager` (overlay.ts) | Yes |
+| `tama-grid-config` | `{ cols, rows }` | `grid/mod.rs` (`reconfigure`) | `PetManager` → `Grid2D.setDimensions` | Yes |
+| `tama-grid-update` | `GridUpdatePayload` | `grid/mod.rs` (assign / move / wander) | `PetManager` → `BasePet.applyCell` | Yes |
+| `tama-grid-remove` | `{ user_id }` | `grid/mod.rs` (`release`) | `PetManager` (drops local cell) | Yes |
 | `twitch-connected` | `string` (channel) | `twitch/mod.rs` (on RoomState) | `main.ts` | No |
 | `twitch-error` | `string` (error msg) | `twitch/mod.rs` | `main.ts` | No |
-| `tiktok-connected` | `string` (username) | `tiktok/mod.rs` (on handshake success) | `main.ts` | No |
-| `tiktok-error` | `string` (error msg) | `tiktok/mod.rs` | `main.ts` | No |
+| `tiktok-connected` | `string` (username) | `tiktok/mod.rs` (on handshake success), via `emit_tiktok_status` | `main.ts` | No |
+| `tiktok-error` | `string` (error msg) | `tiktok/mod.rs` (on connect failure **or** mid-stream WS read error), via `emit_tiktok_status` | `main.ts` | No |
+| `overlay-notification` | `{ level: "success" \| "error" \| "info", message: string }` | `tiktok/mod.rs` (`notify_overlay`, called from `emit_tiktok_status` and `disconnect_tiktok`) | `overlay-notifications.ts` (all overlay views, via `app.emit_to("overlay", ...)` for the Tauri window) | Yes |
+| `streamer-speaking` | `{ speaking: boolean }` | `streamer_mic/mod.rs` (native cpal capture, threshold + hang-time) | `overlay-streamer.ts` → `StreamerPersona.setSpeaking()` | Yes (WS only — no Tauri window for this overlay) |
 | `discord-ready` | `string` (bot username) | `discord/mod.rs` | `main.ts` | No |
 | `discord-error` | `string` (error msg) | `discord/mod.rs` | `main.ts` | No |
 
@@ -618,6 +638,18 @@ interface TtsStatePayload {
   speaking: boolean; // true = TTS started, false = TTS finished
 }
 ```
+
+### `GridUpdatePayload` (2D pet grid)
+
+```typescript
+interface GridUpdatePayload {
+  user_id: number;
+  cell_x: number;   // column, 0 = left
+  cell_y: number;   // row, 0 = back of the floor band (far/small), higher = front (near/large)
+}
+```
+
+> **Backend-authoritative pet positioning.** `grid/mod.rs` (`GridManager`, an `Arc` in `AppState`, modeled on `streamer_mic`) owns every pet's cell and the occupancy set. It assigns cells, runs a wander tick (tokio interval), and resolves the nearest free cell for fight/actions, broadcasting `tama-grid-*` over BOTH `app.emit` and `broadcast_ws`. The overlay only translates cell → pixels via `src/overlay/tamagotchi/core/Grid2D.ts` (floor band + perspective scale). There is no local idle-walk loop in `BasePet` anymore — it just renders the cell the backend assigns. Dimensions are fixed per mode: small 6×1 (`tama_layout_mode="static"`) / normal 150×30, doubled by `tama_grid_high_precision`.
 
 > **Important:** `mouth_open_path` / `mouth_closed_path` are absolute OS paths. To use them as `<img>` `src` in the frontend, you **must** convert them using `convertFileSrc(path)` from `@tauri-apps/api/core`. This transforms the path into Tauri's `asset://localhost/` protocol.
 
@@ -774,6 +806,8 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 - Always reload fresh state with `load*()` methods when entering a view.
 - Use `showToast(message, "success" | "error" | "info")` for notifications.
+- `showToast` is **focus-aware**: if `document.hasFocus()` is false, the toast is queued (`toastQueue`, capped at `MAX_QUEUED = 8`) instead of rendered, so it isn't missed while the user is looking at the overlay/OBS instead of the panel. The queue is flushed via `flushToastQueue()` on the panel's `"focus"` and first `"pointerdown"` events (`wireFocusFlush()`, wired once).
+- For notifications that the streamer should see even when the panel isn't focused (e.g. TikTok connection state), also emit `overlay-notification` (see `notify_overlay` in `tiktok/mod.rs`) — it is rendered by `overlay-notifications.ts` directly on the overlay/OBS Browser Source.
 
 ### Overlay Window (`src/views/overlay.ts`)
 
@@ -829,7 +863,8 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 - `spawn_tiktok_client(state, app_handle)`: connects via WebSocket to TikTool, building the URL from config as `{tiktok_ws_endpoint}/?uniqueId={username}&apiKey={tiktok_api_key}` (a leading `@` in the username is stripped). The `/` before the query string is **required** — without a path the handshake request line is malformed and Cloudflare (fronting `api.tik.tools`) returns 400.
 - If `tiktok_username` or `tiktok_api_key` is empty, returns without connecting.
-- Emits `tiktok-connected` (username) only after the WS handshake actually succeeds, and `tiktok-error` (message) on failure — so the UI reflects the real connection state rather than a premature "success".
+- Connection state changes (connect success, connect failure, mid-stream WS read error) all route through `emit_tiktok_status(app, state, status)` with `TiktokStatus::Connected(username)` or `TiktokStatus::Error(message)`. This single function emits the legacy `tiktok-connected`/`tiktok-error` events for `main.ts` **and** calls `notify_overlay` so the streamer also sees the connection state change on the overlay (not just the panel) — this fixed a previously-silent mid-stream disconnect that only logged to the terminal.
+- `notify_overlay(app, state, level, message)` emits `overlay-notification` to the Tauri "overlay" window and broadcasts it over WS, so every overlay view (Tauri + OBS Browser Source) shows the toast via `overlay-notifications.ts`.
 - Each frame is JSON `{ "event": "<type>", "data": { ... } }`. **The username is nested at `data.user.uniqueId`** (TikTool's real shape); use the `extract_unique_id(data)` helper, which falls back to a flat `data.uniqueId`. The chat text is `data.comment`.
 - Every raw frame is logged at `info!` as `[tiktok/raw] {...}` (diagnostic — lower to `debug!` if too noisy), and each event as `[tiktok] evento recibido: '<type>'`.
 - Handles multiple event types with per-event config gates:
@@ -859,8 +894,17 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 - Wrapper over the `tts` crate abstracting SAPI (Windows), NSSpeechSynthesizer (macOS), and espeak (Linux).
 - `speak_with_events(text, voice_id, user_id, app_handle, ws_tx)` emits `tts-state { user_id, speaking: true }` before speaking and `speaking: false` after finishing. Also broadcasts both events via `ws_tx` so the OBS Browser Source overlay receives lip-sync events.
-- TTS events are consumed by `PetManager._onTtsState()` to drive pet lip-sync and trigger `returnToFloor()`.
+- TTS events are consumed by `PetManager._onTtsState()` to drive pet lip-sync (mouth open/closed). Positioning is unrelated — it is owned by the backend grid.
 - TTS may not be available in all environments — handle errors with `tracing::warn!` without propagating panics.
+
+### `streamer_mic/`
+
+- Captures the streamer's microphone **natively** (cpal/WASAPI on Windows) in the backend — the `overlay-streamer.html` OBS Browser Source never calls `getUserMedia` and never triggers a mic permission prompt.
+- `list_input_devices()` enumerates cpal input devices for the panel's picker (`streamer_list_mics` command).
+- `StreamerMic::apply(state, enabled, device_id, threshold)` (re)configures capture: starts a dedicated `"streamer-mic"` thread when enabled, stops it when disabled, restarts on device change, and updates the threshold live via an `AtomicU32` (no restart) when only the threshold changed. Called from `streamer_mic_apply`, from `lib.rs` at startup, and indirectly whenever the panel saves `streamer_persona_enabled` / `streamer_mic_device_id` / `streamer_mic_threshold`.
+- `cpal::Stream` is `!Send`, so the stream is owned entirely by its capture thread; only atomics (`running: AtomicBool`, `threshold: AtomicU32`, raw level) cross the thread boundary.
+- The capture thread runs a ~60 Hz poll loop: asymmetric smoothing (rises fast, falls slow) on the RMS level (`rms_to_level`, RMS × 200 clamped to 0–100), compares against `threshold`, and applies a 120 ms hang time so the mouth doesn't snap shut between syllables.
+- Only emits `streamer-speaking { speaking: bool }` via `state.broadcast_ws(...)` when the speaking state actually flips — no audio data ever leaves the backend.
 
 ### `db/`
 
@@ -958,14 +1002,13 @@ Twitch/TikTok chat: message from "myuser"
   --> On match: builds ChatMessagePayload
   --> app_handle.emit("chat-message", payload)  -->  WebView "overlay"
   --> PetManager._onChatMessage():
-      --> If pet does not exist: BasePet constructed at floorY, spawn() animation
-      --> if tama_jump_on_speak=true: pet.executeAction("jump") in place, done
-      --> else: pet.onChatMessage() --> FSM "approaching" --> pet walks to center (floor level, 200 px/s)
-      --> FSM "talking"
+      --> If pet does not exist: BasePet constructed + spawn() animation, then tama_grid_ensure
+          (backend assigns a cell, broadcasts tama-grid-update, pet snaps/glides to it)
+      --> if tama_jump_on_speak=true: pet.executeAction("jump") in place
+      --> else: pet.onChatMessage() (resets inactivity timer / wakes if asleep)
   --> (parallel) TTS reads the message
-      --> tts-state { speaking: true }  --> pet opens mouth
-      --> tts-state { speaking: false } --> pet closes mouth, returnFromFocus()
-      --> FSM "returning" --> pet walks back to originX at 200 px/s --> "idle", idle-walk resumes
+      --> tts-state { speaking: true }  --> pet opens mouth (lip-sync only)
+      --> tts-state { speaking: false } --> pet closes mouth
 ```
 
 ---
@@ -981,7 +1024,7 @@ Twitch/TikTok chat: message from "myuser"
 
 ## 15. Tamagotchi Pet System
 
-Persistent chat-user pets that walk along the bottom of the overlay window. Each registered viewer who sends a chat message spawns a small pet (their persona images). Pets idle-walk across the floor, react to chat events, execute random or admin-triggered actions, sleep after inactivity, and eventually despawn.
+Persistent chat-user pets placed on a backend-authoritative 2D grid over the bottom of the overlay window. Each registered viewer who sends a chat message spawns a small pet (their persona images). The Rust grid assigns each pet a cell; pets wander between free cells, react to chat events, execute random or admin-triggered actions, sleep after inactivity, and eventually despawn. See §17 for the grid model.
 
 ### Architecture
 
@@ -989,12 +1032,15 @@ Persistent chat-user pets that walk along the bottom of the overlay window. Each
 overlay.ts
   --> PetManager.init(container)  (static singleton, src/overlay/tamagotchi/core/)
         |
-        +-- listen("chat-message")  --> _onChatMessage  --> spawn / wake BasePet
-        +-- listen("tts-state")     --> _onTtsState     --> lip-sync mouth + returnToFloor
-        +-- listen("tama-action")   --> _onTamaAction   --> pet.executeAction()
+        +-- listen("chat-message")    --> _onChatMessage  --> spawn / wake BasePet, then tama_grid_ensure
+        +-- listen("tts-state")       --> _onTtsState     --> lip-sync mouth
+        +-- listen("tama-action")     --> _onTamaAction   --> pet.executeAction()
+        +-- listen("tama-grid-config")--> Grid2D.setDimensions + re-translate all pets
+        +-- listen("tama-grid-update")--> pet.applyCell(cell -> Grid2D.cellToPx)
+        +-- listen("tama-grid-remove")--> drop local cell
         |
         +-- PetScheduler  (random action roll every 8 s at 15% probability)
-        +-- PetFloor      (floor Y + collision-free spawn X)
+        +-- Grid2D        (cell -> px translator + perspective; backend owns the cells)
 
   --> setupEventReactions()  (src/overlay/tamagotchi/eventReactions.ts)
         |
@@ -1007,14 +1053,13 @@ overlay.ts
 
 | File | Role |
 |---|---|
-| `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle ↔ approaching → talking → returning ↔ approaching (re-focus), returning → idle, idle → action → idle, idle → sleeping → despawning |
+| `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle, idle → action → idle, idle → sleeping → despawning. (The old approaching/talking/returning focus states are gone — pets no longer walk to a center; the backend places them.) |
 | `BaseAction.ts` | Abstract base for all actions. Uses `import type { BasePet }` (avoids circular dep). Provides `wait(ms)`, `cancelled` flag, `onCancel()` hook |
 | `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
-| `PetFloor.ts` | Manages the floor Y and per-pet X position slots with collision avoidance (20-attempt fallback) — used in `"dynamic"` layout mode |
-| `StaticFloor.ts` | Queue-based slot system for `"static"` layout mode. Assigns incrementing slot indices from a left/right anchor; slots are never compacted on release |
-| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, idle-walk loop (delta-time, `walkSpeedBase = 36` static mutable; each pet gets a random multiplier 0.6×–1.5× at construction), mouth images, focus approach/return (`FOCUS_SPEED_PX_PER_S = 200`, stays on floor, returns to `originX`), sleep, despawn, and DB persistence via `tama_upsert_pet_state` / `tama_remove_pet_state`. The idle-walk loop uses a decision timer (1–8 s) that randomly pauses the pet, changes direction, or continues walking. Boundary hits clamp `pos.x` and flip direction. `resumeIdleWalk()` restarts the idle RAF loop without FSM re-entry (used by `FightAction`). `markTtsFinished()` handles the TTS-before-arrival race. `updateSize(px)` and `updateWalkSpeed(base)` apply runtime config changes to existing pets. `BasePet.walkSpeedBase` and `BasePet.inactivityMs` are static mutable — changing them affects all pets from the next cycle onward. |
-| `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool. `enabledActionIds` further restricts the pool to the actions listed in `tama_enabled_actions`. `update(checkSecs, probability, enabledActions?)` restarts the interval with new parameters. |
-| `PetManager.ts` | Static singleton. Owns the `Map<userId, BasePet>`. Bootstraps PetFloor + PetScheduler. Routes events to pets. `_onTamaConfigChanged()` handles `tama-config-changed` events and applies all settings live: enabled, maxPets, petSizePx (resizes existing pets), walkSpeed, inactivityMs, scheduler interval/probability/pool. |
+| `Grid2D.ts` | Pure cell → pixel translator. Holds the grid dimensions + perspective config received from the backend (`tama-grid-config` / `get_config`). `cellToPx(cellX, cellY, petSizePx)` maps a cell onto the floor band (`floorTopFrac`..bottom) and returns `{ left, top, scale, z }`. Perspective: `scale = lerp(farScale, nearScale, cellY/(rows-1))`. Holds NO authoritative pet state. |
+| `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, mouth images, sleep, despawn, and DB persistence via `tama_upsert_pet_state` (now `cellX`/`cellY`) / `tama_remove_pet_state`. **No local walk loop** — `applyCell(cell, cellPx, animateMove)` is called by PetManager to glide/snap the pet to the backend-assigned cell. The perspective `scale()` + horizontal flip live on `.pet-inner` (combined transform), leaving the outer `.el` transform free for actions. `updateSize(px)` / `updateNameFontSize(px)` apply runtime config to existing pets. `BasePet.inactivityMs` is static mutable. |
+| `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool. `enabledActionIds` further restricts the pool to `tama_enabled_actions`. `update(checkSecs, probability, enabledActions?)` restarts the interval. |
+| `PetManager.ts` | Static singleton. Owns `Map<userId, BasePet>` + a `Map<userId, cell>` mirror + the shared `Grid2D`. Listens to chat-message/tts-state/tama-action and the `tama-grid-*` events; on spawn it calls `tama_grid_ensure` so the backend assigns a cell. `getCell()`, `getGrid()`, `requestMove(userId, cellX, cellY)` (→ `tama_grid_move`) are used by actions (fight). Re-translates every pet's cell → px on window resize (cells stay authoritative). `_onTamaConfigChanged()` applies enabled/maxPets/petSizePx/perspective/floorTopFrac/inactivity/scheduler live. |
 
 ### Actions (`src/overlay/tamagotchi/actions/`)
 
@@ -1025,12 +1070,12 @@ Each action file calls `ActionRegistry.register(MyAction)` at the bottom — imp
 | `idle_walk` | `IdleWalkAction` | No-op placeholder; excluded from random pool |
 | `jump` | `JumpAction` | Squash-and-stretch jump loop |
 | `popcorn` | `PopcornAction` | Pet holds a popcorn bucket and watches chat |
-| `fight` | `FightAction` | Two pets charge toward each other, shake, show a fight cloud, bounce away. **Blocked in static layout mode** (guard at start of `execute()`). Cloud is positioned at `top: floorY - 80px` (NOT `bottom`). After all WAAPI animations complete, `el.style.transform` is explicitly cleared on both pets to prevent residual translateX from desynchronising `pos.x` and visual position. Rival's idle walk is restarted via `rival.resumeIdleWalk()` (FSM re-entry is not possible since rival never left "idle"). |
+| `fight` | `FightAction` | Two pets converge on a meeting cell (the grid's free cell nearest their midpoint via `PetManager.requestMove` → `tama_grid_move`), shake, show a fight cloud, bounce away, then request a move back to their original cells. Movement is backend-authoritative; only the shake/cloud/impact FX run locally. After WAAPI FX, `el.style.transform` is cleared on both pets so it doesn't fight the cell transform. |
 | `explode` | `ExplodeAction` | Tremor, flash, particle burst, then respawn with spring |
 | `dance` | `DanceAction` | Rhythmic rotate + translateY loop |
 | `sleep` | `SleepAction` | Pet tilts + ZZZ props; cancelled on next chat message |
 | `confetti` | `ConfettiAction` | 10 colored DOM particles burst from pet position; probability 0 (event-triggered only) |
-| `hype_train` | `HypeTrainAction` | 🚂 emoji text scrolls across the floor from left to right; probability 0 (event-triggered only). **Blocked in static layout mode** (guard at start of `execute()`). |
+| `hype_train` | `HypeTrainAction` | 🚂 emoji text scrolls across the floor from left to right; probability 0 (event-triggered only). |
 
 To add a new action, copy `_template.ts`, implement `execute()`, set `meta.id` and `meta.probability`, and call `ActionRegistry.register()` at the bottom. Import the file in `PetManager.ts` to activate it.
 
@@ -1043,19 +1088,19 @@ To add a new action, copy `_template.ts`, implement `execute()`, set `meta.id` a
 
 ```
 chat-message (new user)
-  --> BasePet constructed  (DOM element placed at floorY, initial X from PetFloor)
-  --> pet.spawn()          (pop-in animation, then FSM → "idle")
-  --> if jumpOnSpeak: pet.executeAction("jump") in place, done
-  --> else: pet.onChatMessage()
-        --> saves originX = pos.x
-        --> FSM → "approaching" → walks to center at floor level (200 px/s)
-        --> FSM → "talking"
-  --> tts-state speaking=false
-  --> pet.returnFromFocus()  (FSM → "returning" → walks back to originX at 200 px/s → "idle", idle-walk resumes)
+  --> BasePet constructed   (DOM element; position applied later from the grid)
+  --> pet.spawn()           (pop-in animation, then FSM → "idle")
+  --> PetManager calls tama_grid_ensure(user_id)
+        --> backend assigns a free cell, broadcasts tama-grid-update
+        --> PetManager.applyCell(...) snaps/glides the pet to its cell px
+  --> if jumpOnSpeak: pet.executeAction("jump") in place
+  --> else: pet.onChatMessage()  (just resets the inactivity timer / wakes if asleep)
 
-note: if tts-state speaking=false arrives while still approaching,
-      pet.markTtsFinished() sets pendingReturn=true; _doApproach() triggers
-      returnFromFocus() immediately upon arrival instead of entering "talking".
+backend wander tick (every tama_action_check_secs, if tama_grid_wander_enabled)
+  --> GridManager nudges each pet to a free neighbor cell
+  --> tama-grid-update --> pet.applyCell(..., animateMove=true) glides it
+
+tts-state speaking=true/false --> pet.setMouth(open/closed)  (lip-sync only)
 
 5 min inactivity
   --> FSM → "sleeping"  (PropRenderer shows ZZZ, DB persists is_sleeping=true)
@@ -1069,7 +1114,7 @@ chat-message (returning user while sleeping)
 
 **Layout & Components:**
 - **Header** — Tamagotchi title with system ON/OFF toggle (teal accent, status text)
-- **Config card** — 2-column grid of custom-styled range sliders (pet size, max visible, walk speed, inactivity, action interval, probability)
+- **Config card** — grid of custom-styled range sliders (pet size, max visible, inactivity, action interval, probability, name size) + grid controls: matrix size mode (Piso estático 6×1 / Normal 150×30), "Matriz de alta precisión" toggle, "Movimiento ambiental" toggle, "Efecto de perspectiva" toggle with near/far scale sliders, and the floor-band start slider
   - Each slider has `.tama-slider-item` with label + teal value display
   - Custom range input styling (`.tama-range`) with teal thumb and glow on focus
   - **"Saltar al hablar" toggle** (`.tama-setting-row`) — pets jump in place instead of walking to chat message
@@ -1171,6 +1216,9 @@ OBS Browser Source  -->  GET http://localhost:6767/overlay
 { "event": "chat-message", "payload": { ...ChatMessagePayload } }
 { "event": "tts-state",    "payload": { "user_id": 1, "speaking": true } }
 { "event": "tama-action",  "payload": { "user_id": 1, "action_id": "jump", "input": {} } }
+{ "event": "tama-grid-config", "payload": { "cols": 150, "rows": 30 } }
+{ "event": "tama-grid-update", "payload": { "user_id": 1, "cell_x": 80, "cell_y": 20 } }
+{ "event": "tama-grid-remove", "payload": { "user_id": 1 } }
 { "event": "chroma-color-changed", "payload": "#00FF00" }
 { "event": "overlay-will-show",    "payload": null }
 ```
@@ -1178,9 +1226,14 @@ OBS Browser Source  -->  GET http://localhost:6767/overlay
 **Client → Server (commands):**
 ```json
 { "id": "uuid-v4", "command": "get_config_cmd" }
-{ "id": "uuid-v4", "command": "tama_upsert_pet_state", "args": { "userId": 1, "floorX": 200, "isSleeping": false, "displayName": "..." } }
+{ "id": "uuid-v4", "command": "tama_upsert_pet_state", "args": { "userId": 1, "cellX": 80, "cellY": 20, "isSleeping": false, "displayName": "..." } }
 { "id": "uuid-v4", "command": "tama_remove_pet_state", "args": { "userId": 1 } }
+{ "id": "uuid-v4", "command": "tama_grid_ensure",   "args": { "userId": 1 } }
+{ "id": "uuid-v4", "command": "tama_grid_move",     "args": { "userId": 1, "cellX": 75, "cellY": 18 } }
+{ "id": "uuid-v4", "command": "tama_grid_get_state" }
 ```
+
+> The grid WS commands have AppState-only variants in `grid/mod.rs` (`ensure_ws` / `move_to_nearest_free_ws` / `release_ws`) because the WS dispatcher has an `AppState` but no `AppHandle` — they broadcast over the WS fan-out only (the OBS Browser Source has no Tauri window to `emit` to).
 
 **Server → Client (responses):**
 ```json
@@ -1250,24 +1303,17 @@ That panic fires inside `start_server` **before the socket `bind`**. Because the
 2. Immediately after, broadcast: `state.broadcast_ws("my-event", &payload)`
 3. In `overlay-browser.ts` or wherever needed: `wsListen("my-event", handler)`
 
-## 17. Focus Animation (chat-message response)
+## 17. Pet positioning — backend-authoritative 2D grid
 
-When a user sends a chat message and TTS is enabled, the pet executes a "focus" cycle:
+Pet placement is owned entirely by Rust (`grid/mod.rs`, modeled on `streamer_mic`). The overlay never decides where a pet stands; it renders the cell the backend assigns. See §8 (`GridUpdatePayload`) and §16 (core modules / lifecycle) for the full flow.
 
-1. **originX saved** — `BasePet` records `pos.x` at the moment `onChatMessage()` is first called. Subsequent messages while already focused do not overwrite it.
-2. **Approach** — pet walks to `window.innerWidth / 2 - sizePx / 2` on the floor at `FOCUS_SPEED_PX_PER_S = 200 px/s`. No vertical movement — the pet stays on `floorY` throughout.
-3. **Talking** — FSM state while TTS plays. `setMouth(true/false)` drives lip-sync.
-4. **Return** — `returnFromFocus()` walks the pet back to `originX` at the same 200 px/s speed, then clears `originX` and transitions to `idle`.
-
-### Race condition guard (`pendingReturn`)
-
-If `tts-state { speaking: false }` arrives before the pet finishes walking to center:
-- `PetManager._onTtsState` calls `pet.markTtsFinished()` which sets `pendingReturn = true`.
-- When `_doApproach()` arrives at center, it detects `pendingReturn`, skips entering "talking", and immediately calls `returnFromFocus()`.
-
-### Re-focus on new message while returning
-
-`PetStateMachine` allows `returning → approaching`. `onChatMessage()` handles this case: it aborts the current `moveTo`, keeps `originX` intact, and re-runs `_doApproach()`.
+- **Grid model** — the screen is a `cols × rows` grid laid over a floor band. Cell `(0,0)` is the back-left (far/small); higher `cellY` is the front (near/large). Dimensions are fixed per mode: small `6×1` (`tama_layout_mode = "static"`) / normal `150×30`, doubled when `tama_grid_high_precision` is on.
+- **Assignment** — on spawn the overlay calls `tama_grid_ensure(user_id)`; the backend allocates the first free cell (front-center bias) and broadcasts `tama-grid-update`. The pet `applyCell`s to the resolved pixels.
+- **Wander** — if `tama_grid_wander_enabled`, a tokio interval task (`GridManager::wander_tick`, period = `tama_action_check_secs`) nudges each pet to a random free 8-neighbor cell; only moved pets emit an update. This replaces the old free-walk loop.
+- **Actions** — fight (and any movement action) call `PetManager.requestMove(userId, cellX, cellY)` → `tama_grid_move`, which resolves the free cell nearest the target via an expanding ring search. The overlay animates the resulting `tama-grid-update`.
+- **Perspective** — `Grid2D.cellToPx` applies `scale = lerp(farScale, nearScale, cellY/(rows-1))` when `tama_grid_perspective` is on, so front-row pets are larger. The scale + horizontal flip live on `.pet-inner`, leaving `.el` free for action transforms.
+- **Resize** — `PetManager` re-translates each pet's authoritative cell to new pixels on window resize; cells never change, only their pixel projection.
+- **Rehydration** — a client connecting after pets exist calls `tama_grid_get_state` to get dims + every cell.
 
 ### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
 
@@ -1281,14 +1327,15 @@ Every call to `set_config_cmd` with a key that starts with `tama_` causes Rust t
 |---|---|
 | `tama_enabled` | Stops/resumes processing chat messages |
 | `tama_max_pets` | New limit enforced on next spawn |
-| `tama_pet_size_px` | Resizes all existing pets and recalculates floor Y |
-| `tama_walk_speed` | Updates `BasePet.walkSpeedBase`; existing pets reroll their per-pet speed |
+| `tama_pet_size_px` | Resizes all existing pets |
 | `tama_inactivity_mins` | Updates `BasePet.inactivityMs`; takes effect on next timer reset |
 | `tama_action_check_secs` | Restarts PetScheduler interval |
 | `tama_action_probability` | Restarts PetScheduler with new probability |
 | `tama_enabled_actions` | Updates PetScheduler action pool immediately |
 | `tama_jump_on_speak` | Applies on the next chat message |
-| `tama_layout_mode` / `tama_static_anchor` / `tama_static_spacing_px` | Require overlay reload (admin panel shows info toast) |
+| `tama_grid_perspective` / `tama_grid_near_scale` / `tama_grid_far_scale` / `tama_grid_floor_top_frac` | Applied live by `Grid2D` + a re-translate of all pets |
+| `tama_layout_mode` / `tama_grid_high_precision` | Rebuild the grid live in the backend (`GridManager::reconfigure`) — re-emits config + cells; no overlay reload needed |
+| `tama_grid_wander_enabled` | Requires overlay reload to start/stop the wander task (admin panel shows info toast) |
 
 ---
 

@@ -139,11 +139,7 @@ fn stop_session(mut session: Session) {
     }
 }
 
-fn start_session(
-    state: AppState,
-    device_id: String,
-    threshold: u32,
-) -> Result<Session, String> {
+fn start_session(state: AppState, device_id: String, threshold: u32) -> Result<Session, String> {
     let running = Arc::new(AtomicBool::new(true));
     let threshold_arc = Arc::new(AtomicU32::new(threshold));
 
@@ -205,7 +201,10 @@ fn run_capture(
             device.build_input_stream(
                 &config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    lc.store(rms_to_level(data.iter().copied(), data.len()).to_bits(), Ordering::Relaxed);
+                    lc.store(
+                        rms_to_level(data.iter().copied(), data.len()).to_bits(),
+                        Ordering::Relaxed,
+                    );
                 },
                 err_fn,
                 None,
@@ -239,7 +238,9 @@ fn run_capture(
     }
     .map_err(|e| format!("no se pudo crear el stream: {}", e))?;
 
-    stream.play().map_err(|e| format!("no se pudo iniciar el stream: {}", e))?;
+    stream
+        .play()
+        .map_err(|e| format!("no se pudo iniciar el stream: {}", e))?;
 
     // Smoothing + threshold + emit. Asymmetric smoothing (rise fast, fall slow) at
     // a fixed cadence so timing is independent of the audio buffer size.
@@ -303,5 +304,8 @@ fn pick_device(host: &cpal::Host, device_id: &str) -> Result<cpal::Device, Strin
 /// Broadcasts the speaking state to the streamer overlay (WS Browser Source only —
 /// the streamer persona has no Tauri window).
 fn emit_speaking(state: &AppState, speaking: bool) {
-    state.broadcast_ws("streamer-speaking", &serde_json::json!({ "speaking": speaking }));
+    state.broadcast_ws(
+        "streamer-speaking",
+        &serde_json::json!({ "speaking": speaking }),
+    );
 }

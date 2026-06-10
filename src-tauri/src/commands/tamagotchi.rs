@@ -21,7 +21,8 @@ pub struct PetStateRow {
     pub user_id: i64,
     pub display_name: String,
     pub last_seen_at: String,
-    pub floor_x: f64,
+    pub cell_x: u16,
+    pub cell_y: u16,
     pub is_sleeping: bool,
 }
 
@@ -91,7 +92,7 @@ pub async fn tama_get_pet_states(state: State<'_, AppState>) -> CmdResult<Vec<Pe
     let db = state.db.lock().map_err(map_err)?;
     let mut stmt = db
         .prepare(
-            "SELECT ps.user_id, u.display_name, ps.last_seen_at, ps.floor_x, ps.is_sleeping
+            "SELECT ps.user_id, u.display_name, ps.last_seen_at, ps.cell_x, ps.cell_y, ps.is_sleeping
              FROM pet_state ps
              JOIN users u ON u.id = ps.user_id
              ORDER BY ps.last_seen_at DESC",
@@ -104,8 +105,9 @@ pub async fn tama_get_pet_states(state: State<'_, AppState>) -> CmdResult<Vec<Pe
                 user_id: row.get(0)?,
                 display_name: row.get(1)?,
                 last_seen_at: row.get(2)?,
-                floor_x: row.get(3)?,
-                is_sleeping: row.get::<_, i64>(4)? != 0,
+                cell_x: row.get::<_, i64>(3)? as u16,
+                cell_y: row.get::<_, i64>(4)? as u16,
+                is_sleeping: row.get::<_, i64>(5)? != 0,
             })
         })
         .map_err(map_err)?
@@ -115,25 +117,29 @@ pub async fn tama_get_pet_states(state: State<'_, AppState>) -> CmdResult<Vec<Pe
     Ok(rows)
 }
 
-/// Called by the overlay whenever a pet spawns or its state changes.
-/// Keeps the DB in sync so the admin panel can show the current pet list.
+/// Called by the overlay whenever a pet spawns or its sleep state changes.
+/// Keeps the DB in sync so the admin panel can show the current pet list. The
+/// authoritative position lives in `GridManager`; the cell is persisted here only
+/// so the panel can display it and so a restart can rehydrate.
 #[tauri::command]
 pub async fn tama_upsert_pet_state(
     user_id: i64,
     display_name: String,
-    floor_x: f64,
+    cell_x: u16,
+    cell_y: u16,
     is_sleeping: bool,
     state: State<'_, AppState>,
 ) -> CmdResult<()> {
     let db = state.db.lock().map_err(map_err)?;
     db.execute(
-        "INSERT INTO pet_state (user_id, last_seen_at, floor_x, is_sleeping)
-         VALUES (?1, datetime('now'), ?2, ?3)
+        "INSERT INTO pet_state (user_id, last_seen_at, cell_x, cell_y, is_sleeping)
+         VALUES (?1, datetime('now'), ?2, ?3, ?4)
          ON CONFLICT(user_id) DO UPDATE SET
              last_seen_at = datetime('now'),
-             floor_x      = excluded.floor_x,
+             cell_x       = excluded.cell_x,
+             cell_y       = excluded.cell_y,
              is_sleeping  = excluded.is_sleeping",
-        rusqlite::params![user_id, floor_x, is_sleeping as i64],
+        rusqlite::params![user_id, cell_x as i64, cell_y as i64, is_sleeping as i64],
     )
     .map_err(map_err)?;
 
@@ -141,15 +147,60 @@ pub async fn tama_upsert_pet_state(
     Ok(())
 }
 
-/// Called by the overlay when a pet despawns.
+// =========================================================================================================
+// Grid Commands
+// =========================================================================================================
+
+/// Ensures the pet has an assigned grid cell (allocating one on first call) and
+/// emits a `tama-grid-update`. Called by the overlay when a pet spawns so the
+/// backend remains the single source of truth for placement.
 #[tauri::command]
-pub async fn tama_remove_pet_state(user_id: i64, state: State<'_, AppState>) -> CmdResult<()> {
-    let db = state.db.lock().map_err(map_err)?;
-    db.execute(
-        "DELETE FROM pet_state WHERE user_id = ?1",
-        rusqlite::params![user_id],
-    )
-    .map_err(map_err)?;
+pub async fn tama_grid_ensure(user_id: i64, app: tauri::AppHandle) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    state.grid.ensure(&app, user_id);
+    Ok(())
+}
+
+/// Returns the current grid dimensions plus every pet's cell, so a client that
+/// connects after pets already exist can rehydrate without waiting for updates.
+#[tauri::command]
+pub async fn tama_grid_get_state(
+    state: State<'_, AppState>,
+) -> CmdResult<crate::grid::GridSnapshot> {
+    Ok(state.grid.snapshot())
+}
+
+/// Moves a pet to the free cell nearest the requested target, emitting the update.
+/// Used by actions (e.g. fight) so pets converge on a meeting cell chosen by the
+/// authoritative grid instead of a hard-coded screen position.
+#[tauri::command]
+pub async fn tama_grid_move(
+    user_id: i64,
+    cell_x: u16,
+    cell_y: u16,
+    app: tauri::AppHandle,
+) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    state
+        .grid
+        .move_to_nearest_free(&app, user_id, (cell_x, cell_y));
+    Ok(())
+}
+
+/// Called by the overlay when a pet despawns. Frees the pet's grid cell (so the
+/// slot can be reused and a `tama-grid-remove` is broadcast) and deletes its row.
+#[tauri::command]
+pub async fn tama_remove_pet_state(user_id: i64, app: tauri::AppHandle) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    state.grid.release(&app, user_id);
+    {
+        let db = state.db.lock().map_err(map_err)?;
+        db.execute(
+            "DELETE FROM pet_state WHERE user_id = ?1",
+            rusqlite::params![user_id],
+        )
+        .map_err(map_err)?;
+    }
     Ok(())
 }
 

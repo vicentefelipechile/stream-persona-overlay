@@ -469,10 +469,14 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
                 .or_else(|| args["display_name"].as_str())
                 .unwrap_or("")
                 .to_string();
-            let floor_x = args["floorX"]
-                .as_f64()
-                .or_else(|| args["floor_x"].as_f64())
-                .unwrap_or(0.0);
+            let cell_x = args["cellX"]
+                .as_i64()
+                .or_else(|| args["cell_x"].as_i64())
+                .unwrap_or(0);
+            let cell_y = args["cellY"]
+                .as_i64()
+                .or_else(|| args["cell_y"].as_i64())
+                .unwrap_or(0);
             let is_sleeping = args["isSleeping"]
                 .as_bool()
                 .or_else(|| args["is_sleeping"].as_bool())
@@ -481,13 +485,14 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
             match state.db.lock() {
                 Ok(db) => {
                     let result = db.execute(
-                        "INSERT INTO pet_state (user_id, last_seen_at, floor_x, is_sleeping)
-                         VALUES (?1, datetime('now'), ?2, ?3)
+                        "INSERT INTO pet_state (user_id, last_seen_at, cell_x, cell_y, is_sleeping)
+                         VALUES (?1, datetime('now'), ?2, ?3, ?4)
                          ON CONFLICT(user_id) DO UPDATE SET
                              last_seen_at = datetime('now'),
-                             floor_x      = excluded.floor_x,
+                             cell_x       = excluded.cell_x,
+                             cell_y       = excluded.cell_y,
                              is_sleeping  = excluded.is_sleeping",
-                        rusqlite::params![user_id, floor_x, is_sleeping as i64],
+                        rusqlite::params![user_id, cell_x, cell_y, is_sleeping as i64],
                     );
                     let _ = display_name; // lives in users table
                     match result {
@@ -499,12 +504,49 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
             }
         }
 
+        // Snapshot of grid dims + every pet cell (mirrors tama_grid_get_state).
+        "tama_grid_get_state" => {
+            let snapshot = state.grid.snapshot();
+            serde_json::json!({ "id": cmd.id, "result": snapshot })
+        }
+
+        // Assign/return a pet's grid cell and broadcast it (mirrors tama_grid_ensure).
+        "tama_grid_ensure" => {
+            let user_id = args["userId"]
+                .as_i64()
+                .or_else(|| args["user_id"].as_i64())
+                .unwrap_or(0);
+            state.grid.ensure_ws(state, user_id);
+            serde_json::json!({ "id": cmd.id, "result": null })
+        }
+
+        // Move a pet to the free cell nearest a target (mirrors tama_grid_move).
+        "tama_grid_move" => {
+            let user_id = args["userId"]
+                .as_i64()
+                .or_else(|| args["user_id"].as_i64())
+                .unwrap_or(0);
+            let cell_x = args["cellX"]
+                .as_u64()
+                .or_else(|| args["cell_x"].as_u64())
+                .unwrap_or(0) as u16;
+            let cell_y = args["cellY"]
+                .as_u64()
+                .or_else(|| args["cell_y"].as_u64())
+                .unwrap_or(0) as u16;
+            state
+                .grid
+                .move_to_nearest_free_ws(state, user_id, (cell_x, cell_y));
+            serde_json::json!({ "id": cmd.id, "result": null })
+        }
+
         // Remove pet state (mirrors tama_remove_pet_state Tauri command)
         "tama_remove_pet_state" => {
             let user_id = args["userId"]
                 .as_i64()
                 .or_else(|| args["user_id"].as_i64())
                 .unwrap_or(0);
+            state.grid.release_ws(state, user_id);
             match state.db.lock() {
                 Ok(db) => {
                     let result = db.execute(

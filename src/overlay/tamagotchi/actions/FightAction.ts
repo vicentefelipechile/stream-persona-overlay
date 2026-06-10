@@ -1,8 +1,14 @@
 // =========================================================================================================
 // FIGHT ACTION
 // =========================================================================================================
-// Two pets charge toward each other, shake, show a cartoon fight cloud,
-// then bounce away. Uses PetManager.getRandomPet() to find a rival.
+// Two pets converge on a meeting cell (chosen by the authoritative backend grid as
+// the free cell nearest their midpoint), shake, show a cartoon fight cloud, then
+// bounce back to their original cells. Uses PetManager.getRandomPet() for a rival.
+//
+// Movement is backend-authoritative: instead of animating to a pixel center, the
+// action asks the grid to move each pet (PetManager.requestMove) and the resulting
+// tama-grid-update glides them. The visual fight FX (shake/cloud/impacts) still run
+// locally on each pet's DOM element.
 // =========================================================================================================
 
 import { animate } from "motion";
@@ -45,8 +51,6 @@ export class FightAction extends BaseAction {
   constructor(pet: BasePet, input?: ActionInput) { super(pet, input); }
 
   async execute(): Promise<void> {
-    if (this.pet.config.staticMode) return;
-
     const targetId = this.input["targetUserId"] as number | undefined;
     const rival = targetId
       ? PetManager.get(targetId)
@@ -54,17 +58,36 @@ export class FightAction extends BaseAction {
 
     if (!rival || rival.fsm.state === "action") return;
 
-    const myEl    = this.pet.domElement;
-    const rivalEl = rival.domElement;
-    const centerX = window.innerWidth / 2;
+    const myCell    = PetManager.getCell(this.pet.userId);
+    const rivalCell = PetManager.getCell(rival.userId);
+    if (!myCell || !rivalCell) return;
 
-    // Both move to center
-    await Promise.all([
-      this.pet.moveTo(centerX - 60, 250),
-      rival.moveTo(centerX + 60, 250),
-    ]);
+    const grid = PetManager.getGrid();
+    // Meeting cell = midpoint of the two pets, on the front-ish rows so they're
+    // clearly visible. The backend resolves the nearest free cells around it.
+    const midX = Math.round((myCell.x + rivalCell.x) / 2);
+    const midY = Math.round((myCell.y + rivalCell.y) / 2);
+    const leftCell  = { x: Math.max(0, midX - 1), y: midY };
+    const rightCell = { x: Math.min(grid.cols - 1, midX + 1), y: midY };
+
+    // Estimate the walk time before the FX so they don't start mid-approach. The
+    // pet walks at a constant speed (BasePet.WALK_PX_PER_S); pick the larger of the
+    // two spans. Clamp to a sane range so a far/near converge still feels like a fight.
+    const myPx    = grid.cellToPx(leftCell.x,  leftCell.y,  this.pet.size);
+    const rivalPx = grid.cellToPx(rightCell.x, rightCell.y, rival.size);
+    const myDist    = Math.hypot(myPx.left    - this.pet.position.x, myPx.top    - this.pet.position.y);
+    const rivalDist = Math.hypot(rivalPx.left - rival.position.x,    rivalPx.top - rival.position.y);
+    const walkMs = Math.min(2500, Math.max(500, (Math.max(myDist, rivalDist) / 90) * 1000));
+
+    // Send both toward the meeting cells (backend glides them via grid-update).
+    PetManager.requestMove(this.pet.userId, leftCell.x, leftCell.y);
+    PetManager.requestMove(rival.userId, rightCell.x, rightCell.y);
+    await this.wait(walkMs); // let the approach finish
 
     if (this.cancelled) return;
+
+    const myEl    = this.pet.domElement;
+    const rivalEl = rival.domElement;
 
     // Shake both
     await Promise.all([
@@ -72,8 +95,9 @@ export class FightAction extends BaseAction {
       animate(rivalEl, { transform: ["translateX(8px)", "translateX(-8px)", "translateX(6px)", "translateX(-6px)", "translateX(0px)"] }, { duration: 0.4 }),
     ]);
 
-    // Fight cloud
-    this.cloudEl = this._createCloud(centerX);
+    // Fight cloud — centered between the two pets' current pixel positions.
+    const cx = (this.pet.position.x + rival.position.x) / 2 + this.pet.size / 2;
+    this.cloudEl = this._createCloud(cx);
     document.body.appendChild(this.cloudEl);
     await animate(this.cloudEl,
       { opacity: [0, 1, 1], transform: ["scale(0.5)", "scale(1.3)", "scale(1)"] },
@@ -93,13 +117,13 @@ export class FightAction extends BaseAction {
       await this.wait(200);
     }
 
-    // Both bounce away
+    // Both bounce away (visual only)
     await Promise.all([
       animate(myEl,    { transform: ["translateX(-60px)", "translateX(0px)"], opacity: [0.5, 1] }, { duration: 0.4 }),
       animate(rivalEl, { transform: ["translateX(60px)", "translateX(0px)"],  opacity: [0.5, 1] }, { duration: 0.4 }),
     ]);
 
-    // Clear any WAAPI transform residue so pos.x and visual position stay in sync.
+    // Clear any WAAPI transform residue so it doesn't fight the cell transform.
     myEl.style.transform    = "";
     rivalEl.style.transform = "";
 
@@ -110,15 +134,9 @@ export class FightAction extends BaseAction {
       this.cloudEl = null;
     }
 
-    // Walk back to random positions
-    await Promise.all([
-      this.pet.moveTo(Math.random() * (window.innerWidth * 0.3), 150),
-      rival.moveTo(window.innerWidth * 0.6 + Math.random() * 200, 150),
-    ]);
-
-    // Rival was never taken out of "idle" state by the fight, so onEnter("idle")
-    // won't fire again — restart its walk loop manually.
-    rival.resumeIdleWalk();
+    // Send both back to their original cells (backend resolves nearest free).
+    PetManager.requestMove(this.pet.userId, myCell.x, myCell.y);
+    PetManager.requestMove(rival.userId, rivalCell.x, rivalCell.y);
   }
 
   private _createCloud(cx: number): HTMLElement {

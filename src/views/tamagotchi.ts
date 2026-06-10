@@ -74,7 +74,6 @@ export async function renderTamagotchi(): Promise<void> {
   const enabled         = String(cfg["tama_enabled"])              === "true";
   const petSizePx       = Number(cfg["tama_pet_size_px"])          || 80;
   const maxPets         = Number(cfg["tama_max_pets"])             || 8;
-  const walkSpeed       = Number(cfg["tama_walk_speed"])           || 0.6;
   const inactivityMins  = Number(cfg["tama_inactivity_mins"])      || 5;
   const actionCheckSecs = Number(cfg["tama_action_check_secs"])    || 8;
   const actionProb      = Number(cfg["tama_action_probability"])   || 0.15;
@@ -89,9 +88,12 @@ export async function renderTamagotchi(): Promise<void> {
   const guestOpenPath   = String(cfg["tama_guest_mouth_open_path"]   ?? "");
   const guestClosedPath = String(cfg["tama_guest_mouth_closed_path"] ?? "");
   const layoutMode      = String(cfg["tama_layout_mode"]           ?? "dynamic") === "static" ? "static" : "dynamic";
-  const staticAnchor    = String(cfg["tama_static_anchor"]         ?? "left")    === "right"  ? "right"  : "left";
-  const staticSpacing   = Number(cfg["tama_static_spacing_px"])    || 100;
-  const isStatic        = layoutMode === "static";
+  const gridHighPrec    = String(cfg["tama_grid_high_precision"]   ?? "false") === "true";
+  const gridPerspective = String(cfg["tama_grid_perspective"]      ?? "true")  === "true";
+  const gridNearScale   = Number(cfg["tama_grid_near_scale"])      || 1.3;
+  const gridFarScale    = Number(cfg["tama_grid_far_scale"])       || 0.6;
+  const gridFloorTop    = Number(cfg["tama_grid_floor_top_frac"])  || 0.55;
+  const gridWander      = String(cfg["tama_grid_wander_enabled"]   ?? "true")  === "true";
 
   let enabledActions: string[] = [];
   try {
@@ -138,7 +140,6 @@ export async function renderTamagotchi(): Promise<void> {
       <div class="tama-sliders-grid">
         ${_slider("cfg-size",       "cfg-size-val",       "Tamaño mascota",              petSizePx,       "px",   40,   200, 10)}
         ${_slider("cfg-max-pets",   "cfg-max-pets-val",   "Máx. mascotas visibles",       maxPets,         "",     1,    20,  1)}
-        ${_slider("cfg-walk",       "cfg-walk-val",       "Velocidad de caminata",        walkSpeed,       "",     0.1,  3,   0.1)}
         ${_slider("cfg-inactivity", "cfg-inactivity-val", "Inactividad antes de dormir",  inactivityMins,  " min", 1,    30,  1)}
         ${_slider("cfg-check",      "cfg-check-val",      "Intervalo acciones aleatorias",actionCheckSecs, "s",    3,    30,  1)}
         ${_slider("cfg-prob",       "cfg-prob-val",       "Probabilidad por intervalo",   actionProb,      "",     0,    1,   0.05)}
@@ -157,28 +158,54 @@ export async function renderTamagotchi(): Promise<void> {
 
       <div class="tama-setting-row" style="margin-top:var(--space-4);">
         <div>
-          <div class="tama-setting-label">Modo de disposición</div>
-          <div class="tama-setting-desc">Dynamic: mascotas caminan libremente. Static: se colocan en fila en un borde de la pantalla.</div>
+          <div class="tama-setting-label">Tamaño de la matriz</div>
+          <div class="tama-setting-desc">Piso estático: rejilla pequeña 6×1 (pocas mascotas fijas). Normal: rejilla 150×30 (4500 posiciones).</div>
         </div>
-        <select id="cfg-layout-mode" style="width:140px;">
-          <option value="dynamic" ${layoutMode === "dynamic" ? "selected" : ""}>Dynamic</option>
-          <option value="static"  ${layoutMode === "static"  ? "selected" : ""}>Static</option>
+        <select id="cfg-layout-mode" style="width:160px;">
+          <option value="dynamic" ${layoutMode === "dynamic" ? "selected" : ""}>Normal (150×30)</option>
+          <option value="static"  ${layoutMode === "static"  ? "selected" : ""}>Piso estático (6×1)</option>
         </select>
       </div>
 
-      <div id="static-options" style="${!isStatic ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4);padding-left:var(--space-5);border-left:2px solid var(--color-border);">
-        <div class="tama-setting-row">
-          <div>
-            <div class="tama-setting-label">Ancla</div>
-            <div class="tama-setting-desc">Desde qué lado de la pantalla comienza la fila</div>
-          </div>
-          <select id="cfg-static-anchor" style="width:100px;">
-            <option value="left"  ${staticAnchor === "left"  ? "selected" : ""}>Izquierda</option>
-            <option value="right" ${staticAnchor === "right" ? "selected" : ""}>Derecha</option>
-          </select>
+      <div class="tama-setting-row" style="margin-top:var(--space-4);">
+        <div>
+          <div class="tama-setting-label">Matriz de alta precisión</div>
+          <div class="tama-setting-desc">Duplica el tamaño de la matriz (más mascotas en pantalla cuando se llena).</div>
         </div>
-        ${_slider("cfg-static-spacing", "cfg-static-spacing-val", "Espaciado entre mascotas", staticSpacing, "px", 60, 300, 10)}
+        <label class="switch">
+          <input type="checkbox" id="cfg-grid-high-precision" ${gridHighPrec ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
       </div>
+
+      <div class="tama-setting-row" style="margin-top:var(--space-4);">
+        <div>
+          <div class="tama-setting-label">Movimiento ambiental</div>
+          <div class="tama-setting-desc">Las mascotas se desplazan suavemente a celdas vecinas libres cada cierto tiempo.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="cfg-grid-wander" ${gridWander ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
+      </div>
+
+      <div class="tama-setting-row" style="margin-top:var(--space-4);">
+        <div>
+          <div class="tama-setting-label">Efecto de perspectiva</div>
+          <div class="tama-setting-desc">Las mascotas más cercanas (abajo) se ven más grandes y las del fondo (arriba) más pequeñas.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="cfg-grid-perspective" ${gridPerspective ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
+      </div>
+
+      <div id="grid-perspective-options" style="${!gridPerspective ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4);padding-left:var(--space-5);border-left:2px solid var(--color-border);">
+        ${_slider("cfg-grid-near", "cfg-grid-near-val", "Escala frontal (cerca)", gridNearScale, "×", 1, 2.5, 0.1)}
+        ${_slider("cfg-grid-far",  "cfg-grid-far-val",  "Escala de fondo (lejos)", gridFarScale,  "×", 0.3, 1, 0.05)}
+      </div>
+
+      ${_slider("cfg-grid-floor-top", "cfg-grid-floor-top-val", "Inicio de la banda de piso", gridFloorTop, "", 0.1, 0.9, 0.05)}
     </div>
 
     <div class="card" style="margin-top:var(--space-5);">
@@ -278,20 +305,17 @@ export async function renderTamagotchi(): Promise<void> {
         <span id="tama-actions-badge" class="badge badge-active">${enabledActions.length} activa${enabledActions.length !== 1 ? "s" : ""}</span>
       </div>
       <div class="tama-actions-grid" id="action-toggles">
-        ${allActionMeta.map(m => {
-          const blocked = isStatic && (m.id === "fight" || m.id === "hype_train");
-          return `
-          <label class="tama-action-card${enabledActions.includes(m.id) ? " tama-action-card--on" : ""}${blocked ? " tama-action-card--blocked" : ""}">
+        ${allActionMeta.map(m => `
+          <label class="tama-action-card${enabledActions.includes(m.id) ? " tama-action-card--on" : ""}">
             <input type="checkbox" class="action-checkbox" data-id="${m.id}" ${enabledActions.includes(m.id) ? "checked" : ""}/>
             <span class="tama-action-icon">${m.icon}</span>
             <div class="tama-action-info">
               <span class="tama-action-name">${m.label}</span>
               <span class="tama-action-desc">${m.description}</span>
-              ${blocked ? `<span class="badge" style="margin-top:4px;font-size:10px;opacity:.7;">No disponible en modo static</span>` : ""}
             </div>
             <span class="tama-action-check">${Icons.check(14)}</span>
           </label>
-        `}).join("")}
+        `).join("")}
       </div>
     </div>
 
@@ -326,7 +350,6 @@ export async function renderTamagotchi(): Promise<void> {
           <select id="fire-action">
             <option value="">— Seleccionar acción —</option>
             ${allActionMeta
-              .filter(m => !isStatic || (m.id !== "fight" && m.id !== "hype_train"))
               .map(m => `<option value="${m.id}">${m.icon} ${m.label}</option>`)
               .join("")}
           </select>
@@ -486,7 +509,6 @@ export async function renderTamagotchi(): Promise<void> {
 
   _bindRange("cfg-size",       "cfg-size-val",       "px");
   _bindRange("cfg-max-pets",   "cfg-max-pets-val",   "");
-  _bindRange("cfg-walk",       "cfg-walk-val",       "");
   _bindRange("cfg-inactivity", "cfg-inactivity-val", " min");
   _bindRange("cfg-check",      "cfg-check-val",      "s");
   _bindRange("cfg-prob",       "cfg-prob-val",       "");
@@ -497,38 +519,49 @@ export async function renderTamagotchi(): Promise<void> {
     invoke("set_config_cmd", { key: "tama_jump_on_speak", value }).catch(err => showToast(String(err), "error"));
   });
 
-  const layoutModeEl    = container.querySelector<HTMLSelectElement>("#cfg-layout-mode")!;
-  const staticOptionsEl = container.querySelector<HTMLDivElement>("#static-options")!;
-
+  const layoutModeEl = container.querySelector<HTMLSelectElement>("#cfg-layout-mode")!;
   layoutModeEl.addEventListener("change", () => {
-    const value = layoutModeEl.value;
-    const nowStatic = value === "static";
-    staticOptionsEl.style.opacity       = nowStatic ? "" : "0.4";
-    staticOptionsEl.style.pointerEvents = nowStatic ? "" : "none";
-    invoke("set_config_cmd", { key: "tama_layout_mode", value })
-      .catch(err => showToast(String(err), "error"));
-    showToast("Recarga el overlay para aplicar el cambio de disposición", "info");
-  });
-
-  container.querySelector<HTMLSelectElement>("#cfg-static-anchor")!.addEventListener("change", (e) => {
-    invoke("set_config_cmd", { key: "tama_static_anchor", value: (e.target as HTMLSelectElement).value })
+    // The backend rebuilds the grid live on this key; no overlay reload needed.
+    invoke("set_config_cmd", { key: "tama_layout_mode", value: layoutModeEl.value })
       .catch(err => showToast(String(err), "error"));
   });
 
-  _bindRange("cfg-static-spacing", "cfg-static-spacing-val", "px");
-  container.querySelector<HTMLInputElement>("#cfg-static-spacing")!.addEventListener("change", (e) => {
-    invoke("set_config_cmd", { key: "tama_static_spacing_px", value: (e.target as HTMLInputElement).value })
+  container.querySelector<HTMLInputElement>("#cfg-grid-high-precision")!.addEventListener("change", (e) => {
+    const value = (e.target as HTMLInputElement).checked ? "true" : "false";
+    invoke("set_config_cmd", { key: "tama_grid_high_precision", value })
       .catch(err => showToast(String(err), "error"));
   });
+
+  container.querySelector<HTMLInputElement>("#cfg-grid-wander")!.addEventListener("change", (e) => {
+    const value = (e.target as HTMLInputElement).checked ? "true" : "false";
+    invoke("set_config_cmd", { key: "tama_grid_wander_enabled", value })
+      .catch(err => showToast(String(err), "error"));
+    showToast("Recarga el overlay para aplicar el cambio de movimiento ambiental", "info");
+  });
+
+  const perspectiveOptionsEl = container.querySelector<HTMLDivElement>("#grid-perspective-options")!;
+  container.querySelector<HTMLInputElement>("#cfg-grid-perspective")!.addEventListener("change", (e) => {
+    const on = (e.target as HTMLInputElement).checked;
+    perspectiveOptionsEl.style.opacity       = on ? "" : "0.4";
+    perspectiveOptionsEl.style.pointerEvents = on ? "" : "none";
+    invoke("set_config_cmd", { key: "tama_grid_perspective", value: on ? "true" : "false" })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  _bindRange("cfg-grid-near",      "cfg-grid-near-val",      "×");
+  _bindRange("cfg-grid-far",       "cfg-grid-far-val",       "×");
+  _bindRange("cfg-grid-floor-top", "cfg-grid-floor-top-val", "");
 
   const sliderMap: Array<[string, string]> = [
-    ["cfg-size",       "tama_pet_size_px"],
-    ["cfg-max-pets",   "tama_max_pets"],
-    ["cfg-walk",       "tama_walk_speed"],
-    ["cfg-inactivity", "tama_inactivity_mins"],
-    ["cfg-check",      "tama_action_check_secs"],
-    ["cfg-prob",       "tama_action_probability"],
-    ["cfg-name-font",  "tama_name_font_size_px"],
+    ["cfg-size",           "tama_pet_size_px"],
+    ["cfg-max-pets",       "tama_max_pets"],
+    ["cfg-inactivity",     "tama_inactivity_mins"],
+    ["cfg-check",          "tama_action_check_secs"],
+    ["cfg-prob",           "tama_action_probability"],
+    ["cfg-name-font",      "tama_name_font_size_px"],
+    ["cfg-grid-near",      "tama_grid_near_scale"],
+    ["cfg-grid-far",       "tama_grid_far_scale"],
+    ["cfg-grid-floor-top", "tama_grid_floor_top_frac"],
   ];
   sliderMap.forEach(([inputId, key]) => {
     container.querySelector<HTMLInputElement>(`#${inputId}`)!.addEventListener("change", (e) => {

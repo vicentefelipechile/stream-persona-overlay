@@ -74,6 +74,18 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     let _ = conn.execute("ALTER TABLE message_log ADD COLUMN amount INTEGER", []);
     let _ = conn.execute("ALTER TABLE message_log ADD COLUMN dropped_reason TEXT", []);
 
+    // Grid cell columns added to pet_state — ignore error if they already exist.
+    // The pet position moved from a free pixel X (floor_x) to authoritative grid
+    // cells assigned by the backend. floor_x is kept for backward compatibility.
+    let _ = conn.execute(
+        "ALTER TABLE pet_state ADD COLUMN cell_x INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE pet_state ADD COLUMN cell_y INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+
     // Insertar valores de configuración por defecto si no existen
     let defaults = [
         ("chroma_color", "#00FF00"),
@@ -194,8 +206,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_guests_tts", "false"),
         ("tama_guests_label_prefix", ""),
         ("tama_guest_tiktok_avatar", "true"),
-        // ── Static layout config ─────────────────────────────────────────────
+        // ── Grid layout config ────────────────────────────────────────────────
         ("tama_layout_mode", "dynamic"),
+        ("tama_grid_high_precision", "false"),
+        ("tama_grid_perspective", "true"),
+        ("tama_grid_near_scale", "1.3"),
+        ("tama_grid_far_scale", "0.6"),
+        ("tama_grid_floor_top_frac", "0.55"),
+        ("tama_grid_wander_enabled", "true"),
+        // Legacy keys (no longer used by the grid system, kept for compatibility).
         ("tama_static_anchor", "left"),
         ("tama_static_spacing_px", "100"),
         // ── Streamer persona config ──────────────────────────────────────────

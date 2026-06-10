@@ -1,12 +1,16 @@
 // =========================================================================================================
 // BASE PET
 // =========================================================================================================
-// Concrete tamagotchi pet class. Manages its own DOM element, FSM, walk loop,
-// lip-sync, approach/return animations, sleep, and despawn lifecycle.
+// Concrete tamagotchi pet class. Manages its own DOM element, FSM, lip-sync,
+// sleep, and despawn lifecycle.
+//
+// Positioning is backend-authoritative: the Rust `GridManager` assigns each pet a
+// grid cell and broadcasts it. PetManager translates the cell to pixels (via Grid2D)
+// and calls `applyCell()` here — the pet never decides where to walk on its own.
+// There is no local wander/idle-walk loop anymore.
 //
 // Motion v12 constraint: ALL transform animations use CSS transform strings
 // (e.g. "translateY(40px) scale(0.8)") — never shorthand x/y/scale/rotate keys.
-// Springs are expressed as { type: "spring", stiffness: N, damping: N } options.
 // =========================================================================================================
 
 import { animate } from "motion";
@@ -22,6 +26,7 @@ export function configureBasePetInvoke(fn: InvokeFn): void { _invoke = fn; }
 import { ActionRegistry } from "./ActionRegistry";
 import type { BaseAction, ActionInput } from "./BaseAction";
 import { PropRenderer } from "../props/PropRenderer";
+import type { CellPx } from "./Grid2D";
 
 // =========================================================================================================
 // Types
@@ -33,13 +38,15 @@ export interface PetConfig {
   mouthOpenUrl: string;
   mouthClosedUrl: string;
   sizePx: number;
-  floorY: number;
-  initialX?: number;
-  staticMode?: boolean;
   nameFontSizePx?: number;
 }
 
 export interface PetPosition {
+  x: number;
+  y: number;
+}
+
+export interface Cell {
   x: number;
   y: number;
 }
@@ -58,25 +65,18 @@ export class BasePet {
   private imgOpen: HTMLImageElement;
   private imgClosed: HTMLImageElement;
 
-  pos: PetPosition;
+  // Current grid cell (authoritative source = backend). Defaults to (0,0) until
+  // the first `tama-grid-update` arrives.
+  cell: Cell = { x: 0, y: 0 };
+  // Last applied pixel placement, kept so actions can read floorY / position.
+  pos: PetPosition = { x: 0, y: 0 };
+  private currentScale = 1;
   private direction: 1 | -1 = 1;
-  private currentAction: BaseAction | null = null;
 
-  private walkAnimFrame: number | null = null;
-  private moveToAbort:   (() => void) | null = null;
+  private currentAction: BaseAction | null = null;
+  private cellAnimAbort: (() => void) | null = null;
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private despawnCallback: (() => void) | null = null;
-
-  // Per-pet walk speed (0.6x–1.5x of base) so pets move at different paces.
-  private walkSpeed: number;
-
-  // X position saved when focus starts; restored when focus ends.
-  // Not persisted to DB — a restart mid-focus respawns at floor_x which is fine.
-  private originX: number | null = null;
-
-  // Set to true when tts-state speaking=false arrives while still approaching.
-  // _doApproach checks this on arrival and triggers an immediate return.
-  private pendingReturn = false;
 
   // Reads from BasePet.inactivityMs so runtime config changes take effect on next reset.
   private get INACTIVITY_TIMEOUT_MS(): number { return BasePet.inactivityMs; }
@@ -85,12 +85,7 @@ export class BasePet {
     this.userId = config.userId;
     this.config = config;
     this.fsm    = new PetStateMachine();
-    this.pos    = {
-      x: config.initialX ?? (Math.random() * (window.innerWidth - 200) + 100),
-      y: config.floorY,
-    };
 
-    this.walkSpeed  = BasePet.walkSpeedBase * (0.6 + Math.random() * 0.9);
     this.el         = this._buildDOM(container);
     this.props      = new PropRenderer();
     this.imgOpen    = this.el.querySelector<HTMLImageElement>(".pet-mouth-open")!;
@@ -98,7 +93,6 @@ export class BasePet {
 
     this._setupFSMListeners();
     this._resetInactivityTimer();
-    this._applyZIndex();
   }
 
   // =========================================================================================================
@@ -113,8 +107,8 @@ export class BasePet {
       position:absolute;
       width:${this.config.sizePx}px;
       height:${this.config.sizePx}px;
-      left:${this.pos.x}px;
-      top:${this.pos.y}px;
+      left:0px;
+      top:0px;
       transform-origin:bottom center;
       user-select:none;
     `;
@@ -133,18 +127,11 @@ export class BasePet {
     return el;
   }
 
-  // Z-index follows horizontal position: the further left a pet is, the higher
-  // its z-index, so pets on the left render in front of pets on the right.
-  private _applyZIndex(): void {
-    this.el.style.zIndex = String(Math.round(Math.max(0, window.innerWidth - this.pos.x)));
-  }
-
   // =========================================================================================================
   // FSM Listeners
   // =========================================================================================================
 
   private _setupFSMListeners(): void {
-    this.fsm.onEnter("idle",      () => this._startIdleWalk());
     this.fsm.onEnter("sleeping",  () => this._startSleep());
     this.fsm.onEnter("despawning",() => { this._doDespawn().catch(() => {}); });
   }
@@ -171,46 +158,23 @@ export class BasePet {
       },
       { duration: 0.6, type: "spring", stiffness: 300, damping: 20 }
     );
-    // Clear any residual inline transform/opacity Motion may have left on the element.
+    // Clear the spawn transform from `.el` and move the cell scale onto `.pet-inner`.
     this.el.style.opacity   = "1";
     this.el.style.transform = "";
+    this._applyTransform();
     this.fsm.transition("idle");
     this._persistState(false);
   }
 
   async onChatMessage(): Promise<void> {
     this._resetInactivityTimer();
-    const state = this.fsm.state;
-
-    if (state === "approaching" || state === "talking") {
-      // Already focused — nothing to do besides the inactivity reset above.
-      return;
-    }
-
-    if (state === "returning") {
-      // Pet is walking home — send it back to center without overwriting originX.
-      this.moveToAbort?.();
-      this.fsm.transition("approaching");
-      await this._doApproach();
-      return;
-    }
-
-    if (state === "sleeping") {
-      // Wake the pet first, then focus it.
+    if (this.fsm.state === "sleeping") {
+      // Wake the pet — it stays on its current cell; the backend keeps placing it.
       this._stopCurrentAction();
       this.props.hideAll();
       this.fsm.transition("idle");
+      this._persistState(false);
     }
-
-    // In static mode pets do not walk — no approach/return cycle.
-    if (this.config.staticMode) return;
-
-    if (!this.fsm.canDo("approaching")) return;
-    this._stopCurrentAction();
-    // Only capture originX on a fresh focus entry (idle -> approaching).
-    if (this.originX === null) this.originX = this.pos.x;
-    this.fsm.transition("approaching");
-    await this._doApproach();
   }
 
   setMouth(open: boolean): void {
@@ -240,10 +204,8 @@ export class BasePet {
   }
 
   /** Hard, synchronous teardown used by PetManager.resetAll() to recreate a pet
-   *  from scratch. Stops every loop/timer/action and removes the DOM element
-   *  immediately — no despawn animation, no despawnCallback, no DB delete, since
-   *  the caller owns the pets map and will recreate the pet right after. This is
-   *  state-agnostic on purpose: it recovers pets whose FSM/animation got stuck. */
+   *  from scratch. Stops every timer/action and removes the DOM element
+   *  immediately — no despawn animation, no callback, no DB delete. */
   destroy(): void {
     this._stopCurrentAction();
     if (this.inactivityTimer) {
@@ -255,186 +217,98 @@ export class BasePet {
   }
 
   // =========================================================================================================
-  // Movement
+  // Cell placement (driven by PetManager from backend grid updates)
   // =========================================================================================================
 
-  // 36 px/s at 60 fps ≈ 0.6 px/frame — used for idle walk. Mutable so runtime config applies.
-  static walkSpeedBase = 36;
   // Minutes before a pet falls asleep. Read by _resetInactivityTimer().
   static inactivityMs = 5 * 60 * 1000;
-  // Faster speed for approach/return so the pet arrives before TTS ends.
-  private static readonly FOCUS_SPEED_PX_PER_S = 200;
+  // Walking speed (px/s) at constant velocity, so a long wander reads as the pet
+  // strolling across the floor over several seconds rather than a quick hop.
+  // ~90 px/s ⇒ a ~450px span ≈ 5 s. Clamped by MIN/MAX duration below.
+  private static readonly WALK_PX_PER_S = 90;
+  private static readonly MIN_WALK_MS = 250;
+  private static readonly MAX_WALK_MS = 9000;
 
-  private _startIdleWalk(): void {
-    if (this.config.staticMode) return;
-    let lastTime: number | null = null;
-    let isMoving    = true;
-    // First decision after a short random delay so pets don't all pause in sync.
-    let nextDecision = Math.random() * 3 + 1;
+  /**
+   * Place the pet on a grid cell. `cellPx` is the resolved pixel target (left/top/
+   * scale/z) from Grid2D. When `animateMove` is true the pet glides; otherwise it
+   * snaps (used on spawn and window resize). Always the authoritative position.
+   */
+  async applyCell(cell: Cell, cellPx: CellPx, animateMove: boolean): Promise<void> {
+    const prevX = this.pos.x;
+    this.cell = { ...cell };
 
-    const decide = () => {
-      const roll = Math.random();
-      if (!isMoving) {
-        isMoving = true;
-        if (Math.random() < 0.5) { this.direction *= -1; this._flipHorizontal(); }
-        nextDecision = Math.random() * 5 + 2;
-      } else if (roll < 0.25) {
-        isMoving = false;
-        nextDecision = Math.random() * 3 + 1;
-      } else if (roll < 0.5) {
-        this.direction *= -1;
-        this._flipHorizontal();
-        nextDecision = Math.random() * 5 + 2;
-      } else {
-        nextDecision = Math.random() * 5 + 2;
-      }
-    };
+    // Face the direction of travel before moving.
+    if (cellPx.left > prevX + 1)      { this.direction = 1;  this._flipHorizontal(); }
+    else if (cellPx.left < prevX - 1) { this.direction = -1; this._flipHorizontal(); }
 
-    const step = (now: number) => {
-      if (this.fsm.state !== "idle") return;
-      const dt = lastTime !== null ? (now - lastTime) / 1000 : 0;
-      lastTime = now;
+    this.el.style.zIndex = String(cellPx.z);
 
-      nextDecision -= dt;
-      if (nextDecision <= 0) decide();
-
-      if (isMoving) {
-        this.pos.x += this.direction * this.walkSpeed * dt;
-
-        const margin = this.config.sizePx / 2 + 20;
-        const maxX   = window.innerWidth - margin;
-        if (this.pos.x <= margin) {
-          this.pos.x  = margin;
-          this.direction = 1;
-          this._flipHorizontal();
-        } else if (this.pos.x >= maxX) {
-          this.pos.x  = maxX;
-          this.direction = -1;
-          this._flipHorizontal();
-        }
-
-        this.el.style.left = `${this.pos.x}px`;
-        this._applyZIndex();
-      }
-
-      this.walkAnimFrame = requestAnimationFrame(step);
-    };
-    this.walkAnimFrame = requestAnimationFrame(step);
-  }
-
-  resumeIdleWalk(): void {
-    if (this.fsm.state !== "idle") return;
-    this._stopWalking();
-    this._startIdleWalk();
-  }
-
-  private _stopWalking(): void {
-    if (this.walkAnimFrame !== null) {
-      cancelAnimationFrame(this.walkAnimFrame);
-      this.walkAnimFrame = null;
-    }
-  }
-
-  private _stopCurrentAction(): void {
-    this._stopWalking();
-    this.moveToAbort?.();
-    this.currentAction?.cancel();
-    this.currentAction = null;
-  }
-
-  private _flipHorizontal(): void {
-    const inner = this.el.querySelector<HTMLElement>(".pet-inner")!;
-    inner.style.transform = this.direction === -1 ? "scaleX(-1)" : "scaleX(1)";
-  }
-
-  async moveTo(targetX: number, speedPx: number = 150): Promise<void> {
-    this.moveToAbort?.();   // cancel any previous moveTo
-    this._stopWalking();
-
-    const dist = Math.abs(targetX - this.pos.x);
-    if (dist < 1) {
-      this.pos.x = targetX;
-      this.el.style.left = `${targetX}px`;
-      this._applyZIndex();
+    if (!animateMove) {
+      this._snapTo(cellPx);
       return;
     }
 
-    this.direction = targetX > this.pos.x ? 1 : -1;
-    this._flipHorizontal();
+    this.cellAnimAbort?.();
+    const startX = this.pos.x;
+    const startY = this.pos.y;
+    const startScale = this.currentScale;
+    const dist = Math.hypot(cellPx.left - startX, cellPx.top - startY);
+    // Constant walking speed → duration scales with distance (clamped).
+    const durationMs = Math.min(
+      BasePet.MAX_WALK_MS,
+      Math.max(BasePet.MIN_WALK_MS, (dist / BasePet.WALK_PX_PER_S) * 1000),
+    );
+    const startTime = performance.now();
 
-    const durationMs = Math.max(100, (dist / speedPx) * 1000);
-    const startX     = this.pos.x;
-    const startTime  = performance.now();
-
-    // Use RAF instead of WAAPI so `left` is always authoritative in the inline
-    // style — no WAAPI fill/commit race that could leak into `transform`.
     await new Promise<void>(resolve => {
       let aborted = false;
-      this.moveToAbort = () => { aborted = true; resolve(); };
-
+      this.cellAnimAbort = () => { aborted = true; resolve(); };
       const step = (now: number) => {
         if (aborted) return;
+        // Linear time → constant velocity (a walk, not an ease-in-out glide).
         const t = Math.min(1, (now - startTime) / durationMs);
-        this.pos.x = startX + (targetX - startX) * t;
+        this.pos.x = startX + (cellPx.left - startX) * t;
+        this.pos.y = startY + (cellPx.top  - startY) * t;
+        // Interpolate the perspective scale along the walk so it grows/shrinks smoothly.
+        this.currentScale = startScale + (cellPx.scale - startScale) * t;
         this.el.style.left = `${this.pos.x}px`;
-        this._applyZIndex();
+        this.el.style.top  = `${this.pos.y}px`;
+        this._applyTransform();
         if (t < 1) requestAnimationFrame(step);
-        else {
-          this.pos.x = targetX;
-          this.el.style.left = `${targetX}px`;
-          this._applyZIndex();
-          this.moveToAbort = null;
-          resolve();
-        }
+        else { this._snapTo(cellPx); this.cellAnimAbort = null; resolve(); }
       };
       requestAnimationFrame(step);
     });
   }
 
-  async moveY(targetY: number, duration: number = 0.4): Promise<void> {
-    // Animate only `top` — keeping transform separate prevents WAAPI from
-    // cancelling a concurrent moveTo animation that may also use transform internally.
-    await animate(this.el,
-      { top: `${targetY}px` },
-      { duration, type: "spring", stiffness: 200, damping: 22 }
-    );
-    // Commit final value to inline style for the same WAAPI commit reason.
-    this.el.style.top = `${targetY}px`;
-    this.pos.y = targetY;
+  private _snapTo(cellPx: CellPx): void {
+    this.pos.x = cellPx.left;
+    this.pos.y = cellPx.top;
+    this.el.style.left = `${cellPx.left}px`;
+    this.el.style.top  = `${cellPx.top}px`;
+    this.currentScale  = cellPx.scale;
+    this._applyTransform();
   }
 
-  // =========================================================================================================
-  // Approach / Return
-  // =========================================================================================================
-
-  private async _doApproach(): Promise<void> {
-    this._stopWalking();
-    // Center the pet horizontally (account for sprite width so it looks visually centered).
-    const centerX = window.innerWidth / 2 - this.config.sizePx / 2;
-    await this.moveTo(centerX, BasePet.FOCUS_SPEED_PX_PER_S);
-    if (this.fsm.state !== "approaching") return;
-    this.fsm.transition("talking");
-    // TTS may have finished while we were still walking — return immediately if so.
-    if (this.pendingReturn) {
-      this.pendingReturn = false;
-      this.returnFromFocus().catch(() => {});
-      return;
-    }
+  // Perspective scale + horizontal flip live together on `.pet-inner`, leaving the
+  // outer `.el` transform free for actions (Jump/Dance/etc. animate `.el`).
+  private _applyTransform(): void {
+    const inner = this.el.querySelector<HTMLElement>(".pet-inner");
+    if (!inner) return;
+    const flip = this.direction === -1 ? "scaleX(-1)" : "scaleX(1)";
+    inner.style.transform = `scale(${this.currentScale}) ${flip}`;
   }
 
-  // Called by PetManager when tts-state speaking=false arrives before the pet
-  // finishes walking to center. The flag is consumed by _doApproach on arrival.
-  markTtsFinished(): void {
-    this.pendingReturn = true;
+  private _flipHorizontal(): void {
+    this._applyTransform();
   }
 
-  async returnFromFocus(): Promise<void> {
-    if (!this.fsm.canDo("returning")) return;
-    this.fsm.transition("returning");
-    const target = this.originX ?? this.pos.x;
-    await this.moveTo(target, BasePet.FOCUS_SPEED_PX_PER_S);
-    this.originX = null;
-    if (this.fsm.state === "returning") this.fsm.transition("idle");
+  private _stopCurrentAction(): void {
+    this.cellAnimAbort?.();
+    this.cellAnimAbort = null;
+    this.currentAction?.cancel();
+    this.currentAction = null;
   }
 
   // =========================================================================================================
@@ -476,12 +350,12 @@ export class BasePet {
     _invoke("tama_upsert_pet_state", {
       userId:      this.userId,
       displayName: this.config.displayName,
-      floorX:      this.pos.x,
+      cellX:       this.cell.x,
+      cellY:       this.cell.y,
       isSleeping,
     }).catch(() => {});
   }
 
-  // =========================================================================================================
   // =========================================================================================================
   // Runtime Config Updates
   // =========================================================================================================
@@ -492,33 +366,10 @@ export class BasePet {
     this.el.style.height = `${sizePx}px`;
   }
 
-  updatePosX(x: number): void {
-    this.pos.x          = x;
-    this.el.style.left  = `${x}px`;
-    this._applyZIndex();
-  }
-
   updateNameFontSize(px: number): void {
     this.config.nameFontSizePx = px;
     const nameEl = this.el.querySelector<HTMLElement>(".pet-name");
     if (nameEl) nameEl.style.fontSize = `${px}px`;
-  }
-
-  updateWalkSpeed(baseSpeed: number): void {
-    this.walkSpeed = baseSpeed * (0.6 + Math.random() * 0.9);
-  }
-
-  // Floor Y update (called by PetManager on window resize)
-  // =========================================================================================================
-
-  updateFloorY(y: number): void {
-    this.config.floorY = y;
-    // Reposition immediately only when idle — other states finish their own animations
-    // and will land on the new floorY when they call returnToFloor or _startIdleWalk.
-    if (this.fsm.state === "idle") {
-      this.pos.y         = y;
-      this.el.style.top  = `${y}px`;
-    }
   }
 
   // =========================================================================================================
@@ -527,6 +378,8 @@ export class BasePet {
 
   get domElement(): HTMLElement  { return this.el; }
   get position(): PetPosition    { return { ...this.pos }; }
-  get floorY(): number           { return this.config.floorY; }
+  // Floor Y for prop placement = the pet's current top edge.
+  get floorY(): number           { return this.pos.y; }
   get size(): number             { return this.config.sizePx; }
+  get scale(): number            { return this.currentScale; }
 }

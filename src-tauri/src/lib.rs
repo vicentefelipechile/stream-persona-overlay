@@ -7,6 +7,7 @@ pub mod chat_platform;
 pub mod commands;
 pub mod db;
 pub mod discord;
+pub mod grid;
 pub mod server;
 pub mod state;
 pub mod streamer_mic;
@@ -27,8 +28,9 @@ use commands::streamer::{
     reset_streamer_sprite, set_streamer_sprite, streamer_list_mics, streamer_mic_apply,
 };
 use commands::tamagotchi::{
-    reset_guest_image, set_guest_image, tama_get_pet_states, tama_remove_pet_state,
-    tama_reset_all, tama_set_enabled, tama_trigger_action, tama_upsert_pet_state,
+    reset_guest_image, set_guest_image, tama_get_pet_states, tama_grid_ensure, tama_grid_get_state,
+    tama_grid_move, tama_remove_pet_state, tama_reset_all, tama_set_enabled, tama_trigger_action,
+    tama_upsert_pet_state,
 };
 use commands::users::{
     delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd,
@@ -84,7 +86,10 @@ pub fn run() {
             // resulting speaking state to the overlay.
             {
                 let (enabled, device_id, threshold) = {
-                    let cfg = app_state.config_cache.read().expect("config cache poisoned");
+                    let cfg = app_state
+                        .config_cache
+                        .read()
+                        .expect("config cache poisoned");
                     (
                         cfg.streamer_persona_enabled,
                         cfg.streamer_mic_device_id.clone(),
@@ -94,6 +99,46 @@ pub fn run() {
                 app_state
                     .streamer_mic
                     .apply(&app_state, enabled, &device_id, threshold);
+            }
+
+            // Build the authoritative pet grid from the current layout config and,
+            // if wander is enabled, start a tick that nudges pets to free neighbor
+            // cells. The grid is backend-authoritative: it broadcasts cell
+            // coordinates so the Tauri overlay and OBS Browser Source stay in sync.
+            {
+                let (small_mode, high_precision, wander_enabled) = {
+                    let cfg = app_state
+                        .config_cache
+                        .read()
+                        .expect("config cache poisoned");
+                    (
+                        cfg.tama_layout_mode == "static",
+                        cfg.tama_grid_high_precision,
+                        cfg.tama_grid_wander_enabled,
+                    )
+                };
+                let grid_handle = app.handle().clone();
+                app_state
+                    .grid
+                    .reconfigure(&grid_handle, small_mode, high_precision);
+
+                if wander_enabled {
+                    // Wander runs on its own cadence (NOT tama_action_check_secs, which
+                    // paces random *actions*). Each tick may send a pet on a long walk
+                    // to a far cell; the overlay glides there over several seconds at a
+                    // constant slow speed. The interval is longer than a walk so the pet
+                    // finishes, pauses, then picks a new destination — not a hop-pause.
+                    let grid = app_state.grid.clone();
+                    let wander_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_millis(6000));
+                        loop {
+                            interval.tick().await;
+                            grid.wander_tick(&wander_handle);
+                        }
+                    });
+                }
             }
 
             // Spawn bots en background.
@@ -206,6 +251,9 @@ pub fn run() {
             tama_get_pet_states,
             tama_upsert_pet_state,
             tama_remove_pet_state,
+            tama_grid_ensure,
+            tama_grid_get_state,
+            tama_grid_move,
             set_guest_image,
             reset_guest_image,
             // Streamer persona
