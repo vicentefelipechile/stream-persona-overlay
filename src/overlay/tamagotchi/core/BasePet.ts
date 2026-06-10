@@ -103,6 +103,12 @@ export class BasePet {
     const el = document.createElement("div");
     el.className = "tamagotchi-pet";
     el.dataset["userId"] = String(this.userId);
+    // The perspective scale is applied via the individual `scale` CSS property
+    // (NOT `transform`), so it composes independently of the `transform` strings
+    // that actions animate (jumps, shakes). Because `scale` lives on `.el`, it
+    // scales EVERYTHING inside — the sprite, the name label, and any action props
+    // (food, 💥, notes…) — keeping far/small pets visually consistent. `transform-
+    // origin: bottom center` keeps the pet planted on the floor while it scales.
     el.style.cssText = `
       position:absolute;
       width:${this.config.sizePx}px;
@@ -110,6 +116,7 @@ export class BasePet {
       left:0px;
       top:0px;
       transform-origin:bottom center;
+      scale:1;
       user-select:none;
     `;
     el.innerHTML = `
@@ -158,7 +165,8 @@ export class BasePet {
       },
       { duration: 0.6, type: "spring", stiffness: 300, damping: 20 }
     );
-    // Clear the spawn transform from `.el` and move the cell scale onto `.pet-inner`.
+    // Clear the spawn transform from `.el`; `_applyTransform` then sets the
+    // perspective scale (on `.el`) and the flip (on `.pet-inner`).
     this.el.style.opacity   = "1";
     this.el.style.transform = "";
     this._applyTransform();
@@ -291,13 +299,15 @@ export class BasePet {
     this._applyTransform();
   }
 
-  // Perspective scale + horizontal flip live together on `.pet-inner`, leaving the
-  // outer `.el` transform free for actions (Jump/Dance/etc. animate `.el`).
+  // Perspective scale lives on `.el` via the individual `scale` property so it
+  // scales the sprite + name + action props together and composes with the
+  // `transform` strings actions animate. The horizontal flip stays on `.pet-inner`
+  // so it only mirrors the sprite (not the readable name label).
   private _applyTransform(): void {
+    this.el.style.scale = String(this.currentScale);
     const inner = this.el.querySelector<HTMLElement>(".pet-inner");
     if (!inner) return;
-    const flip = this.direction === -1 ? "scaleX(-1)" : "scaleX(1)";
-    inner.style.transform = `scale(${this.currentScale}) ${flip}`;
+    inner.style.transform = this.direction === -1 ? "scaleX(-1)" : "scaleX(1)";
   }
 
   private _flipHorizontal(): void {

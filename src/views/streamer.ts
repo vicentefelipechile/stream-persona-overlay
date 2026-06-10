@@ -442,7 +442,14 @@ function _bindRange(inputId: string, labelId: string, suffix: string): void {
   const input = document.getElementById(inputId) as HTMLInputElement | null;
   const label = document.getElementById(labelId);
   if (!input || !label) return;
-  input.addEventListener("input", () => { label.textContent = input.value + suffix; });
+  const sync = () => {
+    label.textContent = input.value + suffix;
+    // Fill the track to the left of the thumb (see .tama-range gradient).
+    const pct = ((Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min))) * 100;
+    input.style.setProperty("--slider-fill", `${pct}%`);
+  };
+  input.addEventListener("input", sync);
+  sync(); // initialize fill + label on load
 }
 
 function _bindSave(inputId: string, key: string): void {

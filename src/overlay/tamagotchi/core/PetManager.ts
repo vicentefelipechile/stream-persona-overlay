@@ -95,6 +95,9 @@ export class PetManager {
   // Tracks each pet's last known cell so a resize can re-translate without a backend
   // round-trip (the cell is authoritative, the pixels are derived).
   private static cells = new Map<number, Cell>();
+  // User IDs that have already received their first cell placement. The first
+  // placement snaps (no walk-from-corner); subsequent ones animate.
+  private static placed = new Set<number>();
 
   private static enabled        = true;
   private static maxPets        = 8;
@@ -158,6 +161,7 @@ export class PetManager {
     });
     await this.transport.listen<GridRemovePayload>("tama-grid-remove", e => {
       this.cells.delete(e.payload.user_id);
+      this.placed.delete(e.payload.user_id);
     });
 
     // Rehydrate dims + existing cells (for clients that connect after pets exist).
@@ -201,6 +205,7 @@ export class PetManager {
         // grid cell; just drop the local references here.
         this.pets.delete(payload.user_id);
         this.cells.delete(payload.user_id);
+        this.placed.delete(payload.user_id);
       });
       this.pets.set(payload.user_id, pet);
       await pet.spawn();
@@ -227,11 +232,16 @@ export class PetManager {
 
   private static _onGridUpdate(payload: GridUpdatePayload, animateMove: boolean): void {
     const cell: Cell = { x: payload.cell_x, y: payload.cell_y };
+    const isFirstPlacement = !this.placed.has(payload.user_id);
     this.cells.set(payload.user_id, cell);
+    this.placed.add(payload.user_id);
     const pet = this.pets.get(payload.user_id);
     if (!pet) return;
     const px = this.grid.cellToPx(cell.x, cell.y, pet.size);
-    pet.applyCell(cell, px, animateMove).catch(() => {});
+    // First placement must SNAP, never walk: the backend assigns the cell after the
+    // pet spawns, so a pet that defaults to (0,0)=top-left would otherwise be seen
+    // strolling from the corner to its spot — which reads as a bug to streamers.
+    pet.applyCell(cell, px, animateMove && !isFirstPlacement).catch(() => {});
   }
 
   /** Re-derive pixels for every pet from its authoritative cell (resize / config). */
@@ -335,6 +345,7 @@ export class PetManager {
     this._scheduler?.stop();
     this.pets.clear();
     this.cells.clear();
+    this.placed.clear();
   }
 
   /** The cell currently assigned to a pet, or null. Used by actions (e.g. fight). */
@@ -366,10 +377,13 @@ export class PetManager {
       pet.setDespawnCallback(() => {
         this.pets.delete(cfg.userId);
         this.cells.delete(cfg.userId);
+        this.placed.delete(cfg.userId);
       });
       this.pets.set(cfg.userId, pet);
       return pet;
     });
+    // Recreated pets must snap to their (preserved) backend cell, not walk to it.
+    for (const cfg of configs) this.placed.delete(cfg.userId);
     await Promise.all(fresh.map(p => p.spawn()));
 
     // Re-assign cells from the backend so the recreated pets get placed.

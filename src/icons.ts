@@ -12,6 +12,7 @@ import {
     Pencil, Play, Pause, Trash2, RefreshCw,
     Check, X, Copy, Zap, Unplug, Save, Eye, ShieldOff, ExternalLink, Bot, CircleHelp,
     Webcam, RotateCcw, Plus,
+    Gift, Heart, Share2, Star, LogIn, ChevronDown, Image as ImageIcon, Music,
 } from "lucide";
 import type { IconNode } from "lucide";
 
@@ -93,6 +94,16 @@ export const Icons = {
     webcam:        (size = 16) => ui(Webcam, size),
     reset:         (size = 14) => ui(RotateCcw, size),
     plus:          (size = 14) => ui(Plus, size),
+
+    // Event-kind icons (alert config cards)
+    gift:          (size = 16) => ui(Gift, size),
+    heart:         (size = 16) => ui(Heart, size),
+    share:         (size = 16) => ui(Share2, size),
+    star:          (size = 16) => ui(Star, size),
+    login:         (size = 16) => ui(LogIn, size),
+    chevronDown:   (size = 16) => ui(ChevronDown, size),
+    image:         (size = 16) => ui(ImageIcon, size),
+    music:         (size = 16) => ui(Music, size),
 } as const;
 
 // =========================================================================================================

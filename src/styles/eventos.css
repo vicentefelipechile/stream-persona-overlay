@@ -59,15 +59,136 @@
 }
 
 /* ── Alert config cards ────────────────────────────────────────────────────── */
+.evt-card {
+  --evt-accent: var(--color-accent);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  /* Squared accent strip on the left (a real border, not a rounded inset glow). */
+  border-left: 4px solid var(--color-border);
+  border-radius: 4px;
+  margin-top: var(--space-4);
+  overflow: hidden;
+  transition: border-color var(--transition), opacity var(--transition);
+}
+
+/* Disabled cards recede; enabled ones get the accent edge. */
+.evt-card:not(.is-enabled) {
+  opacity: 0.62;
+}
+
+.evt-card.is-enabled {
+  border-color: color-mix(in srgb, var(--evt-accent) 55%, var(--color-border));
+  border-left-color: var(--evt-accent);
+}
+
+/* Header — always visible, acts as the collapse toggle. */
 .evt-card-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.evt-card-noisy {
-  border-left: 3px solid #f0b429;
+/* Separator between the header and the (expanded) body. */
+.evt-card:not(.is-collapsed) .evt-card-head {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.evt-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  color: var(--evt-accent);
+  background: color-mix(in srgb, var(--evt-accent) 16%, transparent);
+}
+
+.evt-card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.evt-noisy-badge {
+  background: rgba(240, 180, 41, 0.16);
+  color: #f0b429;
+}
+
+.evt-card-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.evt-card.is-enabled .evt-card-status {
+  color: var(--evt-accent);
+}
+
+.evt-head-switch {
+  flex-shrink: 0;
+}
+
+/* Chevron rotates when collapsed. */
+.evt-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--transition), color var(--transition), background var(--transition);
+}
+
+.evt-collapse-btn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-alt);
+}
+
+.evt-card.is-collapsed .evt-collapse-btn {
+  transform: rotate(-90deg);
+}
+
+/* Body — collapsible. */
+.evt-card-body {
+  padding: 14px;
+  overflow: hidden;
+}
+
+.evt-card.is-collapsed .evt-card-body {
+  display: none;
+}
+
+.evt-card-cols {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 18px;
+  /* No align-items: start — the preview column stretches to match the form
+     column, and the stage (flex: 1) fills the extra height. */
+}
+
+@media (max-width: 900px) {
+  .evt-card-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.evt-card-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
 }
 
 .evt-grid {
@@ -76,8 +197,222 @@
   gap: 16px;
 }
 
-.evt-asset-row {
+.evt-grid .form-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── Dropzones (image + sound) ─────────────────────────────────────────────── */
+.evt-dropzone {
   display: flex;
   align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1.5px dashed var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-alt);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.evt-dropzone:hover,
+.evt-dropzone:focus-visible {
+  border-color: color-mix(in srgb, var(--evt-accent) 50%, var(--color-border));
+  outline: none;
+}
+
+.evt-dropzone.is-dragover {
+  border-color: var(--evt-accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--evt-accent) 10%, var(--color-bg-alt));
+}
+
+/* Image zone: big preview on top, buttons row below. */
+.evt-dropzone-image {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.evt-dropzone-image .evt-dropzone-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 140px;
+  border-radius: 4px;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.evt-dropzone-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.evt-dropzone-empty {
+  color: var(--color-text-muted);
+  display: inline-flex;
+}
+
+.evt-dropzone-image .evt-dropzone-hint {
+  justify-content: center;
+  margin-left: 0;
+}
+
+.evt-dropzone-image .evt-dropzone-hint > span {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.evt-dropzone-sound .evt-sound-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evt-dropzone-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.evt-clear-btn {
+  color: var(--color-text-muted);
+}
+
+.evt-clear-btn:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* Armed state: first click turns the button into a red "¿Borrar?" confirm. */
+.evt-clear-btn.is-armed,
+.evt-clear-btn.is-armed:hover {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #ffffff;
+}
+
+/* ── Text field + token chips ──────────────────────────────────────────────── */
+.evt-text-group .evt-token-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.evt-token-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.evt-token-chip {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--evt-accent) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--evt-accent) 12%, transparent);
+  color: var(--evt-accent);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.evt-token-chip:hover {
+  background: color-mix(in srgb, var(--evt-accent) 24%, transparent);
+}
+
+.evt-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.evt-slider-val {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* ── In-panel live preview ─────────────────────────────────────────────────── */
+.evt-card-preview {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.evt-preview-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.evt-preview-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 230px;
+  padding: 16px;
+  border-radius: 4px;
+  /* Checkerboard so a transparent PNG/text reads like it will on stream. */
+  background-color: #1a1d24;
+  background-image:
+    linear-gradient(45deg, #20242c 25%, transparent 25%),
+    linear-gradient(-45deg, #20242c 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #20242c 75%),
+    linear-gradient(-45deg, transparent 75%, #20242c 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  overflow: hidden;
+}
+
+.evt-preview-alert {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  will-change: transform, opacity;
+}
+
+.evt-preview-img {
+  max-width: 200px;
+  max-height: 140px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.5));
+}
+
+.evt-preview-text {
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.85), 0 0 10px rgba(0, 0, 0, 0.6);
+  word-break: break-word;
+}
+
+.evt-preview-placeholder {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.evt-replay-btn {
+  align-self: stretch;
+  justify-content: center;
 }

@@ -1108,8 +1108,9 @@ chat-message (new user)
   --> if jumpOnSpeak: pet.executeAction("jump") in place
   --> else: pet.onChatMessage()  (just resets the inactivity timer / wakes if asleep)
 
-backend wander tick (every tama_action_check_secs, if tama_grid_wander_enabled)
-  --> GridManager nudges each pet to a free neighbor cell
+backend wander tick (fixed 6 s interval, if tama_grid_wander_enabled)
+  --> each pet ticks its own randomized cooldown; when it elapses the pet
+      strolls to a far free cell that ideally has personal space
   --> tama-grid-update --> pet.applyCell(..., animateMove=true) glides it
 
 tts-state speaking=true/false --> pet.setMouth(open/closed)  (lip-sync only)
@@ -1320,10 +1321,10 @@ That panic fires inside `start_server` **before the socket `bind`**. Because the
 Pet placement is owned entirely by Rust (`grid/mod.rs`, modeled on `streamer_mic`). The overlay never decides where a pet stands; it renders the cell the backend assigns. See §8 (`GridUpdatePayload`) and §16 (core modules / lifecycle) for the full flow.
 
 - **Grid model** — the screen is a `cols × rows` grid laid over a floor band. Cell `(0,0)` is the back-left (far/small); higher `cellY` is the front (near/large). Dimensions are fixed per mode: small `6×1` (`tama_layout_mode = "static"`) / normal `150×30`, doubled when `tama_grid_high_precision` is on.
-- **Assignment** — on spawn the overlay calls `tama_grid_ensure(user_id)`; the backend allocates the first free cell (front-center bias) and broadcasts `tama-grid-update`. The pet `applyCell`s to the resolved pixels.
-- **Wander** — if `tama_grid_wander_enabled`, a tokio interval task (`GridManager::wander_tick`, period = `tama_action_check_secs`) nudges each pet to a random free 8-neighbor cell; only moved pets emit an update. This replaces the old free-walk loop.
-- **Actions** — fight (and any movement action) call `PetManager.requestMove(userId, cellX, cellY)` → `tama_grid_move`, which resolves the free cell nearest the target via an expanding ring search. The overlay animates the resulting `tama-grid-update`.
-- **Perspective** — `Grid2D.cellToPx` applies `scale = lerp(farScale, nearScale, cellY/(rows-1))` when `tama_grid_perspective` is on, so front-row pets are larger. The scale + horizontal flip live on `.pet-inner`, leaving `.el` free for action transforms.
+- **Assignment** — on spawn the overlay calls `tama_grid_ensure(user_id)`; the backend allocates a free cell (front-center bias, **two-pass**: first only cells with personal space, then any free cell) and broadcasts `tama-grid-update`. The overlay **snaps** the pet to its first cell (never walks it from the `(0,0)` corner — that read as a bug); subsequent updates animate. The pet `applyCell`s to the resolved pixels.
+- **Wander** — if `tama_grid_wander_enabled`, a tokio interval task (`GridManager::wander_tick`, fixed 6 s period) drives **asynchronous** movement: each pet has its own randomized cooldown (`wander_wait`, 1–5 ticks) so they don't all step on the same beat. When a pet's cooldown elapses it strolls to a far free cell (`WANDER_MIN/MAX_STEP`, mostly horizontal) that ideally has **personal space** — `random_free_step` tries several candidates and prefers one with no occupied cell inside an *anisotropic* spacing rectangle (wider in X than Y via `SPACING_FRAC_X/Y`, since a sprite spans more columns than rows on screen). Only moved pets emit an update.
+- **Actions** — fight (and any movement action) call `PetManager.requestMove(userId, cellX, cellY)` → `tama_grid_move`, which resolves the free cell nearest the target via an expanding ring search and resets that pet's wander cooldown so it doesn't immediately stroll off. The overlay animates the resulting `tama-grid-update`.
+- **Perspective** — `Grid2D.cellToPx` applies `scale = lerp(farScale, nearScale, cellY/(rows-1))` when `tama_grid_perspective` is on, so front-row pets are larger. The scale lives on `.el` via the individual `scale` CSS property (so it scales the sprite, the name label, AND action props together and composes with the `transform` strings actions animate); only the horizontal flip lives on `.pet-inner`.
 - **Resize** — `PetManager` re-translates each pet's authoritative cell to new pixels on window resize; cells never change, only their pixel projection.
 - **Rehydration** — a client connecting after pets exist calls `tama_grid_get_state` to get dims + every cell.
 

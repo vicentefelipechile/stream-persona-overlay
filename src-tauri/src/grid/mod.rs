@@ -31,14 +31,35 @@ const SMALL_ROWS: u16 = 1;
 const NORMAL_COLS: u16 = 150;
 const NORMAL_ROWS: u16 = 30;
 
-/// Probability, per wander tick, that a given idle pet picks a new destination.
-const WANDER_STEP_PROBABILITY: f64 = 0.5;
 /// Wander destination distance in cells. Each wander emits a SINGLE update to a far
 /// cell; the overlay then walks there at a constant slow speed over several seconds.
 /// On the fine 150×30 grid these spans translate to a good fraction of the screen,
 /// so the pet takes a long continuous stroll instead of a tiny hop-and-pause.
 const WANDER_MIN_STEP: i32 = 20;
 const WANDER_MAX_STEP: i32 = 60;
+
+/// Per-pet idle time between finishing one stroll and starting the next, in wander
+/// ticks. Each pet draws its own value in this range, so pets move asynchronously
+/// instead of all stepping on the same global beat. (One tick ≈ the wander interval
+/// in `lib.rs`.) A low minimum keeps the floor lively; the spread breaks up sync.
+const WANDER_COOLDOWN_MIN_TICKS: u32 = 1;
+const WANDER_COOLDOWN_MAX_TICKS: u32 = 5;
+
+/// When picking a wander/spawn destination, prefer cells with personal space so pets
+/// keep their distance instead of piling up. We try several candidates and take the
+/// first comfortable one, falling back to any free cell if none is found.
+const WANDER_SPACING_TRIES: u32 = 8;
+
+/// "Personal space" is measured in CELLS, but the visual separation a viewer sees is
+/// anisotropic: a sprite is ~80px wide, yet a column is only ~(usableW/cols) px and a
+/// row only ~(bandH/rows) px. On the normal 150×30 grid a sprite spans ROUGHLY 6
+/// columns and 5 rows, so a 1-cell gap leaves sprites fully overlapping on screen.
+/// These fractions of each axis approximate the sprite footprint + a gap, so the gap
+/// holds at any density (high-precision doubles cols/rows AND these radii). The X gap
+/// is wider because horizontal overlap is the most obvious to the eye and columns are
+/// the most compressed axis.
+const SPACING_FRAC_X: f64 = 0.05; // ~7-8 cols on a 150-wide grid
+const SPACING_FRAC_Y: f64 = 0.13; // ~4 rows on a 30-tall grid
 
 /// A single cell coordinate. `(0,0)` is the back-left of the floor band; higher
 /// `y` is closer to the viewer (and rendered larger by the perspective scale).
@@ -61,6 +82,10 @@ struct GridState {
     cells: HashMap<i64, Cell>,
     /// Currently occupied cells (mirror of `cells` values) for O(1) free-cell checks.
     occupied: HashSet<Cell>,
+    /// userId -> wander ticks remaining before the pet may pick a new destination.
+    /// Decremented each tick; a pet only wanders when its counter reaches 0, after
+    /// which it draws a fresh per-pet cooldown. This desynchronizes movement.
+    wander_wait: HashMap<i64, u32>,
 }
 
 impl GridState {
@@ -114,6 +139,7 @@ impl GridManager {
             rows,
             cells: HashMap::new(),
             occupied: HashSet::new(),
+            wander_wait: HashMap::new(),
         };
 
         if let Some(prev) = previous {
@@ -125,6 +151,8 @@ impl GridManager {
                 };
                 state.cells.insert(user_id, target);
                 state.occupied.insert(target);
+                // Stagger initial cooldowns so pets don't all wander on the first tick.
+                state.wander_wait.insert(user_id, state.random_cooldown());
             }
         }
 
@@ -155,6 +183,10 @@ impl GridManager {
             let c = state.first_free().unwrap_or((0, 0));
             state.cells.insert(user_id, c);
             state.occupied.insert(c);
+            // Give the fresh pet a randomized cooldown so its first stroll doesn't
+            // coincide with everyone else's.
+            let cooldown = state.random_cooldown();
+            state.wander_wait.insert(user_id, cooldown);
             Some((c, true))
         }
     }
@@ -191,6 +223,7 @@ impl GridManager {
                 if let Some(cell) = state.cells.remove(&user_id) {
                     state.occupied.remove(&cell);
                 }
+                state.wander_wait.remove(&user_id);
             }
         }
     }
@@ -226,6 +259,10 @@ impl GridManager {
         };
         state.cells.insert(user_id, dest);
         state.occupied.insert(dest);
+        // An action just repositioned this pet; hold off the autonomous wander so it
+        // doesn't immediately stroll away from where the action put it.
+        let cooldown = state.random_cooldown();
+        state.wander_wait.insert(user_id, cooldown);
         Some(dest)
     }
 
@@ -262,8 +299,11 @@ impl GridManager {
         Some(cell)
     }
 
-    /// One wander tick: each pet independently rolls to step to a random free
-    /// neighbor cell. Emits an update only for pets that actually moved.
+    /// One wander tick. Each pet runs its own countdown (`wander_wait`): the counter
+    /// is decremented every tick, and a pet only picks a new destination when it
+    /// reaches 0, after which it draws a fresh per-pet cooldown. Because each pet has
+    /// an independent, randomized cooldown, they move asynchronously instead of all
+    /// stepping together on the global beat. Emits an update only for pets that moved.
     pub fn wander_tick(&self, app: &AppHandle) {
         let moves: Vec<(i64, Cell)> = {
             let Ok(mut guard) = self.inner.lock() else {
@@ -280,9 +320,13 @@ impl GridManager {
             let ids: Vec<i64> = state.cells.keys().copied().collect();
             let mut moved = Vec::new();
             for user_id in ids {
-                if rand_f64() > WANDER_STEP_PROBABILITY {
+                // Tick down this pet's personal cooldown; skip until it elapses.
+                let remaining = state.wander_wait.entry(user_id).or_insert(0);
+                if *remaining > 0 {
+                    *remaining -= 1;
                     continue;
                 }
+
                 let Some(&from) = state.cells.get(&user_id) else {
                     continue;
                 };
@@ -292,6 +336,10 @@ impl GridManager {
                     state.cells.insert(user_id, to);
                     moved.push((user_id, to));
                 }
+                // Draw the next personal cooldown whether or not it found a step, so a
+                // boxed-in pet doesn't retry every single tick.
+                let cooldown = state.random_cooldown();
+                state.wander_wait.insert(user_id, cooldown);
             }
             moved
         };
@@ -337,13 +385,22 @@ impl GridState {
         }
     }
 
-    /// First free cell in row-major order, preferring the front-center so pets
-    /// appear in a visible spot rather than the far back corner.
+    /// Spawn cell: front-center first, fanning columns outward. Two passes — the
+    /// first only accepts cells with personal space (no occupied neighbor) so new
+    /// pets land spread apart instead of stacking onto whoever's already there; the
+    /// second pass takes any free cell as a fallback once the floor fills up.
     fn first_free(&self) -> Option<Cell> {
-        // Front rows first (high y = closer), center columns first.
+        if let Some(c) = self.scan_front_center(true) {
+            return Some(c);
+        }
+        self.scan_front_center(false)
+    }
+
+    /// Walk front rows first (high y = closer), columns outward from center.
+    /// When `require_space` is set, only return cells whose neighbors are all empty.
+    fn scan_front_center(&self, require_space: bool) -> Option<Cell> {
         let mid = self.cols / 2;
         for y in (0..self.rows).rev() {
-            // Walk columns outward from the center for a balanced spread.
             for off in 0..self.cols {
                 let cx = if off % 2 == 0 {
                     mid.saturating_add(off / 2)
@@ -352,7 +409,7 @@ impl GridState {
                 };
                 if cx < self.cols {
                     let cell = (cx, y);
-                    if self.is_free(cell) {
+                    if self.is_free(cell) && (!require_space || self.has_personal_space(cell)) {
                         return Some(cell);
                     }
                 }
@@ -391,10 +448,29 @@ impl GridState {
     }
 
     /// A far free destination cell for a wander walk, or None if none is reachable.
-    /// Picks a random direction and the farthest free cell along it (up to a random
-    /// reach in `[WANDER_MIN_STEP, WANDER_MAX_STEP]`), favoring horizontal travel so
-    /// the stroll reads as walking across the floor rather than drifting up/down.
+    /// Tries several random directions/reaches and prefers a destination with
+    /// personal space (no occupied immediate neighbor), so pets spread out instead of
+    /// piling onto each other. Falls back to the first plain-free cell it found if no
+    /// roomy one turns up. Each candidate favors horizontal travel and a varied reach
+    /// so two pets rarely take the same-length step in the same direction.
     fn random_free_step(&self, from: Cell) -> Option<Cell> {
+        let mut fallback: Option<Cell> = None;
+
+        for _ in 0..WANDER_SPACING_TRIES {
+            let Some(cell) = self.random_free_step_once(from) else {
+                continue;
+            };
+            if self.has_personal_space(cell) {
+                return Some(cell);
+            }
+            fallback.get_or_insert(cell);
+        }
+
+        fallback
+    }
+
+    /// One random direction/reach probe for a far free cell (no spacing preference).
+    fn random_free_step_once(&self, from: Cell) -> Option<Cell> {
         let (fx, fy) = (from.0 as i32, from.1 as i32);
         let span = (WANDER_MAX_STEP - WANDER_MIN_STEP + 1).max(1);
         let reach = WANDER_MIN_STEP + (rand_f64() * span as f64) as i32;
@@ -424,6 +500,44 @@ impl GridState {
             }
         }
         None
+    }
+
+    /// Per-axis spacing radius in cells, derived from the grid size so the on-screen
+    /// gap matches the sprite footprint regardless of grid density. At least 1 cell.
+    fn spacing_radius(&self) -> (i32, i32) {
+        let rx = ((self.cols as f64 * SPACING_FRAC_X).round() as i32).max(1);
+        let ry = ((self.rows as f64 * SPACING_FRAC_Y).round() as i32).max(1);
+        (rx, ry)
+    }
+
+    /// True when no occupied cell lies within the anisotropic spacing rectangle around
+    /// `cell` — i.e. the pet would stand with real ON-SCREEN breathing room, not just
+    /// one grid cell apart. The rectangle is wider in X than Y because a sprite spans
+    /// more columns than rows visually (see SPACING_FRAC_*).
+    fn has_personal_space(&self, cell: Cell) -> bool {
+        let (cx, cy) = (cell.0 as i32, cell.1 as i32);
+        let (rx, ry) = self.spacing_radius();
+        for dy in -ry..=ry {
+            for dx in -rx..=rx {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let (nx, ny) = (cx + dx, cy + dy);
+                if nx < 0 || ny < 0 {
+                    continue;
+                }
+                if self.occupied.contains(&(nx as u16, ny as u16)) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// A randomized per-pet wander cooldown in ticks (see WANDER_COOLDOWN_*).
+    fn random_cooldown(&self) -> u32 {
+        let span = (WANDER_COOLDOWN_MAX_TICKS - WANDER_COOLDOWN_MIN_TICKS + 1).max(1);
+        WANDER_COOLDOWN_MIN_TICKS + (rand_f64() * span as f64) as u32
     }
 }
 

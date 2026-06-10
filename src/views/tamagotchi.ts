@@ -200,12 +200,14 @@ export async function renderTamagotchi(): Promise<void> {
         </label>
       </div>
 
-      <div id="grid-perspective-options" style="${!gridPerspective ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4);padding-left:var(--space-5);border-left:2px solid var(--color-border);">
+      <div id="grid-perspective-options" style="${!gridPerspective ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-5);margin-top:var(--space-4);padding-left:var(--space-5);border-left:2px solid var(--color-border);">
         ${_slider("cfg-grid-near", "cfg-grid-near-val", "Escala frontal (cerca)", gridNearScale, "×", 1, 2.5, 0.1)}
         ${_slider("cfg-grid-far",  "cfg-grid-far-val",  "Escala de fondo (lejos)", gridFarScale,  "×", 0.3, 1, 0.05)}
       </div>
 
-      ${_slider("cfg-grid-floor-top", "cfg-grid-floor-top-val", "Inicio de la banda de piso", gridFloorTop, "", 0.1, 0.9, 0.05)}
+      <div style="margin-top:var(--space-5);">
+        ${_slider("cfg-grid-floor-top", "cfg-grid-floor-top-val", "Inicio de la banda de piso", gridFloorTop, "", 0.1, 0.9, 0.05)}
+      </div>
     </div>
 
     <div class="card" style="margin-top:var(--space-5);">
@@ -705,5 +707,12 @@ function _bindRange(inputId: string, labelId: string, suffix: string): void {
   const input = document.getElementById(inputId) as HTMLInputElement | null;
   const label = document.getElementById(labelId);
   if (!input || !label) return;
-  input.addEventListener("input", () => { label.textContent = input.value + suffix; });
+  const sync = () => {
+    label.textContent = input.value + suffix;
+    // Fill the track to the left of the thumb (see .tama-range gradient).
+    const pct = ((Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min))) * 100;
+    input.style.setProperty("--slider-fill", `${pct}%`);
+  };
+  input.addEventListener("input", sync);
+  sync(); // initialize fill + label on load
 }
