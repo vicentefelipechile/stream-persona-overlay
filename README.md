@@ -21,6 +21,22 @@ Pre-built binaries are available on the [Releases](../../releases) page.
 
 ## Building from Source
 
+### Prerequisites
+
+- **Node.js** 20+ and **Rust** (stable) with the Tauri toolchain.
+- **Windows / macOS:** no extra system libraries — microphone capture uses WASAPI / CoreAudio natively.
+- **Linux:** install the Tauri WebKit deps plus **ALSA** (required by the native mic capture). On Debian/Ubuntu:
+
+  ```bash
+  sudo apt-get install -y \
+    libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+    libspeechd-dev libasound2-dev
+  ```
+
+  > `libasound2-dev` provides `alsa.pc`; without it the `alsa-sys` build fails. Running a packaged build only needs the runtime library `libasound2`, which most Linux desktops already have.
+
+### Commands
+
 ```bash
 # Dev (panel + Rust)
 npm run tauri dev

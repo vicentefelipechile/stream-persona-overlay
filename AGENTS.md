@@ -916,6 +916,18 @@ await AppState.setConfig(key, value); // Save and reload cache
 
 ## 11. Development Commands
 
+### Linux build prerequisite (ALSA)
+
+The native mic capture (`cpal`, see `streamer_mic/`) links `alsa-sys` on Linux, which needs the ALSA dev library at build time. Without it `cargo build`/`clippy` panics with *"Package alsa was not found in the pkg-config search path"*. Install it alongside the Tauri WebKit deps:
+
+```bash
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+  libspeechd-dev libasound2-dev
+```
+
+Windows (WASAPI) and macOS (CoreAudio) need no extra audio libraries. The CI and release workflows install `libasound2-dev` in their Linux dependency step for the same reason.
+
 ```bash
 # Dev (panel + Rust together)
 npm run tauri dev
