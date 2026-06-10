@@ -41,7 +41,8 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libspeechd-dev
+            libspeechd-dev \
+            libasound2-dev
 
       - name: Check formatting
         working-directory: src-tauri
