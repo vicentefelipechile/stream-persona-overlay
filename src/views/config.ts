@@ -17,11 +17,11 @@ import { Icons } from "../icons";
 // Render Function
 // =========================================================================================================
 
-export async function renderConfig(): Promise<void> {
+export async function renderConfig(pane: HTMLElement): Promise<void> {
   await AppState.loadConfig();
   const cfg = AppState.config;
 
-  const container = document.getElementById("view-container")!;
+  const container = pane;
   container.innerHTML = `
     <div class="view-header">
       <h1>${Icons.settings(20)} Configuración</h1>
@@ -83,24 +83,16 @@ export async function renderConfig(): Promise<void> {
     </section>
 
     <!-- OBS Browser Source -->
-    <section class="section">
+    <div class="card">
       <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
-      <div class="card">
-        <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px;">
-          Alternativa sin chroma key. Agregá esta URL como <strong>Browser Source</strong> en OBS
-          — el fondo es transparente de forma nativa.
-        </p>
-        <div class="form-group">
-          <label>URL del Browser Source</label>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" id="obs-browser-url" readonly
-              value="http://localhost:6767/overlay"
-              style="flex:1;" />
-            <button id="btn-copy-obs-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
-          </div>
-        </div>
+      <p class="view-subtitle" style="margin:8px 0;">
+        Alternativa sin chroma key. Agregá esta URL como <strong>Browser Source</strong> en OBS — el fondo es transparente de forma nativa.
+      </p>
+      <div style="display:flex;gap:8px;">
+        <input id="obs-browser-url" type="text" readonly value="http://localhost:6767/overlay" style="flex:1;"/>
+        <button id="btn-copy-obs-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
       </div>
-    </section>
+    </div>
 
     <!-- Overlay -->
     <section class="section">

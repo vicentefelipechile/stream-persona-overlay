@@ -1,8 +1,7 @@
 // =========================================================================================================
 // TIKTOK VIEW
 // =========================================================================================================
-// TikTok connection, chat filters and chat anti-spam presets. Event types, event
-// cooldowns and TTS now live in the centralized Eventos view.
+// TikTok connection, chat filters and chat anti-spam presets.
 // =========================================================================================================
 
 // =========================================================================================================
@@ -39,8 +38,8 @@ function chatPresetDescription(preset: string): string {
 // Render function
 // =========================================================================================================
 
-export async function renderTiktok(): Promise<void> {
-  const container = document.getElementById("view-container")!;
+export async function renderTiktok(pane: HTMLElement): Promise<void> {
+  const container = pane;
 
   let cfg: Record<string, unknown> = {};
   try {
@@ -166,12 +165,6 @@ export async function renderTiktok(): Promise<void> {
           ${sRow("tiktok-chat-rate-window", chatRateWindow, 1, 60,    1,    "Ventana de tiempo",                 v => `${v}s`)}
         </div>
       </details>
-    </div>
-
-    <div class="card" style="margin-top: var(--space-5);">
-      <p style="margin:0;font-size:0.9rem;color:var(--text-muted);">
-        Los <strong>tipos de evento</strong>, <strong>cooldowns de evento</strong> y <strong>TTS</strong> se configuran ahora en la vista <strong>Eventos</strong>.
-      </p>
     </div>
   `;
 

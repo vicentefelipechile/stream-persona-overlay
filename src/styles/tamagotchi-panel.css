@@ -50,7 +50,9 @@
 .tama-slider-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--color-text-muted);
+  /* Control labels read as foreground text, not secondary copy — use the main
+     text color so the uppercase labels are clearly legible. */
+  color: var(--color-text);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }

@@ -77,6 +77,8 @@ Viewers register and manage their pet images through the **Discord bot** (slash 
 
 > Do **not** deviate from these tokens when writing new views or components. Consistency across the panel depends on them.
 
+> **Text color hierarchy:** `--color-text` (`#e8eaf0`) is foreground/primary; `--color-text-muted` (`#7a8099`) is secondary copy; `--color-text-dim` (`#4a5168`) is the faintest. **Foreground UI controls must use `--color-text`** — form `<label>`s, sidebar `.nav-link`s, and slider labels are all `--color-text` so they never read fainter than the input/description next to them. Reserve `--color-text-muted` for genuinely secondary text (hints, descriptions, timestamps, the resting state of de-emphasised items). A control label that looks darker than its own value/description is a bug.
+
 ### Internal Communication
 
 - **Admin panel / Tauri overlay → Rust:** `invoke(command_name, args)` via Tauri Commands
@@ -159,7 +161,7 @@ For opacity and filter, shorthand works fine. Only `transform`-related propertie
 stream-persona-overlay/
 +-- src/                          # Frontend TypeScript
 |   +-- main.ts                   # Panel entry point (index.html)
-|   +-- router.ts                 # Manual hash-based ViewRouter
+|   +-- router.ts                 # Manual hash-based ViewRouter — one cached persistent pane per view (render once, toggle visibility), router.invalidate() to re-render
 |   +-- state.ts                  # AppState singleton + TS types + showToast()
 |   +-- icons.ts                  # Centralized icon catalog — brand icons (simple-icons) + inline SVG UI icons
 |   +-- views/
@@ -759,7 +761,7 @@ Disable the connect button and show "Conectando…" while waiting; re-enable in 
 
 ### OBS Browser Source URL block (mandatory for every browser-source overlay)
 
-Every admin view that owns a browser-source overlay (`overlay-browser`, `overlay-alerts`, `overlay-streamer`, …) must expose its URL with the **same standard block** — a `.section-title` titled exactly **"OBS Browser Source"** with the `externalLink` icon, a read-only input holding the full URL, and a **"Copiar"** button. Do **not** inline the URL inside a `<code>` tag or prose. This keeps every overlay discoverable in the same place/shape across views (config / eventos / streamer all use it).
+Every admin view that owns a browser-source overlay (`overlay-browser`, `overlay-alerts`, `overlay-streamer`, …) must expose its URL with the **same standard block**, placed **inside a `.card`**: a `.section-title` (inside the card) titled exactly **"OBS Browser Source"** with the `externalLink` icon, a `view-subtitle` description, then a read-only input holding the full URL plus a **"Copiar"** button on the same row. No `<label>` above the input (it's redundant), and do **not** inline the URL inside a `<code>` tag or prose. This keeps every overlay discoverable in the same place/shape across views (config / eventos / streamer all use the identical block).
 
 ```typescript
 // In the view's innerHTML (inside a `.card`):
@@ -793,8 +795,10 @@ The router in `router.ts` is manual, hash-based (`#/config`, `#/users`, etc.).
 export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "tiktok" | "eventos" | "streamer";
 ```
 
-- To add a new view: add an entry in `routes`, create the file under `src/views/`, and add `data-view="new-view"` to the sidebar in `index.html`.
-- Each view exports a function `render<Name>(): Promise<void>` that writes into `#view-container`.
+- **Cached, persistent panes — render once, no "loading" flash.** Each view lives in its own `<div class="view-pane">` appended to `#view-container`. A view is rendered **exactly once** (lazily, the first time it is shown); navigating afterwards only toggles `display` between panes. This is a local desktop app, so there is no loading spinner and no full re-render on navigation — switching views (or returning to one) preserves scroll position, form state, collapsed cards and live listeners. Do **not** reintroduce a `container.innerHTML = "...loading..."` step.
+- Each view exports `render<Name>(pane: HTMLElement): Promise<void>` and paints into the `pane` it is given (`const container = pane;`). Never grab `#view-container` directly — multiple panes coexist, so writing to the shared container would clobber other views. View-internal control ids must stay unique across views (they already use per-view prefixes: `evt-`, `twitch-`, `tiktok-`, `tama-`, `cfg-`, …).
+- **Re-rendering after a state change:** call `router.invalidate(view)` — it re-renders that view now if it's the active one, otherwise marks it to re-render next time it's shown, without touching other cached panes. Used by `main.ts` on connection events (`*-connected`/`*-error`) and by views after a mutating action (user edit, sprite upload). `router.navigate(view)` is only for switching the visible view.
+- To add a new view: add an entry in `routes`, create `src/views/<name>.ts` exporting `render<Name>(pane)`, and add `data-view="new-view"` to the sidebar in `index.html`.
 
 > **Note:** `src/views/overlay.ts` is NOT a panel view — it runs in the `overlay` window (`overlay.html`) and is never loaded by the router.
 
@@ -971,7 +975,7 @@ TikTool requires an internet connection and an API key. For offline TikTok devel
 
 ## 12. Rules and Restrictions for Agents
 
-1. **Do not break the `ViewRouter` pattern**: every panel view goes in `src/views/`, exports `render<Name>()`, and is registered in `router.ts`. Exception: `src/views/overlay.ts` is the overlay entry point and is not a router view.
+1. **Do not break the `ViewRouter` pattern**: every panel view goes in `src/views/`, exports `render<Name>(pane: HTMLElement)`, paints into its given `pane` (cached/persistent — render once, no loading flash), and is registered in `router.ts`. Exception: `src/views/overlay.ts` is the overlay entry point and is not a router view.
 2. **Do not add CSS frameworks** (Tailwind, Bootstrap, etc.) without explicit user approval. The project uses vanilla CSS.
 3. **Do not create additional DB connections** — all DB access goes through `AppState.db: Arc<Mutex<Connection>>`.
 4. **Do not use `unwrap()`** in production Rust code. Use `?` with `anyhow::Result` or map errors to `CmdResult<T>` via `map_err`.
@@ -1375,7 +1379,7 @@ A guided, first-run setup walkthrough for the admin panel, built on `driver.js`.
 
 ### How it works
 
-- **Cross-view steps:** the panel is a hash-based SPA whose views render asynchronously into `#view-container`. Each `TourStep` may declare a `view` (`ViewId`). Before driver.js highlights a step, `prepareStep()` drives the `router` to that view (`router.navigate`) and `waitForElement()` polls (via `requestAnimationFrame`, ~2.5 s budget) until the target exists. Sidebar/nav targets (`#sidebar`, `#nav-*`, `#btn-*`) need no view change.
+- **Cross-view steps:** the panel is a hash-based SPA whose views render lazily into their own cached pane under `#view-container`. Each `TourStep` may declare a `view` (`ViewId`). Before driver.js highlights a step, `prepareStep()` drives the `router` to that view (`router.navigate`, which shows — and on first visit renders — that pane) and `waitForElement()` polls (via `requestAnimationFrame`, ~2.5 s budget) until the target exists. Sidebar/nav targets (`#sidebar`, `#nav-*`, `#btn-*`) need no view change.
 - **Navigation ownership:** `onNextClick` / `onPrevClick` are overridden so step changes go through `prepareStep()` + `moveTo()`. **`allowKeyboardControl: false`** is set deliberately — keyboard nav calls driver's `moveNext()`/`movePrevious()` directly and would bypass the view-switch prep, landing on a step whose element does not exist yet.
 - **First-run trigger:** `maybeAutoStartTour()` launches the tour the first time the panel is ever opened, gated by the `localStorage` flag `spo_onboarding_seen`. The flag is set in driver's `onDestroyed` (so closing via the X also counts as seen). The "¿Cómo empezar?" button calls `startTour()` directly and ignores the flag, so it is always replayable.
 

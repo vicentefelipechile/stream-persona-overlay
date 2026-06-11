@@ -2,8 +2,7 @@
 // TWITCH VIEW
 // =========================================================================================================
 // Twitch connection, chat filters, chat anti-spam presets and the global message
-// throughput cap. Event types, event cooldowns, TTS and EventSub now live in the
-// centralized Eventos view.
+// throughput cap.
 // =========================================================================================================
 
 // =========================================================================================================
@@ -49,8 +48,8 @@ function chatPresetDescription(preset: string): string {
 // Render function
 // =========================================================================================================
 
-export async function renderTwitch(): Promise<void> {
-  const container = document.getElementById("view-container")!;
+export async function renderTwitch(pane: HTMLElement): Promise<void> {
+  const container = pane;
 
   let cfg: Record<string, unknown> = {};
   try {
@@ -215,12 +214,6 @@ export async function renderTwitch(): Promise<void> {
           ${sRow("twitch-global-cap", globalCap, 0, 50, 1, "Máx. mensajes por segundo (global)", v => v === 0 ? "Desactivado" : `${v}/s`)}
         </div>
       </details>
-    </div>
-
-    <div class="card" style="margin-top: var(--space-5);">
-      <p style="margin:0;font-size:0.9rem;color:var(--text-muted);">
-        Los <strong>tipos de evento</strong>, <strong>cooldowns de evento</strong>, <strong>TTS</strong> y <strong>EventSub</strong> se configuran ahora en la vista <strong>Eventos</strong>.
-      </p>
     </div>
   `;
 

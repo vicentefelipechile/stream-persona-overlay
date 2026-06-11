@@ -53,8 +53,8 @@ interface User {
 // renderTamagotchi
 // =========================================================================================================
 
-export async function renderTamagotchi(): Promise<void> {
-  const container = document.getElementById("view-container")!;
+export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
+  const container = pane;
 
   let cfg: Record<string, unknown> = {};
   let users: User[] = [];
@@ -478,7 +478,7 @@ export async function renderTamagotchi(): Promise<void> {
       try {
         await invoke("set_guest_image", { imageType, imageData: bytes });
         showToast("Imagen de invitado actualizada", "success");
-        await renderTamagotchi();
+        await renderTamagotchi(container);
       } catch (e) {
         showToast(String(e), "error");
       }
@@ -493,7 +493,7 @@ export async function renderTamagotchi(): Promise<void> {
     try {
       await invoke("reset_guest_image", { imageType: "open" });
       showToast("Imagen restablecida al default", "success");
-      await renderTamagotchi();
+      await renderTamagotchi(container);
     } catch (e) {
       showToast(String(e), "error");
     }
@@ -503,7 +503,7 @@ export async function renderTamagotchi(): Promise<void> {
     try {
       await invoke("reset_guest_image", { imageType: "closed" });
       showToast("Imagen restablecida al default", "success");
-      await renderTamagotchi();
+      await renderTamagotchi(container);
     } catch (e) {
       showToast(String(e), "error");
     }

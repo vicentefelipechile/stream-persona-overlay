@@ -11,6 +11,7 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { showToast } from "../state";
 import { Icons } from "../icons";
+import { router } from "../router";
 import { BlinkScheduler } from "../overlay/streamer/BlinkScheduler";
 
 type Slot = "mo_eo" | "mc_eo" | "mo_ec" | "mc_ec";
@@ -57,8 +58,8 @@ const ANCHORS: { value: string; label: string }[] = [
 // renderStreamer
 // =========================================================================================================
 
-export async function renderStreamer(): Promise<void> {
-  const container = document.getElementById("view-container")!;
+export async function renderStreamer(pane: HTMLElement): Promise<void> {
+  const container = pane;
 
   let cfg: Record<string, unknown> = {};
   try {
@@ -311,7 +312,7 @@ async function _pickSprite(slot: Slot): Promise<void> {
     try {
       await invoke("set_streamer_sprite", { slot, imageData });
       showToast("Sprite actualizado", "success");
-      await renderStreamer();
+      router.invalidate("streamer");
     } catch (e) {
       showToast(String(e), "error");
     }
@@ -323,7 +324,7 @@ async function _resetSprite(slot: Slot): Promise<void> {
   try {
     await invoke("reset_streamer_sprite", { slot });
     showToast("Sprite restablecido", "success");
-    await renderStreamer();
+    router.invalidate("streamer");
   } catch (e) {
     showToast(String(e), "error");
   }
@@ -394,12 +395,18 @@ function _startPreview(
   let talking = false;
 
   const loop = () => {
-    if (!document.body.contains(root)) return; // self-cancel on navigation
-    const eyes = blink.tick(performance.now());
-    const slot = `${talking ? "mo" : "mc"}_${eyes === "open" ? "eo" : "ec"}` as Slot;
-    for (const s of SLOTS) imgs[s.slot].style.opacity = s.slot === slot ? "1" : "0";
-    const wantTalk = talking ? talkAnim : "none";
-    if (root.dataset.talk !== wantTalk) root.dataset.talk = wantTalk;
+    if (!document.body.contains(root)) return; // self-cancel if the view is destroyed
+    // The view pane stays in the DOM but hidden when another view is active
+    // (offsetParent === null under display:none). Skip the visual work then to
+    // avoid burning CPU on an off-screen preview, but keep the rAF alive so it
+    // resumes instantly when the view is shown again.
+    if (root.offsetParent !== null) {
+      const eyes = blink.tick(performance.now());
+      const slot = `${talking ? "mo" : "mc"}_${eyes === "open" ? "eo" : "ec"}` as Slot;
+      for (const s of SLOTS) imgs[s.slot].style.opacity = s.slot === slot ? "1" : "0";
+      const wantTalk = talking ? talkAnim : "none";
+      if (root.dataset.talk !== wantTalk) root.dataset.talk = wantTalk;
+    }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

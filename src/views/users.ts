@@ -13,16 +13,17 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { AppState, User, showToast } from "../state";
 import { Icons } from "../icons";
+import { router } from "../router";
 
 // =========================================================================================================
 // Render Function
 // =========================================================================================================
 
-export async function renderUsers(): Promise<void> {
+export async function renderUsers(pane: HTMLElement): Promise<void> {
   await AppState.loadUsers();
   await AppState.loadVoices();
 
-  const container = document.getElementById("view-container")!;
+  const container = pane;
 
   container.innerHTML = `
     <div class="view-header">
@@ -155,7 +156,7 @@ function bindTableActions(container: HTMLElement): void {
       try {
         await invoke("toggle_user_active_cmd", { id });
         showToast("Estado actualizado", "success");
-        await renderUsers();
+        await renderUsers(container);
       } catch (e) {
         showToast(String(e), "error");
       }
@@ -174,7 +175,7 @@ function bindTableActions(container: HTMLElement): void {
       try {
         await invoke("delete_user_cmd", { id });
         showToast(`${user.display_name} eliminado`, "success");
-        await renderUsers();
+        await renderUsers(container);
       } catch (e) {
         showToast(String(e), "error");
       }
@@ -247,7 +248,7 @@ function openEditModal(user: User): void {
       });
       showToast("Usuario actualizado", "success");
       closeModal();
-      await renderUsers();
+      router.invalidate("users");
     } catch (e) {
       showToast(String(e), "error");
     }

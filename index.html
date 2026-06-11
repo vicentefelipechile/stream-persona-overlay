@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Stream Persona Overlay — Panel de administración para gestionar personas de chat en tiempo real" />
     <title>Stream Persona — Panel</title>
+    <!-- Critical inline background so the first paint is the app's dark theme,
+         not the webview's default white, before entry-panel.css loads. -->
+    <style>
+      html, body { background: #0d0f14; }
+    </style>
     <link rel="stylesheet" href="/src/styles/entry-panel.css" />
     <script type="module" src="/src/main.ts" defer></script>
   </head>
@@ -90,11 +95,7 @@
     <!-- Main Content Area -->
     <main id="main-content" class="main-content" role="main">
       <div id="view-container">
-        <!-- Views se renderizan aquí por el router -->
-        <div class="loading-state">
-          <div class="spinner"></div>
-          <p>Cargando...</p>
-        </div>
+        <!-- El router crea un pane persistente por vista aquí. -->
       </div>
     </main>
   </body>

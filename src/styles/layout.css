@@ -73,7 +73,9 @@ body {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius);
-  color: var(--color-text-muted);
+  /* Nav items are primary navigation, not secondary copy — keep them legible at
+     rest; the active item still stands out via the accent color + background. */
+  color: var(--color-text);
   font-size: 14px;
   font-weight: 500;
   transition: all var(--transition);
@@ -142,6 +144,13 @@ body {
 }
 
 #view-container {
+  /* Panes carry the padding so multiple cached panes don't double it. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* One persistent pane per view; only the active one is shown (router toggles display). */
+.view-pane {
   padding: var(--space-8);
 }
 

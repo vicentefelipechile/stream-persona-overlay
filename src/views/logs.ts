@@ -16,8 +16,8 @@ import { Icons } from "../icons";
 // Render Function
 // =========================================================================================================
 
-export async function renderLogs(): Promise<void> {
-  const container = document.getElementById("view-container")!;
+export async function renderLogs(pane: HTMLElement): Promise<void> {
+  const container = pane;
 
   container.innerHTML = `
     <div class="view-header">

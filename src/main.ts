@@ -109,14 +109,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 // Helpers
 // =========================================================================================================
 
-// Re-render the active view if it is one of `views`, so connection-dependent UI
-// (the "not connected" banner, the badge, the connect/disconnect buttons) reflects
-// the live state when a *-connected / *-error event arrives.
+// Re-render the affected views so connection-dependent UI (the "not connected"
+// banner, the badge, the connect/disconnect buttons) reflects the live state when
+// a *-connected / *-error event arrives. `invalidate` re-renders the view now if
+// it's the current one, or marks it to re-render next time it's shown — without
+// touching the other cached views or their scroll/state.
 function refreshViewIfCurrent(views: ViewId[]): void {
-  const current = router?.getCurrent();
-  if (current && views.includes(current)) {
-    void router.navigate(current);
-  }
+  if (!router) return;
+  for (const view of views) router.invalidate(view);
 }
 
 function updateConnectionStatus(connected: boolean, label: string): void {

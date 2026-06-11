@@ -122,6 +122,30 @@ const OBS_URL = "http://localhost:6767/overlay-alerts";
 let feedUnlisten: UnlistenFn | null = null;
 
 // =========================================================================================================
+// Collapsed-card persistence (remembers which alert cards are collapsed between sessions)
+// =========================================================================================================
+
+const COLLAPSE_KEY = "spo-eventos-collapsed";
+
+/** Set of alert event kinds whose card is currently collapsed. */
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsed(set: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
+  } catch {
+    /* ignore quota / disabled storage */
+  }
+}
+
+// =========================================================================================================
 // Small helpers
 // =========================================================================================================
 
@@ -187,8 +211,8 @@ function bindConfirmClick(btn: HTMLElement | null, hasTarget: () => boolean, onC
 // Render
 // =========================================================================================================
 
-export async function renderEventos(): Promise<void> {
-  const container = document.getElementById("view-container")!;
+export async function renderEventos(pane: HTMLElement): Promise<void> {
+  const container = pane;
 
   let cfg: Record<string, unknown> = {};
   try {
@@ -208,6 +232,9 @@ export async function renderEventos(): Promise<void> {
   }
   const entryFor = (kind: string): AlertEntry => ({ ...DEFAULT_ENTRY, ...(alerts[kind] || {}) });
 
+  // Which alert cards are collapsed (persisted between sessions).
+  const collapsed = loadCollapsed();
+
   // Build the per-platform event-config sections (types + cooldowns + TTS + EventSub).
   const twitchSection = twitchEventSection(cfg);
   const tiktokSection = tiktokEventSection(cfg);
@@ -222,7 +249,7 @@ export async function renderEventos(): Promise<void> {
       .join("");
 
     return `
-    <div class="evt-card${m.noisy ? " evt-card-noisy" : ""}${e.enabled ? " is-enabled" : ""}"
+    <div class="evt-card${m.noisy ? " evt-card-noisy" : ""}${e.enabled ? " is-enabled" : ""}${collapsed.has(k) ? " is-collapsed" : ""}"
          data-kind="${k}" style="--evt-accent:${m.color};">
       <div class="evt-card-head" id="evt-${k}-head">
         <span class="evt-card-icon">${m.icon(18)}</span>
@@ -316,7 +343,15 @@ export async function renderEventos(): Promise<void> {
       <p class="view-subtitle">Centro de eventos de Twitch y TikTok: tipos de evento, cooldowns, TTS y alertas en el overlay.</p>
     </div>
 
-    <div class="card">
+    <!-- Sticky quick-jump bar — the page is long, so let the streamer jump to a section. -->
+    <nav class="evt-jumpbar" aria-label="Saltar a sección">
+      <button type="button" class="evt-jump" data-target="evt-sec-feed">${Icons.zap(14)} Feed</button>
+      <button type="button" class="evt-jump" data-target="evt-sec-obs">${Icons.externalLink(14)} OBS</button>
+      <button type="button" class="evt-jump" data-target="evt-sec-twitch">${Icons.twitchMono(14)} Twitch</button>
+      <button type="button" class="evt-jump" data-target="evt-sec-tiktok">${Icons.tiktokMono(14)} TikTok</button>
+    </nav>
+
+    <div id="evt-sec-feed" class="card">
       <div class="card-header">
         <h2 class="section-title">Feed de eventos en vivo</h2>
       </div>
@@ -328,8 +363,21 @@ export async function renderEventos(): Promise<void> {
       </div>
     </div>
 
+    <!-- ── OBS Browser Source (directly under the live feed) ──────────────────── -->
+    <div id="evt-sec-obs" class="card" style="margin-top: var(--space-5);">
+      <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
+      <p class="view-subtitle" style="margin:8px 0;">
+        Agregá esta URL como <strong>Browser Source</strong> en OBS y posicionála/escalála a tu gusto.
+        Pulsá <strong>Probar</strong> en cualquier evento para previsualizarla.
+      </p>
+      <div style="display:flex;gap:8px;">
+        <input id="evt-obs-url" type="text" readonly value="${OBS_URL}" style="flex:1;"/>
+        <button id="evt-copy-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
+      </div>
+    </div>
+
     <!-- ── Twitch section ──────────────────────────────────────────────────── -->
-    <div class="evt-platform-header" style="margin-top: var(--space-5);">
+    <div id="evt-sec-twitch" class="evt-platform-header" style="margin-top: var(--space-6);">
       ${Icons.twitch(22)} <h2 class="section-title" style="margin:0;">Twitch</h2>
     </div>
     ${twitchConnected ? "" : `
@@ -344,7 +392,7 @@ export async function renderEventos(): Promise<void> {
     </div>
 
     <!-- ── TikTok section ──────────────────────────────────────────────────── -->
-    <div class="evt-platform-header" style="margin-top: var(--space-6);">
+    <div id="evt-sec-tiktok" class="evt-platform-header" style="margin-top: var(--space-6);">
       ${Icons.tiktok(22)} <h2 class="section-title" style="margin:0;">TikTok</h2>
     </div>
     ${tiktokConnected ? "" : `
@@ -360,21 +408,14 @@ export async function renderEventos(): Promise<void> {
       </p>
       ${tiktokAlertCards}
     </div>
-
-    <!-- ── OBS Browser Source ──────────────────────────────────────────────── -->
-    <div class="card" style="margin-top: var(--space-6);">
-      <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
-      <p class="view-subtitle" style="margin:8px 0;">
-        Agregá esta URL como <strong>Browser Source</strong> en OBS y posicionála/escalála a tu gusto.
-        Pulsá <strong>Probar</strong> en cualquier evento para previsualizarla.
-        <br><span style="font-size:0.8rem;">La URL antigua <code>/overlay-tiktok</code> sigue funcionando como alias.</span>
-      </p>
-      <div style="display:flex;gap:8px;">
-        <input id="evt-obs-url" type="text" readonly value="${OBS_URL}" style="flex:1;"/>
-        <button id="evt-copy-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
-      </div>
-    </div>
   `;
+
+  // ── Quick-jump bar ─────────────────────────────────────────────────────────
+  container.querySelectorAll<HTMLButtonElement>(".evt-jump").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(btn.dataset.target!)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
 
   // ── Wire the per-platform event-config sections ────────────────────────────
   twitchSection.bind();
@@ -440,8 +481,14 @@ export async function renderEventos(): Promise<void> {
 
     const $ = (suffix: string) => document.getElementById(`evt-${k}-${suffix}`);
 
-    const toggleCollapse = () =>
-      document.querySelector(`.evt-card[data-kind="${k}"]`)?.classList.toggle("is-collapsed");
+    const toggleCollapse = () => {
+      const card = document.querySelector(`.evt-card[data-kind="${k}"]`);
+      const isCollapsed = card?.classList.toggle("is-collapsed");
+      // Persist so the collapsed/expanded state survives a reload / next session.
+      if (isCollapsed) collapsed.add(k);
+      else collapsed.delete(k);
+      saveCollapsed(collapsed);
+    };
     $("head")?.addEventListener("click", (ev) => {
       if ((ev.target as HTMLElement).closest("input,button,label,.switch")) return;
       toggleCollapse();
