@@ -111,7 +111,7 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tiktok_tts_event_announcements" => {
                 cfg.tiktok_tts_event_announcements = value == "true"
             }
-            "tiktok_alerts_config" => cfg.tiktok_alerts_config = value,
+            "alerts_config" => cfg.alerts_config = value,
             // ── Anti-spam / rate-limit config (chat) ─────────────────────────
             "twitch_chat_antispam_preset" => cfg.twitch_chat_antispam_preset = value,
             "twitch_chat_user_cooldown_ms" => {

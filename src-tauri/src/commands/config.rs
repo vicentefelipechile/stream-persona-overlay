@@ -84,9 +84,9 @@ pub async fn set_config_cmd(
             cache.tama_grid_floor_top_frac = value.parse().unwrap_or(0.55)
         }
         "tama_grid_wander_enabled" => cache.tama_grid_wander_enabled = value == "true",
-        // Alert config is read by the tiktok handlers at runtime — keep the
-        // cache in sync so edits take effect without restarting.
-        "tiktok_alerts_config" => cache.tiktok_alerts_config = value.clone(),
+        // Alert config is read by the twitch/tiktok handlers at runtime — keep
+        // the cache in sync so edits take effect without restarting.
+        "alerts_config" => cache.alerts_config = value.clone(),
         // ── Streamer persona cache (read live by overlay-streamer) ─────────────
         "streamer_persona_enabled" => cache.streamer_persona_enabled = value == "true",
         "streamer_sprite_mo_eo" => cache.streamer_sprite_mo_eo = value.clone(),

@@ -1,10 +1,11 @@
 // =========================================================================================================
-// TikTok Alert Commands
+// Event Alert Commands
 // =========================================================================================================
 // Manage the per-event alert assets (image / sound) and preview alerts on the
-// dedicated alert overlay (overlay-tiktok.html). The alert settings themselves
-// (enabled / text / duration_ms / transition) live in the `tiktok_alerts_config`
+// dedicated alert overlay (overlay-alerts.html). The alert settings themselves
+// (enabled / text / duration_ms / transition) live in the `alerts_config`
 // JSON key and are saved from the frontend via the generic `set_config_cmd`.
+// Covers both Twitch (cheer/sub/raid/follow/hype_train) and TikTok event kinds.
 // =========================================================================================================
 
 use tauri::{Emitter, State};
@@ -23,6 +24,13 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 /// Event kinds that support a configurable alert. Used to validate the
 /// `event_kind` argument so it can never be used to escape the alerts dir.
 const ALERT_EVENT_KINDS: &[&str] = &[
+    // Twitch
+    "cheer",
+    "sub",
+    "raid",
+    "follow",
+    "hype_train",
+    // TikTok
     "tiktok_gift",
     "tiktok_gift_big",
     "tiktok_follow",
@@ -45,24 +53,24 @@ fn persist_alerts_config(
 ) -> CmdResult<()> {
     {
         let db = state.db.lock().map_err(map_err)?;
-        set_config_value(&db, "tiktok_alerts_config", alerts_json).map_err(map_err)?;
+        set_config_value(&db, "alerts_config", alerts_json).map_err(map_err)?;
     }
     {
         let mut cache = state.config_cache.write().map_err(map_err)?;
-        cache.tiktok_alerts_config = alerts_json.to_string();
+        cache.alerts_config = alerts_json.to_string();
     }
 
     let full_config = {
         let db = state.db.lock().map_err(map_err)?;
         get_config(&db).map_err(map_err)?
     };
-    app.emit("tiktok-alerts-changed", &full_config)
+    app.emit("event-alerts-changed", &full_config)
         .map_err(map_err)?;
     Ok(())
 }
 
 /// Sets the `image` or `sound` path of a single event's alert entry in the
-/// `tiktok_alerts_config` JSON, creating the entry object if missing.
+/// `alerts_config` JSON, creating the entry object if missing.
 fn set_asset_path(alerts_json: &str, event_kind: &str, field: &str, path: &str) -> String {
     let mut root: serde_json::Value =
         serde_json::from_str(alerts_json).unwrap_or_else(|_| serde_json::json!({}));
@@ -84,13 +92,13 @@ fn set_asset_path(alerts_json: &str, event_kind: &str, field: &str, path: &str) 
 }
 
 /// Saves a custom alert image or sound under `{app_data_dir}/alerts/` and stores
-/// its absolute path in the `tiktok_alerts_config` JSON. The bytes are written
-/// verbatim (no resize) so animated GIFs are preserved. Returns the saved path.
+/// its absolute path in the `alerts_config` JSON. The bytes are written verbatim
+/// (no resize) so animated GIFs are preserved. Returns the saved path.
 ///
 /// `asset_type` is `"image"` or `"sound"`; `file_name` is only used for its
 /// extension (to validate the type and name the saved file).
 #[tauri::command]
-pub async fn set_tiktok_alert_asset(
+pub async fn set_event_alert_asset(
     event_kind: String,
     asset_type: String,
     file_name: String,
@@ -135,13 +143,13 @@ pub async fn set_tiktok_alert_asset(
 
     let current = {
         let cache = state.config_cache.read().map_err(map_err)?;
-        cache.tiktok_alerts_config.clone()
+        cache.alerts_config.clone()
     };
     let updated = set_asset_path(&current, &event_kind, field, &path_str);
     persist_alerts_config(&state, &app, &updated)?;
 
     tracing::info!(
-        "[tiktok/alert] Asset '{}' de '{}' guardado: {}",
+        "[alerts] Asset '{}' de '{}' guardado: {}",
         asset_type,
         event_kind,
         path_str
@@ -152,7 +160,7 @@ pub async fn set_tiktok_alert_asset(
 /// Clears the `image` or `sound` path of an event's alert entry (reverting to
 /// no asset). The file on disk is left in place; only the config reference is removed.
 #[tauri::command]
-pub async fn clear_tiktok_alert_asset(
+pub async fn clear_event_alert_asset(
     event_kind: String,
     asset_type: String,
     state: State<'_, AppState>,
@@ -169,13 +177,13 @@ pub async fn clear_tiktok_alert_asset(
 
     let current = {
         let cache = state.config_cache.read().map_err(map_err)?;
-        cache.tiktok_alerts_config.clone()
+        cache.alerts_config.clone()
     };
     let updated = set_asset_path(&current, &event_kind, field, "");
     persist_alerts_config(&state, &app, &updated)?;
 
     tracing::info!(
-        "[tiktok/alert] Asset '{}' de '{}' eliminado",
+        "[alerts] Asset '{}' de '{}' eliminado",
         asset_type,
         event_kind
     );
@@ -185,12 +193,12 @@ pub async fn clear_tiktok_alert_asset(
 /// Fires a preview alert for `event_kind` using sample data, ignoring the
 /// `enabled` flag, so the streamer can see it on the alert overlay.
 #[tauri::command]
-pub async fn tiktok_test_alert(
+pub async fn test_event_alert(
     event_kind: String,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> CmdResult<()> {
-    if crate::tiktok::emit_test_alert(&state, &app, &event_kind) {
+    if crate::alerts::emit_test_alert(&state, &app, &event_kind) {
         Ok(())
     } else {
         Err(format!(

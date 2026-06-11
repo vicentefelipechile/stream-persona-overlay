@@ -1,6 +1,7 @@
 /* =========================================================================================================
-   entry-tiktok.css — Entry point for the TikTok alert overlay (overlay-tiktok.html)
-   Standalone, transparent browser source. Does not pull in pet/chroma styles.
+   entry-alerts.css — Entry point for the event alert overlay (overlay-alerts.html)
+   Standalone, transparent browser source for Twitch + TikTok alerts. Does not pull
+   in pet/chroma styles.
    ========================================================================================================= */
 
 @import './alerts.css';

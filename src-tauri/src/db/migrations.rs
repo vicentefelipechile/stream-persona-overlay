@@ -1,9 +1,16 @@
 use rusqlite::{Connection, OptionalExtension, Result};
 
-/// Default per-event alert config (see `state::TiktokAlertPayload`). One entry per
-/// supported TikTok event_kind. `like` and `member` default to disabled because
-/// they fire very frequently and would otherwise flood the alert overlay.
-const TIKTOK_ALERTS_DEFAULT: &str = r#"{
+/// Default per-event alert config (see `state::EventAlertPayload`). One entry per
+/// supported event_kind, for both Twitch (cheer/sub/raid/follow/hype_train) and
+/// TikTok. `tiktok_like` and `tiktok_member` default to disabled because they fire
+/// very frequently and would otherwise flood the alert overlay. The Twitch keys use
+/// the `event_kind` exactly as `eventsub.rs` emits it (no `tiktok_` prefix).
+const ALERTS_DEFAULT: &str = r#"{
+  "cheer":            { "enabled": true,  "image": "", "sound": "", "text": "{user} envió {amount} bits", "duration_ms": 5000, "transition": "fade" },
+  "sub":              { "enabled": true,  "image": "", "sound": "", "text": "¡{user} se suscribió!", "duration_ms": 6000, "transition": "scale" },
+  "raid":             { "enabled": true,  "image": "", "sound": "", "text": "¡{user} llegó con {amount} viewers!", "duration_ms": 7000, "transition": "slide-down" },
+  "follow":           { "enabled": true,  "image": "", "sound": "", "text": "{user} te sigue", "duration_ms": 4000, "transition": "slide-down" },
+  "hype_train":       { "enabled": true,  "image": "", "sound": "", "text": "¡Hype Train en marcha!", "duration_ms": 6000, "transition": "scale" },
   "tiktok_gift":      { "enabled": true,  "image": "", "sound": "", "text": "{user} donó {amount} monedas", "duration_ms": 5000, "transition": "fade" },
   "tiktok_gift_big":  { "enabled": true,  "image": "", "sound": "", "text": "¡{user} donó {amount} monedas!", "duration_ms": 7000, "transition": "scale" },
   "tiktok_follow":    { "enabled": true,  "image": "", "sound": "", "text": "{user} te sigue", "duration_ms": 4000, "transition": "slide-down" },
@@ -85,6 +92,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "ALTER TABLE pet_state ADD COLUMN cell_y INTEGER NOT NULL DEFAULT 0",
         [],
     );
+
+    // Migrate the alerts config key BEFORE the defaults loop inserts a fresh
+    // `alerts_config` row — otherwise the user's existing TikTok alert settings
+    // (images/sounds/text) would be shadowed by the default.
+    migrate_alerts_config_key(conn)?;
 
     // Insertar valores de configuración por defecto si no existen
     let defaults = [
@@ -172,7 +184,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tiktok_tts_event_announcements", "true"),
         // Per-event alert config (image/sound/text/duration/transition).
         // like + member start disabled because they are high-frequency.
-        ("tiktok_alerts_config", TIKTOK_ALERTS_DEFAULT),
+        ("alerts_config", ALERTS_DEFAULT),
         // ── Anti-spam / rate-limit config (chat) ────────────────────────────
         ("twitch_chat_antispam_preset", "off"),
         ("twitch_chat_user_cooldown_ms", "0"),
@@ -248,6 +260,45 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     )?;
 
     seed_tama_commands_v1(conn)?;
+
+    Ok(())
+}
+
+/// Idempotent migration of the alerts config key. The per-event alert config was
+/// originally TikTok-only and stored under `tiktok_alerts_config`; it is now shared
+/// with Twitch under `alerts_config`. If a pre-existing DB has the old key but not
+/// the new one, copy the value over (preserving the streamer's configured
+/// images/sounds/text) and delete the stale key. Safe to run repeatedly: once
+/// `alerts_config` exists, this does nothing.
+fn migrate_alerts_config_key(conn: &Connection) -> Result<()> {
+    let old_value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM config WHERE key = 'tiktok_alerts_config'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let new_exists = conn
+        .query_row(
+            "SELECT 1 FROM config WHERE key = 'alerts_config'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+
+    if let Some(value) = old_value {
+        if !new_exists {
+            conn.execute(
+                "INSERT INTO config (key, value) VALUES ('alerts_config', ?1)",
+                rusqlite::params![value],
+            )?;
+            tracing::info!("[migrations] alerts_config heredado de tiktok_alerts_config");
+        }
+        // Drop the stale key so it can't drift out of sync with alerts_config.
+        conn.execute("DELETE FROM config WHERE key = 'tiktok_alerts_config'", [])?;
+    }
 
     Ok(())
 }

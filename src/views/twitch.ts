@@ -1,7 +1,9 @@
 // =========================================================================================================
 // TWITCH VIEW
 // =========================================================================================================
-// Twitch connection, chat filters, anti-spam presets, events and EventSub configuration.
+// Twitch connection, chat filters, chat anti-spam presets and the global message
+// throughput cap. Event types, event cooldowns, TTS and EventSub now live in the
+// centralized Eventos view.
 // =========================================================================================================
 
 // =========================================================================================================
@@ -18,7 +20,6 @@ import { Icons } from "../icons";
 // =========================================================================================================
 
 interface ChatPreset { label: string; cooldown: number; dedup: number; rateMax: number; rateWindow: number; }
-interface EventPreset { label: string; cooldownMs: number; }
 interface GlobalPreset { label: string; cap: number; }
 
 const CHAT_PRESETS: Record<string, ChatPreset> = {
@@ -27,14 +28,6 @@ const CHAT_PRESETS: Record<string, ChatPreset> = {
   normal:   { label: "Normal",          cooldown: 5000,  dedup: 10000, rateMax: 4, rateWindow: 10 },
   strict:   { label: "Estricto",        cooldown: 15000, dedup: 30000, rateMax: 3, rateWindow: 30 },
   lockdown: { label: "Lockdown",        cooldown: 30000, dedup: 60000, rateMax: 2, rateWindow: 60 },
-};
-
-const EVENT_PRESETS: Record<string, EventPreset> = {
-  off:      { label: "Sin protección", cooldownMs: 0     },
-  light:    { label: "Ligero",         cooldownMs: 3000  },
-  normal:   { label: "Normal",         cooldownMs: 10000 },
-  strict:   { label: "Estricto",       cooldownMs: 30000 },
-  lockdown: { label: "Lockdown",       cooldownMs: 60000 },
 };
 
 const GLOBAL_PRESETS: Record<string, GlobalPreset> = {
@@ -50,14 +43,6 @@ function chatPresetDescription(preset: string): string {
   const p = CHAT_PRESETS[preset];
   if (!p) return "";
   return `Permite hasta ${p.rateMax} mensajes cada ${p.rateWindow}s por usuario. Ignora duplicados durante ${p.dedup/1000}s. Espera ${p.cooldown/1000}s entre mensajes.`;
-}
-
-function eventPresetDescription(preset: string): string {
-  if (preset === "off") return "Sin cooldown entre eventos por usuario.";
-  if (preset === "custom") return "Cooldown personalizado por tipo de evento.";
-  const p = EVENT_PRESETS[preset];
-  if (!p) return "";
-  return `Cooldown de ${p.cooldownMs/1000}s entre eventos repetidos del mismo usuario.`;
 }
 
 // =========================================================================================================
@@ -80,15 +65,6 @@ export async function renderTwitch(): Promise<void> {
   const chat_min_length = Number(cfg["twitch_chat_min_length"]) || 0;
   const chat_max_length = Number(cfg["twitch_chat_max_length"]) || 500;
   const ignore_commands = String(cfg["twitch_chat_ignore_commands"]) === "true";
-const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true";
-  const event_cheer_min_bits = Number(cfg["twitch_event_cheer_min_bits"]) || 100;
-  const event_sub_enabled = String(cfg["twitch_event_sub_enabled"]) === "true";
-  const event_raid_enabled = String(cfg["twitch_event_raid_enabled"]) === "true";
-  const event_follow_enabled = String(cfg["twitch_event_follow_enabled"]) === "true";
-  const event_hype_train_enabled = String(cfg["twitch_event_hype_train_enabled"]) === "true";
-  const event_stream_status_enabled = String(cfg["twitch_event_stream_status_enabled"]) === "true";
-  const tts_announcements = String(cfg["twitch_tts_event_announcements"]) === "true";
-  const eventsub_enabled = String(cfg["twitch_eventsub_enabled"]) === "true";
 
   // Anti-spam config
   const chatPreset = String(cfg["twitch_chat_antispam_preset"] || "off");
@@ -96,11 +72,6 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
   const chatDedup = Number(cfg["twitch_chat_dedup_window_ms"]) || 0;
   const chatRateMax = Number(cfg["twitch_chat_rate_max_msgs"]) || 0;
   const chatRateWindow = Number(cfg["twitch_chat_rate_window_secs"]) || 10;
-  const eventPreset = String(cfg["twitch_event_cooldown_preset"] || "off");
-  const eventCheerCooldown = Number(cfg["twitch_event_cheer_user_cooldown_ms"]) || 0;
-  const eventSubCooldown = Number(cfg["twitch_event_sub_user_cooldown_ms"]) || 0;
-  const eventRaidCooldown = Number(cfg["twitch_event_raid_global_cooldown_ms"]) || 0;
-  const eventFollowCooldown = Number(cfg["twitch_event_follow_user_cooldown_ms"]) || 0;
   const globalPreset = String(cfg["chat_global_throughput_preset"] || "off");
   const globalCap = Number(cfg["chat_global_rate_max_per_sec"]) || 0;
 
@@ -233,25 +204,6 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
 
     <div class="card" style="margin-top: var(--space-5);">
       <div class="card-header">
-        <h2 class="section-title">Cooldown de Eventos</h2>
-      </div>
-      <div class="preset-group" id="event-preset-group">
-        ${presetRadios("twitch-event-preset", eventPreset, ["off", "light", "normal", "strict", "lockdown"])}
-      </div>
-      <p id="event-preset-desc" style="font-size:0.85rem;color:var(--text-muted);margin:8px 0 0;">${eventPresetDescription(eventPreset)}</p>
-      <details id="event-advanced" ${eventPreset === "custom" ? "open" : ""} style="margin-top:12px;">
-        <summary class="details-toggle">Avanzado</summary>
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:16px;">
-          ${sRow("twitch-event-cheer-cooldown",  eventCheerCooldown,  0, 120000, 1000, "Cooldown Bits/Cheers por usuario",    msLabel)}
-          ${sRow("twitch-event-sub-cooldown",    eventSubCooldown,    0, 120000, 1000, "Cooldown Suscripciones por usuario",  msLabel)}
-          ${sRow("twitch-event-raid-cooldown",   eventRaidCooldown,   0, 120000, 1000, "Cooldown Raids (global canal)",       msLabel)}
-          ${sRow("twitch-event-follow-cooldown", eventFollowCooldown, 0, 120000, 1000, "Cooldown Follows por usuario",        msLabel)}
-        </div>
-      </details>
-    </div>
-
-    <div class="card" style="margin-top: var(--space-5);">
-      <div class="card-header">
         <h2 class="section-title">Tope Global de Mensajes</h2>
       </div>
       <div class="preset-group" id="global-preset-group">
@@ -266,82 +218,9 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
     </div>
 
     <div class="card" style="margin-top: var(--space-5);">
-      <div class="card-header">
-        <h2 class="section-title">Eventos</h2>
-      </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="twitch-event-cheer" ${event_cheer_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <div>
-            <span class="tama-event-label">Bits (Cheers)</span>
-            <input type="number" id="twitch-cheer-min-bits" value="${event_cheer_min_bits}" placeholder="Mín. bits" style="width: 100%; margin-top: 4px;"/>
-          </div>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="twitch-event-sub" ${event_sub_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Nuevas Suscripciones</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="twitch-event-raid" ${event_raid_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Raids</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="twitch-event-follow" ${event_follow_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Nuevos Seguidores</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="twitch-event-hype-train" ${event_hype_train_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Hype Train</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="twitch-event-stream-status" ${event_stream_status_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Online/Offline</span>
-        </div>
-      </div>
-      <div class="tama-setting-row" style="margin-top: 16px;">
-        <div><div class="tama-setting-label">Anunciar eventos con TTS</div></div>
-        <label class="switch">
-          <input type="checkbox" id="twitch-tts-announcements" ${tts_announcements ? "checked" : ""}/>
-          <span class="switch-track"></span>
-        </label>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top: var(--space-5);">
-      <div class="card-header">
-        <h2 class="section-title">EventSub</h2>
-      </div>
-      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">
-        Recibe subs, raids, follows y bits en tiempo real sin depender del chat IRC. Requiere los scopes de EventSub listados arriba en el Access Token.
+      <p style="margin:0;font-size:0.9rem;color:var(--text-muted);">
+        Los <strong>tipos de evento</strong>, <strong>cooldowns de evento</strong>, <strong>TTS</strong> y <strong>EventSub</strong> se configuran ahora en la vista <strong>Eventos</strong>.
       </p>
-      <div class="tama-setting-row">
-        <div>
-          <div class="tama-setting-label">Activar EventSub</div>
-          <div style="font-size: 0.8rem; color: var(--text-muted);">Se conecta al reconectar Twitch</div>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="twitch-eventsub-enabled" ${eventsub_enabled ? "checked" : ""}/>
-          <span class="switch-track"></span>
-        </label>
-      </div>
     </div>
   `;
 
@@ -421,10 +300,6 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
     ["twitch-chat-dedup",       msLabel],
     ["twitch-chat-rate-max",    (v: number) => v === 0 ? "Desactivado" : `${v} msg`],
     ["twitch-chat-rate-window", (v: number) => `${v}s`],
-    ["twitch-event-cheer-cooldown",  msLabel],
-    ["twitch-event-sub-cooldown",    msLabel],
-    ["twitch-event-raid-cooldown",   msLabel],
-    ["twitch-event-follow-cooldown", msLabel],
     ["twitch-global-cap",       (v: number) => v === 0 ? "Desactivado" : `${v}/s`],
   ].forEach(([id, fmt]) => syncSlider(id as string, fmt as (v: number) => string));
 
@@ -450,17 +325,6 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
     syncSlider(keys.dedup,      msLabel);
     syncSlider(keys.rateMax,    v => v === 0 ? "Desactivado" : `${v} msg`);
     syncSlider(keys.rateWindow, v => `${v}s`);
-  }
-
-  function applyEventPresetValues(preset: string) {
-    const p = EVENT_PRESETS[preset];
-    if (!p) return;
-    const ms = String(p.cooldownMs);
-    ["twitch-event-cheer-cooldown", "twitch-event-sub-cooldown",
-     "twitch-event-raid-cooldown",  "twitch-event-follow-cooldown"].forEach(id => {
-      (document.getElementById(id) as HTMLInputElement).value = ms;
-      syncSlider(id, msLabel);
-    });
   }
 
   function applyGlobalPreset(preset: string) {
@@ -493,17 +357,6 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
     });
   });
 
-  document.querySelectorAll('input[name="twitch-event-preset"]').forEach(radio => {
-    radio.addEventListener("change", async () => {
-      const val = (radio as HTMLInputElement).value;
-      updateRadioLabels("twitch-event-preset", val);
-      const desc = document.getElementById("event-preset-desc");
-      if (desc) desc.textContent = eventPresetDescription(val);
-      if (val !== "custom") applyEventPresetValues(val);
-      await saveConfig();
-    });
-  });
-
   document.querySelectorAll('input[name="twitch-global-preset"]').forEach(radio => {
     radio.addEventListener("change", async () => {
       const val = (radio as HTMLInputElement).value;
@@ -530,18 +383,6 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
     });
   });
 
-  const eventSliders = ["twitch-event-cheer-cooldown", "twitch-event-sub-cooldown",
-                        "twitch-event-raid-cooldown",  "twitch-event-follow-cooldown"];
-  eventSliders.forEach(id => {
-    const el = document.getElementById(id);
-    el?.addEventListener("input", () => syncSlider(id, msLabel));
-    el?.addEventListener("change", async () => {
-      const radio = document.querySelector('input[name="twitch-event-preset"][value="custom"]') as HTMLInputElement;
-      if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("twitch-event-preset", "custom"); }
-      await saveConfig();
-    });
-  });
-
   document.getElementById("twitch-global-cap")?.addEventListener("input",
     () => syncSlider("twitch-global-cap", v => v === 0 ? "Desactivado" : `${v}/s`));
 
@@ -557,26 +398,12 @@ const event_cheer_enabled = String(cfg["twitch_event_cheer_enabled"]) === "true"
       ["twitch_chat_min_length",          g("twitch-chat-min-length").value],
       ["twitch_chat_max_length",          g("twitch-chat-max-length").value],
       ["twitch_chat_ignore_commands",     g("twitch-ignore-commands").checked ? "true" : "false"],
-["twitch_event_cheer_enabled",      g("twitch-event-cheer").checked ? "true" : "false"],
-      ["twitch_event_cheer_min_bits",     g("twitch-cheer-min-bits").value],
-      ["twitch_event_sub_enabled",        g("twitch-event-sub").checked ? "true" : "false"],
-      ["twitch_event_raid_enabled",       g("twitch-event-raid").checked ? "true" : "false"],
-      ["twitch_event_follow_enabled",     g("twitch-event-follow").checked ? "true" : "false"],
-      ["twitch_event_hype_train_enabled", g("twitch-event-hype-train").checked ? "true" : "false"],
-      ["twitch_event_stream_status_enabled", g("twitch-event-stream-status").checked ? "true" : "false"],
-      ["twitch_tts_event_announcements",  g("twitch-tts-announcements").checked ? "true" : "false"],
-      ["twitch_eventsub_enabled",         g("twitch-eventsub-enabled").checked ? "true" : "false"],
       // Anti-spam
       ["twitch_chat_antispam_preset",     (document.querySelector('input[name="twitch-chat-preset"]:checked') as HTMLInputElement)?.value ?? "off"],
       ["twitch_chat_user_cooldown_ms",    g("twitch-chat-cooldown").value],
       ["twitch_chat_dedup_window_ms",     g("twitch-chat-dedup").value],
       ["twitch_chat_rate_max_msgs",       g("twitch-chat-rate-max").value],
       ["twitch_chat_rate_window_secs",    g("twitch-chat-rate-window").value],
-      ["twitch_event_cooldown_preset",    (document.querySelector('input[name="twitch-event-preset"]:checked') as HTMLInputElement)?.value ?? "off"],
-      ["twitch_event_cheer_user_cooldown_ms",  g("twitch-event-cheer-cooldown").value],
-      ["twitch_event_sub_user_cooldown_ms",    g("twitch-event-sub-cooldown").value],
-      ["twitch_event_raid_global_cooldown_ms", g("twitch-event-raid-cooldown").value],
-      ["twitch_event_follow_user_cooldown_ms", g("twitch-event-follow-cooldown").value],
       ["chat_global_throughput_preset",   (document.querySelector('input[name="twitch-global-preset"]:checked') as HTMLInputElement)?.value ?? "off"],
       ["chat_global_rate_max_per_sec",    g("twitch-global-cap").value],
     ];

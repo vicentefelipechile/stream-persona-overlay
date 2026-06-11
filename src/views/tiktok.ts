@@ -1,7 +1,8 @@
 // =========================================================================================================
 // TIKTOK VIEW
 // =========================================================================================================
-// TikTok connection, chat filters, anti-spam presets and events configuration.
+// TikTok connection, chat filters and chat anti-spam presets. Event types, event
+// cooldowns and TTS now live in the centralized Eventos view.
 // =========================================================================================================
 
 // =========================================================================================================
@@ -17,7 +18,6 @@ import { Icons } from "../icons";
 // =========================================================================================================
 
 interface ChatPreset { label: string; cooldown: number; dedup: number; rateMax: number; rateWindow: number; }
-interface EventPreset { label: string; cooldownMs: number; }
 
 const CHAT_PRESETS: Record<string, ChatPreset> = {
   off:      { label: "Sin protección",  cooldown: 0,     dedup: 0,     rateMax: 0, rateWindow: 10 },
@@ -27,28 +27,12 @@ const CHAT_PRESETS: Record<string, ChatPreset> = {
   lockdown: { label: "Lockdown",        cooldown: 30000, dedup: 60000, rateMax: 2, rateWindow: 60 },
 };
 
-const EVENT_PRESETS: Record<string, EventPreset> = {
-  off:      { label: "Sin protección", cooldownMs: 0     },
-  light:    { label: "Ligero",         cooldownMs: 3000  },
-  normal:   { label: "Normal",         cooldownMs: 10000 },
-  strict:   { label: "Estricto",       cooldownMs: 30000 },
-  lockdown: { label: "Lockdown",       cooldownMs: 60000 },
-};
-
 function chatPresetDescription(preset: string): string {
   if (preset === "off") return "Sin filtros de anti-spam activos.";
   if (preset === "custom") return "Configuración personalizada activa.";
   const p = CHAT_PRESETS[preset];
   if (!p) return "";
   return `Permite hasta ${p.rateMax} mensajes cada ${p.rateWindow}s por usuario. Ignora duplicados durante ${p.dedup/1000}s. Espera ${p.cooldown/1000}s entre mensajes.`;
-}
-
-function eventPresetDescription(preset: string): string {
-  if (preset === "off") return "Sin cooldown entre eventos por usuario.";
-  if (preset === "custom") return "Cooldown personalizado por tipo de evento.";
-  const p = EVENT_PRESETS[preset];
-  if (!p) return "";
-  return `Cooldown de ${p.cooldownMs/1000}s entre eventos repetidos del mismo usuario.`;
 }
 
 // =========================================================================================================
@@ -71,29 +55,12 @@ export async function renderTiktok(): Promise<void> {
   const ws_endpoint = String(cfg["tiktok_ws_endpoint"] || "wss://api.tik.tools");
   const chat_min_length = Number(cfg["tiktok_chat_min_length"]) || 0;
   const chat_max_length = Number(cfg["tiktok_chat_max_length"]) || 300;
-  const event_gift_enabled = String(cfg["tiktok_event_gift_enabled"]) === "true";
-  const event_gift_min_coins = Number(cfg["tiktok_event_gift_min_coins"]) || 10;
-  const event_gift_big_coins = Number(cfg["tiktok_event_gift_big_coins"]) || 100;
-  const event_like_enabled = String(cfg["tiktok_event_like_enabled"]) === "true";
-  const event_follow_enabled = String(cfg["tiktok_event_follow_enabled"]) === "true";
-  const event_share_enabled = String(cfg["tiktok_event_share_enabled"]) === "true";
-  const event_subscribe_enabled = String(cfg["tiktok_event_subscribe_enabled"]) === "true";
-  const event_envelope_enabled = String(cfg["tiktok_event_envelope_enabled"]) === "true";
-  const tts_announcements = String(cfg["tiktok_tts_event_announcements"]) === "true";
-
   // Anti-spam config
   const chatPreset = String(cfg["tiktok_chat_antispam_preset"] || "off");
   const chatCooldown = Number(cfg["tiktok_chat_user_cooldown_ms"]) || 0;
   const chatDedup = Number(cfg["tiktok_chat_dedup_window_ms"]) || 0;
   const chatRateMax = Number(cfg["tiktok_chat_rate_max_msgs"]) || 0;
   const chatRateWindow = Number(cfg["tiktok_chat_rate_window_secs"]) || 10;
-  const eventPreset = String(cfg["tiktok_event_cooldown_preset"] || "off");
-  const eventGiftCooldown = Number(cfg["tiktok_event_gift_user_cooldown_ms"]) || 0;
-  const eventLikeCooldown = Number(cfg["tiktok_event_like_user_cooldown_ms"]) || 0;
-  const eventFollowCooldown = Number(cfg["tiktok_event_follow_user_cooldown_ms"]) || 0;
-  const eventShareCooldown = Number(cfg["tiktok_event_share_user_cooldown_ms"]) || 0;
-  const eventSubscribeCooldown = Number(cfg["tiktok_event_subscribe_user_cooldown_ms"]) || 0;
-  const eventEnvelopeCooldown = Number(cfg["tiktok_event_envelope_user_cooldown_ms"]) || 0;
 
   // Real connection state (TikTok does NOT auto-connect at launch — the user must
   // press Conectar). Don't infer "connected" from a saved username.
@@ -202,87 +169,9 @@ export async function renderTiktok(): Promise<void> {
     </div>
 
     <div class="card" style="margin-top: var(--space-5);">
-      <div class="card-header">
-        <h2 class="section-title">Cooldown de Eventos</h2>
-      </div>
-      <div class="preset-group" id="tiktok-event-preset-group">
-        ${presetRadios("tiktok-event-preset", eventPreset, ["off", "light", "normal", "strict", "lockdown"])}
-      </div>
-      <p id="tiktok-event-preset-desc" style="font-size:0.85rem;color:var(--text-muted);margin:8px 0 0;">${eventPresetDescription(eventPreset)}</p>
-      <details id="tiktok-event-advanced" ${eventPreset === "custom" ? "open" : ""} style="margin-top:12px;">
-        <summary class="details-toggle">Avanzado</summary>
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:16px;">
-          ${sRow("tiktok-event-gift-cooldown",      eventGiftCooldown,      0, 120000, 1000, "Cooldown Regalos por usuario",        msLabel)}
-          ${sRow("tiktok-event-like-cooldown",      eventLikeCooldown,      0, 120000, 1000, "Cooldown Likes por usuario",          msLabel)}
-          ${sRow("tiktok-event-follow-cooldown",    eventFollowCooldown,    0, 120000, 1000, "Cooldown Follows por usuario",        msLabel)}
-          ${sRow("tiktok-event-share-cooldown",     eventShareCooldown,     0, 120000, 1000, "Cooldown Comparticiones por usuario", msLabel)}
-          ${sRow("tiktok-event-subscribe-cooldown", eventSubscribeCooldown, 0, 120000, 1000, "Cooldown Suscripciones por usuario",  msLabel)}
-          ${sRow("tiktok-event-envelope-cooldown",  eventEnvelopeCooldown,  0, 120000, 1000, "Cooldown Sobres por usuario",         msLabel)}
-        </div>
-      </details>
-    </div>
-
-    <div class="card" style="margin-top: var(--space-5);">
-      <div class="card-header">
-        <h2 class="section-title">Eventos</h2>
-      </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="tiktok-event-gift" ${event_gift_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <div>
-            <span class="tama-event-label">Regalos</span>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px;">
-              <input type="number" id="tiktok-gift-min-coins" value="${event_gift_min_coins}" placeholder="Min coins" style="font-size: 0.85rem;"/>
-              <input type="number" id="tiktok-gift-big-coins" value="${event_gift_big_coins}" placeholder="Big coins" style="font-size: 0.85rem;"/>
-            </div>
-          </div>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="tiktok-event-like" ${event_like_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Likes</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="tiktok-event-follow" ${event_follow_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Nuevos Seguidores</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="tiktok-event-share" ${event_share_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Comparticiones</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="tiktok-event-subscribe" ${event_subscribe_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Suscripciones</span>
-        </div>
-        <div class="tama-event-toggle">
-          <label class="switch">
-            <input type="checkbox" id="tiktok-event-envelope" ${event_envelope_enabled ? "checked" : ""}/>
-            <span class="switch-track"></span>
-          </label>
-          <span class="tama-event-label">Sobres (Rojo)</span>
-        </div>
-      </div>
-      <div class="tama-setting-row" style="margin-top: 16px;">
-        <div><div class="tama-setting-label">Anunciar eventos con TTS</div></div>
-        <label class="switch">
-          <input type="checkbox" id="tiktok-tts-announcements" ${tts_announcements ? "checked" : ""}/>
-          <span class="switch-track"></span>
-        </label>
-      </div>
+      <p style="margin:0;font-size:0.9rem;color:var(--text-muted);">
+        Los <strong>tipos de evento</strong>, <strong>cooldowns de evento</strong> y <strong>TTS</strong> se configuran ahora en la vista <strong>Eventos</strong>.
+      </p>
     </div>
   `;
 
@@ -296,12 +185,6 @@ export async function renderTiktok(): Promise<void> {
     ["tiktok-chat-dedup",       msLabel],
     ["tiktok-chat-rate-max",    (v: number) => v === 0 ? "Desactivado" : `${v} msg`],
     ["tiktok-chat-rate-window", (v: number) => `${v}s`],
-    ["tiktok-event-gift-cooldown",      msLabel],
-    ["tiktok-event-like-cooldown",      msLabel],
-    ["tiktok-event-follow-cooldown",    msLabel],
-    ["tiktok-event-share-cooldown",     msLabel],
-    ["tiktok-event-subscribe-cooldown", msLabel],
-    ["tiktok-event-envelope-cooldown",  msLabel],
   ].forEach(([id, fmt]) => syncSlider(id as string, fmt as (v: number) => string));
 
   function updateRadioLabels(name: string, value: string) {
@@ -333,18 +216,6 @@ export async function renderTiktok(): Promise<void> {
     syncSlider("tiktok-chat-rate-window", v => `${v}s`);
   }
 
-  function applyTiktokEventPreset(preset: string) {
-    const p = EVENT_PRESETS[preset];
-    if (!p) return;
-    const ms = String(p.cooldownMs);
-    ["tiktok-event-gift-cooldown", "tiktok-event-like-cooldown", "tiktok-event-follow-cooldown",
-     "tiktok-event-share-cooldown", "tiktok-event-subscribe-cooldown", "tiktok-event-envelope-cooldown"]
-      .forEach(id => {
-        (document.getElementById(id) as HTMLInputElement).value = ms;
-        syncSlider(id, msLabel);
-      });
-  }
-
   document.querySelectorAll('input[name="tiktok-chat-preset"]').forEach(radio => {
     radio.addEventListener("change", async () => {
       const val = (radio as HTMLInputElement).value;
@@ -352,17 +223,6 @@ export async function renderTiktok(): Promise<void> {
       const desc = document.getElementById("tiktok-chat-preset-desc");
       if (desc) desc.textContent = chatPresetDescription(val);
       if (val !== "custom") applyTiktokChatPreset(val);
-      await saveConfig();
-    });
-  });
-
-  document.querySelectorAll('input[name="tiktok-event-preset"]').forEach(radio => {
-    radio.addEventListener("change", async () => {
-      const val = (radio as HTMLInputElement).value;
-      updateRadioLabels("tiktok-event-preset", val);
-      const desc = document.getElementById("tiktok-event-preset-desc");
-      if (desc) desc.textContent = eventPresetDescription(val);
-      if (val !== "custom") applyTiktokEventPreset(val);
       await saveConfig();
     });
   });
@@ -380,17 +240,6 @@ export async function renderTiktok(): Promise<void> {
     el?.addEventListener("change", async () => {
       const radio = document.querySelector('input[name="tiktok-chat-preset"][value="custom"]') as HTMLInputElement;
       if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("tiktok-chat-preset", "custom"); }
-      await saveConfig();
-    });
-  });
-
-  ["tiktok-event-gift-cooldown", "tiktok-event-like-cooldown", "tiktok-event-follow-cooldown",
-   "tiktok-event-share-cooldown", "tiktok-event-subscribe-cooldown", "tiktok-event-envelope-cooldown"].forEach(id => {
-    const el = document.getElementById(id);
-    el?.addEventListener("input", () => syncSlider(id, msLabel));
-    el?.addEventListener("change", async () => {
-      const radio = document.querySelector('input[name="tiktok-event-preset"][value="custom"]') as HTMLInputElement;
-      if (radio && !radio.checked) { radio.checked = true; updateRadioLabels("tiktok-event-preset", "custom"); }
       await saveConfig();
     });
   });
@@ -439,28 +288,12 @@ export async function renderTiktok(): Promise<void> {
       ["tiktok_ws_endpoint",        g("tiktok-ws-endpoint")?.value ?? ""],
       ["tiktok_chat_min_length",    g("tiktok-chat-min-length").value],
       ["tiktok_chat_max_length",    g("tiktok-chat-max-length").value],
-      ["tiktok_event_gift_enabled", g("tiktok-event-gift").checked ? "true" : "false"],
-      ["tiktok_event_gift_min_coins", g("tiktok-gift-min-coins").value],
-      ["tiktok_event_gift_big_coins", g("tiktok-gift-big-coins").value],
-      ["tiktok_event_like_enabled",  g("tiktok-event-like").checked ? "true" : "false"],
-      ["tiktok_event_follow_enabled", g("tiktok-event-follow").checked ? "true" : "false"],
-      ["tiktok_event_share_enabled",  g("tiktok-event-share").checked ? "true" : "false"],
-      ["tiktok_event_subscribe_enabled", g("tiktok-event-subscribe").checked ? "true" : "false"],
-      ["tiktok_event_envelope_enabled",  g("tiktok-event-envelope").checked ? "true" : "false"],
-      ["tiktok_tts_event_announcements", g("tiktok-tts-announcements").checked ? "true" : "false"],
       // Anti-spam
       ["tiktok_chat_antispam_preset",  (document.querySelector('input[name="tiktok-chat-preset"]:checked') as HTMLInputElement)?.value ?? "off"],
       ["tiktok_chat_user_cooldown_ms", g("tiktok-chat-cooldown").value],
       ["tiktok_chat_dedup_window_ms",  g("tiktok-chat-dedup").value],
       ["tiktok_chat_rate_max_msgs",    g("tiktok-chat-rate-max").value],
       ["tiktok_chat_rate_window_secs", g("tiktok-chat-rate-window").value],
-      ["tiktok_event_cooldown_preset", (document.querySelector('input[name="tiktok-event-preset"]:checked') as HTMLInputElement)?.value ?? "off"],
-      ["tiktok_event_gift_user_cooldown_ms",      g("tiktok-event-gift-cooldown").value],
-      ["tiktok_event_like_user_cooldown_ms",      g("tiktok-event-like-cooldown").value],
-      ["tiktok_event_follow_user_cooldown_ms",    g("tiktok-event-follow-cooldown").value],
-      ["tiktok_event_share_user_cooldown_ms",     g("tiktok-event-share-cooldown").value],
-      ["tiktok_event_subscribe_user_cooldown_ms", g("tiktok-event-subscribe-cooldown").value],
-      ["tiktok_event_envelope_user_cooldown_ms",  g("tiktok-event-envelope-cooldown").value],
     ];
     for (const [key, value] of updates) {
       if (value !== undefined && value !== null) {

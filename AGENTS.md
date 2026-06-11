@@ -17,7 +17,7 @@
 |---|---|---|
 | **Viewer pets (Tamagotchi)** | `overlay.html` (Tauri) / `overlay-browser.html` (OBS) | When a registered viewer types in Twitch or TikTok LIVE chat, their pet (two images: mouth open / closed) appears on the overlay floor, walks around, reacts to chat events, and runs random or admin-triggered actions. See Section 16. |
 | **Streamer persona** | `overlay-streamer.html` | The streamer's own animated avatar (4 sprites: mouth × eyes) with mic-driven lip-sync and automatic eye-blink. |
-| **Event alerts** | `overlay-tiktok.html` | Per-event on-screen alerts (gifts, follows, likes, subs…) with custom image / sound / text / transition. |
+| **Event alerts** | `overlay-alerts.html` | Per-event on-screen alerts for **both Twitch (cheer/sub/raid/follow/hype_train) and TikTok** (gifts, follows, likes, subs…) with custom image / sound / text / transition. Served at `/overlay-alerts` (legacy `/overlay-tiktok` kept as an alias). |
 
 ### Supporting systems
 
@@ -56,7 +56,7 @@ Viewers register and manage their pet images through the **Discord bot** (slash 
 | Technology | Use |
 |---|---|
 | Vanilla TypeScript (no framework) | All UI for the admin panel and the overlay |
-| Vite 6 | Bundler and dev server (five entry points: `main`, `overlay`, `overlay_browser`, `overlay_tiktok`, `overlay_streamer`) |
+| Vite 6 | Bundler and dev server (five entry points: `main`, `overlay`, `overlay_browser`, `overlay_alerts`, `overlay_streamer`) |
 | `motion` (v12+) | Animation engine for Tamagotchi pet actions (DOM animate API) |
 | `@tauri-apps/api 2` | `invoke`, `listen`, `convertFileSrc` — used by Tauri windows only |
 | `@tauri-apps/plugin-opener 2` | Opening external URLs / files |
@@ -167,19 +167,20 @@ stream-persona-overlay/
 |   |   +-- users.ts              # /users view — user CRUD
 |   |   +-- logs.ts               # /logs view — message history
 |   |   +-- tamagotchi.ts         # /tamagotchi view — pet admin panel
-|   |   +-- twitch.ts             # /twitch view — Twitch connection, chat filters, events, EventSub
-|   |   +-- tiktok.ts             # /tiktok view — TikTok connection, chat filters, events
-|   |   +-- eventos.ts            # /eventos view — live event feed + per-event alert config
+|   |   +-- twitch.ts             # /twitch view — Twitch connection, chat filters, chat anti-spam, global cap (events moved to /eventos)
+|   |   +-- tiktok.ts             # /tiktok view — TikTok connection, chat filters, chat anti-spam (events moved to /eventos)
+|   |   +-- eventos.ts            # /eventos view — unified live feed (Twitch+TikTok) + event types/cooldowns/TTS/EventSub + per-event alert config
+|   |   +-- _eventConfig.ts       # Shared event-config helpers (presets/sliders/save) for the Twitch + TikTok sections of /eventos
 |   |   +-- streamer.ts           # /streamer view — streamer persona config (sprites, blink, talk anim, mic)
 |   |   +-- overlay.ts            # Entry point for overlay.html (NOT a panel view)
 |   |   +-- overlay-browser.ts    # Entry point for overlay-browser.html (OBS Browser Source — pets)
-|   |   +-- overlay-tiktok.ts     # Entry point for overlay-tiktok.html (OBS Browser Source — event alerts)
+|   |   +-- overlay-alerts.ts     # Entry point for overlay-alerts.html (OBS Browser Source — event alerts, Twitch + TikTok)
 |   |   +-- overlay-streamer.ts   # Entry point for overlay-streamer.html (OBS Browser Source — streamer persona)
 |   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
 |   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
 |   |   +-- overlay-notifications.ts # Pill toasts for overlay-notification events (Tauri + WS), used by all overlay views
 |   |   +-- alerts/               # Event-alert overlay system
-|   |   |   +-- AlertManager.ts   # Queues + renders tiktok-alert payloads (image/text/sound/transition)
+|   |   |   +-- AlertManager.ts   # Queues + renders event-alert payloads (image/text/sound/transition)
 |   |   +-- streamer/             # Streamer persona overlay system
 |   |   |   +-- BlinkScheduler.ts # Timestamp-based eye-blink state machine (no per-frame recompute)
 |   |   |   +-- StreamerPersona.ts# 4-sprite renderer + rAF loop (mouth from streamer-speaking event, eyes from scheduler)
@@ -212,8 +213,8 @@ stream-persona-overlay/
 |       +-- onboarding.css        # Onboarding tour popover theming (driver.js, .spo-tour scope)
 |       +-- overlay-base.css      # Overlay window base reset + fade-cover
 |       +-- pets.css              # Pet styles (.tamagotchi-pet, .pet-*)
-|       +-- alerts.css            # Alert overlay styles (.spo-alert*) — used by entry-tiktok.css
-|       +-- entry-tiktok.css      # Entry point for overlay-tiktok.html (imports alerts.css)
+|       +-- alerts.css            # Alert overlay styles (.spo-alert*) — used by entry-alerts.css
+|       +-- entry-alerts.css      # Entry point for overlay-alerts.html (imports alerts.css)
 |       +-- streamer-overlay.css  # Streamer persona overlay styles + talk-animation keyframes
 |       +-- entry-streamer.css    # Entry point for overlay-streamer.html (imports streamer-overlay.css)
 |
@@ -258,13 +259,15 @@ stream-persona-overlay/
 |           +-- users.rs          # get_users, get_user, update_user_cmd, delete_user_cmd, toggle_user_active_cmd, get_recent_logs_cmd
 |           +-- config.rs         # get_config_cmd, set_config_cmd, get_available_voices_cmd, set_chroma_color, save_animation_config, disconnect_twitch, disconnect_tiktok
 |           +-- control.rs        # restart_discord_bot, connect_twitch, validate_twitch_token, connect_tiktok, toggle_overlay, send_test_message
-|           +-- alerts.rs         # set_tiktok_alert_asset, clear_tiktok_alert_asset, tiktok_test_alert
+|           +-- alerts.rs         # set_event_alert_asset, clear_event_alert_asset, test_event_alert
+|       +-- alerts/
+|       |   +-- mod.rs            # Shared event-alert logic (resolve/maybe_emit/emit_test) used by twitch/eventsub.rs + tiktok/mod.rs
 |           +-- streamer.rs       # set_streamer_sprite, reset_streamer_sprite, streamer_list_mics, streamer_mic_apply
 |
 +-- index.html                    # Admin panel HTML
 +-- overlay.html                  # Overlay window HTML (chroma key, Tauri window)
 +-- overlay-browser.html          # OBS Browser Source HTML — pets (transparent, no Tauri APIs)
-+-- overlay-tiktok.html           # OBS Browser Source HTML — event alerts (transparent, no Tauri APIs)
++-- overlay-alerts.html           # OBS Browser Source HTML — event alerts, Twitch + TikTok (transparent, no Tauri APIs)
 +-- overlay-streamer.html         # OBS Browser Source HTML — streamer persona (transparent, no Tauri APIs)
 +-- vite.config.ts                # Vite configuration (5 entry points: main, overlay, overlay_browser, overlay_tiktok, overlay_streamer)
 +-- tsconfig.json
@@ -351,7 +354,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tiktok_event_member_enabled` | `"false"` | Enable member join events |
 | `tiktok_event_envelope_enabled` | `"true"` | Enable red envelope events |
 | `tiktok_tts_event_announcements` | `"true"` | Announce events via TTS |
-| `tiktok_alerts_config` | *(JSON)* | Per-event alert settings map (`event_kind` → `{ enabled, image, sound, text, duration_ms, transition }`). Drives the dedicated alert overlay (`overlay-tiktok.html`). `text` supports `{user}`/`{amount}` tokens; `transition` ∈ `fade`/`slide-down`/`slide-up`/`scale`/`none`. `tiktok_like` and `tiktok_member` default to disabled (high-frequency). Asset paths are written by `set_tiktok_alert_asset`; the rest is saved via `set_config_cmd`. |
+| `alerts_config` | *(JSON)* | Per-event alert settings map (`event_kind` → `{ enabled, image, sound, text, duration_ms, transition }`), for **both Twitch (`cheer`/`sub`/`raid`/`follow`/`hype_train`) and TikTok** kinds. Drives the dedicated alert overlay (`overlay-alerts.html`). `text` supports `{user}`/`{amount}` tokens; `transition` ∈ `fade`/`slide-down`/`slide-up`/`scale`/`none`. `tiktok_like` and `tiktok_member` default to disabled (high-frequency). Asset paths are written by `set_event_alert_asset`; the rest is saved via `set_config_cmd`. **Migration:** the old TikTok-only key `tiktok_alerts_config` is copied to `alerts_config` on first run (then deleted) by `migrate_alerts_config_key` in `db/migrations.rs`. |
 | `discord_bot_token` | `""` | Discord bot token |
 | `discord_guild_id` | `""` | Discord server ID |
 | `discord_channel_id` | `""` | Discord channel ID |
@@ -531,13 +534,15 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `toggle_overlay` | `invoke("toggle_overlay")` | Show / hide the overlay window |
 | `send_test_message` | `invoke("send_test_message", { display_name, mouth_open_path, mouth_closed_path })` | Emit a test `chat-message` to spawn a test pet |
 
-### TikTok Alerts (`commands/alerts.rs`)
+### Event Alerts (`commands/alerts.rs`)
+
+Cover both Twitch (`cheer`/`sub`/`raid`/`follow`/`hype_train`) and TikTok event kinds. Validated against `ALERT_EVENT_KINDS`.
 
 | Command | TS Signature | Description |
 |---|---|---|
-| `set_tiktok_alert_asset` | `invoke<string>("set_tiktok_alert_asset", { eventKind, assetType: "image" \| "sound", fileName, data: number[] })` | Save a custom alert image (png/jpg/gif/webp) or sound (mp3/ogg/wav), max 5 MB, **no resize** (preserves animated GIFs), to `{app_data_dir}/alerts/`. Writes the path into `tiktok_alerts_config`, refreshes cache, emits `tiktok-alerts-changed`. Returns the saved path. |
-| `clear_tiktok_alert_asset` | `invoke("clear_tiktok_alert_asset", { eventKind, assetType: "image" \| "sound" })` | Clear an event's image/sound reference in `tiktok_alerts_config` (file left on disk). |
-| `tiktok_test_alert` | `invoke("tiktok_test_alert", { eventKind })` | Emit a preview `tiktok-alert` for `eventKind` using sample data (`user="TestUser"`, `amount=100`), ignoring the `enabled` flag. |
+| `set_event_alert_asset` | `invoke<string>("set_event_alert_asset", { eventKind, assetType: "image" \| "sound", fileName, data: number[] })` | Save a custom alert image (png/jpg/gif/webp) or sound (mp3/ogg/wav), max 5 MB, **no resize** (preserves animated GIFs), to `{app_data_dir}/alerts/`. Writes the path into `alerts_config`, refreshes cache, emits `event-alerts-changed`. Returns the saved path. |
+| `clear_event_alert_asset` | `invoke("clear_event_alert_asset", { eventKind, assetType: "image" \| "sound" })` | Clear an event's image/sound reference in `alerts_config` (file left on disk). |
+| `test_event_alert` | `invoke("test_event_alert", { eventKind })` | Emit a preview `event-alert` for `eventKind` using sample data (`user="TestUser"`, `amount=100` for gift/cheer/raid kinds), ignoring the `enabled` flag. |
 
 ### Streamer Persona (`commands/streamer.rs`)
 
@@ -560,8 +565,8 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 |---|---|---|---|---|
 | `chat-message` | `ChatMessagePayload` | `twitch/`, `tiktok/`, `control.rs` (test) | `PetManager` (overlay.ts) | Yes |
 | `chat-event` | `ChatEventPayload` | `twitch/eventsub.rs`, `tiktok/mod.rs` | `eventReactions.ts` (overlay.ts) | Yes |
-| `tiktok-alert` | `TiktokAlertPayload` | `tiktok/mod.rs` (resolved per-event), `commands/alerts.rs` (test) | `AlertManager` (overlay-tiktok.ts) | Yes |
-| `tiktok-alerts-changed` | `AppConfig` (full) | `commands/alerts.rs` (asset set/clear) | `eventos.ts` (admin panel) | No |
+| `event-alert` | `EventAlertPayload` | `alerts/mod.rs` (resolved per-event, called from `twitch/eventsub.rs` + `tiktok/mod.rs`), `commands/alerts.rs` (test) | `AlertManager` (overlay-alerts.ts) | Yes |
+| `event-alerts-changed` | `AppConfig` (full) | `commands/alerts.rs` (asset set/clear) | `eventos.ts` (admin panel) | No |
 | `animation-config-changed` | `AppConfig` (full) | `commands/config.rs` (`save_animation_config`) | overlay — reload animation params | No |
 | `tama-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `tama_`) | `PetManager._onTamaConfigChanged` — applies all tama settings live | Yes |
 | `streamer-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `streamer_`), `commands/streamer.rs` (sprite set/reset) | `StreamerPersona.applyConfig` (overlay-streamer.ts) — applies sprites/timing/anim live | Yes |
@@ -615,11 +620,11 @@ interface ChatEventPayload {
 
 > `eventReactions.ts` maps `event_kind` to a tama action via `ACTION_MAP` and calls `pet.executeAction()`. Raid and hype_train fire on a random pet regardless of user_id.
 
-### `TiktokAlertPayload`
+### `EventAlertPayload`
 
 ```typescript
-interface TiktokAlertPayload {
-  event_kind: string;   // e.g. "tiktok_gift", "tiktok_follow", "tiktok_member"
+interface EventAlertPayload {
+  event_kind: string;   // Twitch: "cheer"/"sub"/"raid"/"follow"/"hype_train"; TikTok: "tiktok_gift", "tiktok_follow", …
   image_path: string;   // absolute OS path (convert via convertFileSrc/browserConvertFileSrc); empty = no image
   sound_path: string;   // absolute OS path; empty = no sound
   text: string;         // already-formatted ({user}/{amount} resolved by the backend)
@@ -628,7 +633,7 @@ interface TiktokAlertPayload {
 }
 ```
 
-> Emitted as `tiktok-alert`. The backend resolves the per-event alert config (text tokens, asset paths) before emitting, so the overlay (`AlertManager`) only renders + queues. Real events emit only when the event's `enabled` flag is set and after the per-event cooldown filter passes; `tiktok_test_alert` emits regardless of `enabled` for previewing.
+> Emitted as `event-alert`. The backend resolves the per-event alert config (text tokens, asset paths) before emitting, so the overlay (`AlertManager`) only renders + queues. Real events emit only when the event's `enabled` flag is set and after the per-event cooldown filter passes; `test_event_alert` emits regardless of `enabled` for previewing. The resolve/emit logic lives in `src-tauri/src/alerts/mod.rs` and is shared by `twitch/eventsub.rs` and `tiktok/mod.rs`.
 
 ### `TtsStatePayload`
 
@@ -754,7 +759,7 @@ Disable the connect button and show "Conectando…" while waiting; re-enable in 
 
 ### OBS Browser Source URL block (mandatory for every browser-source overlay)
 
-Every admin view that owns a browser-source overlay (`overlay-browser`, `overlay-tiktok`, `overlay-streamer`, …) must expose its URL with the **same standard block** — a `.section-title` titled exactly **"OBS Browser Source"** with the `externalLink` icon, a read-only input holding the full URL, and a **"Copiar"** button. Do **not** inline the URL inside a `<code>` tag or prose. This keeps every overlay discoverable in the same place/shape across views (config / eventos / streamer all use it).
+Every admin view that owns a browser-source overlay (`overlay-browser`, `overlay-alerts`, `overlay-streamer`, …) must expose its URL with the **same standard block** — a `.section-title` titled exactly **"OBS Browser Source"** with the `externalLink` icon, a read-only input holding the full URL, and a **"Copiar"** button. Do **not** inline the URL inside a `<code>` tag or prose. This keeps every overlay discoverable in the same place/shape across views (config / eventos / streamer all use it).
 
 ```typescript
 // In the view's innerHTML (inside a `.card`):
@@ -875,7 +880,7 @@ await AppState.setConfig(key, value); // Save and reload cache
   - `subscribe` → emit `chat-event` with `event_kind: "tiktok_subscribe"`
   - `envelope` → emit `chat-event` with `event_kind: "tiktok_envelope"`
   - `member` → emit `chat-event` with `event_kind: "tiktok_member"` (gated by `tiktok_event_member_enabled`, default off — high-frequency)
-- After emitting `chat-event`, each gift/like/social/subscribe/member handler calls `maybe_emit_alert(...)`, which reads `tiktok_alerts_config` from the cache and, if the event's alert is `enabled`, emits a fully-resolved `tiktok-alert` (text tokens `{user}`/`{amount}` filled; `{user}` = nickname when present, else uniqueId). `resolve_alert` builds the payload; `emit_test_alert` (used by `tiktok_test_alert`) forces it regardless of `enabled`.
+- After emitting `chat-event`, each gift/like/social/subscribe/member handler calls `alerts::maybe_emit_alert(...)`, which reads `alerts_config` from the cache and, if the event's alert is `enabled`, emits a fully-resolved `event-alert` (text tokens `{user}`/`{amount}` filled; `{user}` = nickname when present, else uniqueId). The shared `alerts/mod.rs` module holds `resolve_alert` (builds the payload) and `emit_test_alert` (used by `test_event_alert`, forces it regardless of `enabled`). The Twitch EventSub handler (`twitch/eventsub.rs`) calls the same `alerts::maybe_emit_alert` for `cheer`/`sub`/`raid`/`follow`.
 - All non-chat events also call `state.broadcast_ws("chat-event", &payload)`.
 - **Risk:** TikTool's free sandbox is limited (50 req/day, 1 WS connection). Production requires a paid plan (~$7/week).
 - **Local dev/testing:** When TikTool is unavailable, simulate chat events with a local WebSocket mock server that emits the same JSON structure as TikTool's `chat` events.
@@ -883,7 +888,7 @@ await AppState.setConfig(key, value); // Save and reload cache
 ### `server/`
 
 - `start_server(app_state, dist_dir, dev_mode)`: spawns an axum HTTP server on port 6767 (and best-effort on port 80 for the TikTok LIVE `eso.tilin.com` trick — see §16). Routes are built by `build_router()` (split out so the `router_builds_without_panicking` test can validate route syntax — see §16 "axum route syntax + silent panics"). **Uses axum 0.7 route syntax** (`/assets/*path`, not the 0.8 `{*path}`).
-- Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /overlay-tiktok` (serves `overlay-tiktok.html` — the dedicated event-alert browser source), `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprites **and alert images/sounds** from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket). `serve_overlay_file(filename)` is shared by both overlay routes (dev rewrite vs embedded prod).
+- Routes: `GET /overlay` (serves `overlay-browser.html`), `GET /overlay-alerts` (serves `overlay-alerts.html` — the dedicated event-alert browser source for Twitch + TikTok; `GET /overlay-tiktok` is kept as a backwards-compat alias serving the same page), `GET /overlay-streamer`, `GET /assets/*` (Vite-compiled JS/CSS), `GET /persona?path=` (pet sprites **and alert images/sounds** from OS filesystem, path-traversal-protected), `GET /ws` (WebSocket). `serve_overlay_file(filename)` is shared by all overlay routes (dev rewrite vs embedded prod).
 - **Bind strategy**: tries `127.0.0.1:6767` (IPv4 loopback) with up to 3 attempts and 1 s between retries to recover from TIME_WAIT left by a previous instance. Also binds `[::1]:6767` (IPv6 loopback) concurrently — on Windows 10 `localhost` often resolves to `::1` first, so without the IPv6 listener the browser gets connection refused even when the IPv4 server is healthy. If only one address is available the server runs on that address alone; if neither is available the task logs an error and exits.
 - **Dev mode** (`dev_mode = true`): reads `overlay-browser.html` from the project root (not `dist/`) and rewrites `/src/*` references to `http://localhost:1420/src/*` so assets are served by the Vite dev server. Enabled automatically when compiled in debug mode (`cfg(debug_assertions)`).
 - **Production mode**: all frontend assets are embedded at compile time via `rust-embed` (`#[folder = "../dist"]`) — no external `dist/` folder is needed next to the binary.
@@ -1203,7 +1208,7 @@ Two pieces make a fully **local** overlay pass that filter:
    ipconfig /flushdns
    ```
 
-The streamer then uses `http://eso.tilin.com/overlay`, `…/overlay-streamer`, `…/overlay-tiktok` (or `overlay.streampersona.app` if the short domain looks suspicious). The URL resolves to the local server; nothing is exposed to the internet. `ws-transport.ts` derives its WS/HTTP base from `window.location` (not a hardcoded `localhost:6767`), so the overlay connects back to whatever host it was served from — `localhost:6767` in OBS or `eso.tilin.com:80` in TikTok.
+The streamer then uses `http://eso.tilin.com/overlay`, `…/overlay-streamer`, `…/overlay-alerts` (legacy `…/overlay-tiktok` still works) (or `overlay.streampersona.app` if the short domain looks suspicious). The URL resolves to the local server; nothing is exposed to the internet. `ws-transport.ts` derives its WS/HTTP base from `window.location` (not a hardcoded `localhost:6767`), so the overlay connects back to whatever host it was served from — `localhost:6767` in OBS or `eso.tilin.com:80` in TikTok.
 
 ### How it works
 

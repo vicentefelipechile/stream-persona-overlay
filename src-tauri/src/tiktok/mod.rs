@@ -8,10 +8,7 @@ use crate::{
         config::{log_message, log_message_dropped},
         users::find_active_user_by_tiktok,
     },
-    state::{
-        guest_resource_dir, guest_user_id, AppState, ChatEventPayload, ChatMessagePayload,
-        TiktokAlertPayload,
-    },
+    state::{guest_resource_dir, guest_user_id, AppState, ChatEventPayload, ChatMessagePayload},
 };
 
 /// Pushes a connection notice to every overlay at once: the Tauri "overlay"
@@ -241,109 +238,6 @@ fn extract_user_label(data: &serde_json::Value, unique_id: &str) -> String {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| unique_id.to_string())
-}
-
-/// Builds a fully-formatted alert payload from the per-event config, regardless
-/// of the `enabled` flag. Returns `None` only when the JSON is invalid or has no
-/// entry for `event_kind`. `user_label` fills `{user}`; `amount` fills `{amount}`.
-fn resolve_alert(
-    alerts_config: &str,
-    event_kind: &str,
-    user_label: &str,
-    amount: Option<i64>,
-) -> Option<TiktokAlertPayload> {
-    let alerts = serde_json::from_str::<serde_json::Value>(alerts_config).ok()?;
-    let entry = alerts.get(event_kind)?;
-
-    let amount_str = amount.map(|a| a.to_string()).unwrap_or_default();
-    let text = entry
-        .get("text")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .replace("{user}", user_label)
-        .replace("{amount}", &amount_str);
-
-    Some(TiktokAlertPayload {
-        event_kind: event_kind.to_string(),
-        image_path: entry
-            .get("image")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        sound_path: entry
-            .get("sound")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        text,
-        duration_ms: entry
-            .get("duration_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(4000) as u32,
-        transition: entry
-            .get("transition")
-            .and_then(|v| v.as_str())
-            .unwrap_or("fade")
-            .to_string(),
-    })
-}
-
-/// Emits a fully-resolved `tiktok-alert` (Tauri + WS broadcast).
-fn emit_alert(state: &AppState, app_handle: &AppHandle, payload: &TiktokAlertPayload) {
-    let _ = app_handle.emit("tiktok-alert", payload);
-    state.broadcast_ws("tiktok-alert", payload);
-}
-
-/// Resolves the configured alert for `event_kind` and, if its `enabled` flag is
-/// set, emits it so the dedicated alert overlay can render it.
-fn maybe_emit_alert(
-    state: &AppState,
-    app_handle: &AppHandle,
-    cfg: &crate::state::AppConfig,
-    event_kind: &str,
-    user_label: &str,
-    amount: Option<i64>,
-) {
-    let enabled = serde_json::from_str::<serde_json::Value>(&cfg.tiktok_alerts_config)
-        .ok()
-        .and_then(|v| {
-            v.get(event_kind)
-                .and_then(|e| e.get("enabled"))
-                .and_then(|b| b.as_bool())
-        })
-        .unwrap_or(false);
-    if !enabled {
-        return;
-    }
-
-    if let Some(payload) = resolve_alert(&cfg.tiktok_alerts_config, event_kind, user_label, amount)
-    {
-        emit_alert(state, app_handle, &payload);
-    }
-}
-
-/// Forces an alert for `event_kind` using sample data, ignoring the `enabled`
-/// flag — used by the `tiktok_test_alert` command so the streamer can preview
-/// the alert on the overlay. Returns false if no alert is configured for the kind.
-pub fn emit_test_alert(state: &AppState, app_handle: &AppHandle, event_kind: &str) -> bool {
-    let alerts_config = {
-        let Ok(cfg) = state.config_cache.read() else {
-            return false;
-        };
-        cfg.tiktok_alerts_config.clone()
-    };
-    let amount = if event_kind.contains("gift") {
-        Some(100)
-    } else {
-        None
-    };
-    match resolve_alert(&alerts_config, event_kind, "TestUser", amount) {
-        Some(payload) => {
-            emit_alert(state, app_handle, &payload);
-            true
-        }
-        None => false,
-    }
 }
 
 /// Processes a single TikTok event synchronously (no .await inside).
@@ -603,7 +497,7 @@ fn handle_gift(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(
+    crate::alerts::maybe_emit_alert(
         state,
         app_handle,
         cfg,
@@ -661,7 +555,7 @@ fn handle_like(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(state, app_handle, cfg, "tiktok_like", &user_label, None);
+    crate::alerts::maybe_emit_alert(state, app_handle, cfg, "tiktok_like", &user_label, None);
 }
 
 fn handle_social(
@@ -720,7 +614,7 @@ fn handle_social(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(state, app_handle, cfg, event_kind, &user_label, None);
+    crate::alerts::maybe_emit_alert(state, app_handle, cfg, event_kind, &user_label, None);
 }
 
 fn handle_subscribe(
@@ -770,7 +664,7 @@ fn handle_subscribe(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(
+    crate::alerts::maybe_emit_alert(
         state,
         app_handle,
         cfg,
@@ -877,5 +771,5 @@ fn handle_member(
     let _ = app_handle.emit("chat-event", &payload);
     state.broadcast_ws("chat-event", &payload);
 
-    maybe_emit_alert(state, app_handle, cfg, "tiktok_member", &user_label, None);
+    crate::alerts::maybe_emit_alert(state, app_handle, cfg, "tiktok_member", &user_label, None);
 }

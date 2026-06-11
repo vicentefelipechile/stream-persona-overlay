@@ -253,10 +253,11 @@ pub struct AppConfig {
     pub tiktok_event_envelope_enabled: bool,
     pub tiktok_gift_action_map: String,
     pub tiktok_tts_event_announcements: bool,
-    /// JSON map of TikTok event_kind -> alert settings
+    /// JSON map of event_kind -> alert settings
     /// ({ enabled, image, sound, text, duration_ms, transition }).
-    /// Drives the configurable on-overlay alerts (overlay-tiktok.html).
-    pub tiktok_alerts_config: String,
+    /// Drives the configurable on-overlay alerts (overlay-alerts.html). Covers
+    /// both Twitch (cheer/sub/raid/follow/hype_train) and TikTok event kinds.
+    pub alerts_config: String,
     // ── Anti-spam / rate-limit config (chat) ────────────────────────────────
     pub twitch_chat_antispam_preset: String,
     pub twitch_chat_user_cooldown_ms: u32,
@@ -407,14 +408,14 @@ pub struct ChatEventPayload {
     pub extra: serde_json::Value,
 }
 
-// ─── TiktokAlertPayload ──────────────────────────────────────────────────────
+// ─── EventAlertPayload ───────────────────────────────────────────────────────
 
-/// Fully-resolved alert payload emitted as `tiktok-alert` and consumed by the
-/// dedicated alert overlay (overlay-tiktok.html). The backend resolves the
+/// Fully-resolved alert payload emitted as `event-alert` and consumed by the
+/// dedicated alert overlay (overlay-alerts.html). The backend resolves the
 /// per-event alert config (text formatting, asset paths) before emitting so the
-/// overlay only has to render and queue.
+/// overlay only has to render and queue. Used by both Twitch and TikTok events.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TiktokAlertPayload {
+pub struct EventAlertPayload {
     pub event_kind: String,
     /// Absolute OS path to the alert image (empty = no image). The overlay
     /// converts it via convertFileSrc / browserConvertFileSrc.

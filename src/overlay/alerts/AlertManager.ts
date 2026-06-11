@@ -1,10 +1,11 @@
 // =========================================================================================================
 // ALERT MANAGER
 // =========================================================================================================
-// Renders TikTok event alerts (image + text + sound) on the dedicated alert
-// overlay (overlay-tiktok.html). Alerts are queued and shown one at a time so a
-// burst of events never overlaps. The backend resolves each alert before
-// emitting `tiktok-alert`, so this class only renders the already-formatted data.
+// Renders event alerts (image + text + sound) on the dedicated alert overlay
+// (overlay-alerts.html), for both Twitch and TikTok events. Alerts are queued and
+// shown one at a time so a burst of events never overlaps. The backend resolves
+// each alert before emitting `event-alert`, so this class only renders the
+// already-formatted data.
 //
 // NOTE (motion v12): keyframe transforms MUST be passed as CSS `transform`
 // strings, not shorthand props (x/scale/...). See AGENTS.md §3.
@@ -12,7 +13,7 @@
 
 import { animate } from "motion";
 
-export interface TiktokAlertPayload {
+export interface EventAlertPayload {
   event_kind: string;
   image_path: string;
   sound_path: string;
@@ -49,7 +50,7 @@ function wait(ms: number): Promise<void> {
 export class AlertManager {
   private readonly root: HTMLElement;
   private readonly convert: ConvertFn;
-  private readonly queue: TiktokAlertPayload[] = [];
+  private readonly queue: EventAlertPayload[] = [];
   private playing = false;
 
   constructor(root: HTMLElement, convert: ConvertFn) {
@@ -58,7 +59,7 @@ export class AlertManager {
   }
 
   /** Adds an alert to the queue and starts the player if idle. */
-  enqueue(alert: TiktokAlertPayload): void {
+  enqueue(alert: EventAlertPayload): void {
     this.queue.push(alert);
     if (!this.playing) void this.playNext();
   }
@@ -78,7 +79,7 @@ export class AlertManager {
     void this.playNext();
   }
 
-  private async show(alert: TiktokAlertPayload): Promise<void> {
+  private async show(alert: EventAlertPayload): Promise<void> {
     const el = document.createElement("div");
     el.className = "spo-alert";
 

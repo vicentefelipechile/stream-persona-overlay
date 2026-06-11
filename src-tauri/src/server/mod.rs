@@ -90,7 +90,10 @@ struct ServerState {
 fn build_router() -> Router<ServerState> {
     Router::new()
         .route("/overlay", get(serve_overlay))
-        .route("/overlay-tiktok", get(serve_overlay_tiktok))
+        .route("/overlay-alerts", get(serve_overlay_alerts))
+        // Backwards-compat alias: streamers may already have /overlay-tiktok set
+        // up as an OBS Browser Source. Serves the same page so it doesn't break.
+        .route("/overlay-tiktok", get(serve_overlay_alerts))
         .route("/overlay-streamer", get(serve_overlay_streamer))
         .route("/persona", get(serve_persona))
         .route("/ws", get(ws_handler))
@@ -195,9 +198,10 @@ async fn serve_overlay(State(s): State<ServerState>) -> Response {
     serve_overlay_file(&s, "overlay-browser.html").await
 }
 
-/// GET /overlay-tiktok — the dedicated TikTok event-alert browser source.
-async fn serve_overlay_tiktok(State(s): State<ServerState>) -> Response {
-    serve_overlay_file(&s, "overlay-tiktok.html").await
+/// GET /overlay-alerts — the dedicated event-alert browser source (Twitch + TikTok).
+/// Also served at the legacy /overlay-tiktok path for backwards compatibility.
+async fn serve_overlay_alerts(State(s): State<ServerState>) -> Response {
+    serve_overlay_file(&s, "overlay-alerts.html").await
 }
 
 /// GET /overlay-streamer — the streamer persona browser source.

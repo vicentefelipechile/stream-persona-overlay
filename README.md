@@ -58,7 +58,7 @@ Each overlay is available as an **OBS Browser Source** (native transparency, no 
 |---|---|
 | Viewer pets | `http://localhost:6767/overlay` |
 | Streamer persona | `http://localhost:6767/overlay-streamer` |
-| Event alerts | `http://localhost:6767/overlay-tiktok` |
+| Event alerts (Twitch + TikTok) | `http://localhost:6767/overlay-alerts` |
 
 The viewer-pet overlay can also be added as a **Window Capture**: open the overlay window from the admin panel and apply a chroma-key filter in OBS.
 
@@ -79,7 +79,7 @@ This maps both `eso.tilin.com` and `overlay.streampersona.app` to `127.0.0.1`. N
 |---|---|
 | Viewer pets | `http://eso.tilin.com/overlay` |
 | Streamer persona | `http://eso.tilin.com/overlay-streamer` |
-| Event alerts | `http://eso.tilin.com/overlay-tiktok` |
+| Event alerts (Twitch + TikTok) | `http://eso.tilin.com/overlay-alerts` |
 
 > Use `overlay.streampersona.app` instead of `eso.tilin.com` if a viewer finds the short domain suspicious — both resolve to the same local server.
 
@@ -96,7 +96,7 @@ index.html             # Admin panel
 overlay.html           # Chroma-key overlay window (Tauri)
 overlay-browser.html   # OBS Browser Source — viewer pets
 overlay-streamer.html  # OBS Browser Source — streamer persona
-overlay-tiktok.html    # OBS Browser Source — event alerts
+overlay-alerts.html    # OBS Browser Source — event alerts (Twitch + TikTok)
 ```
 
 See [AGENTS.md](AGENTS.md) for full architecture, conventions, and development rules.

@@ -176,6 +176,16 @@ async fn register_subscriptions(cfg: &AppConfig, session_id: &str) {
     }
 }
 
+/// Label for the `{user}` alert token: the display name when present, otherwise
+/// the login. Mirrors `tiktok::extract_user_label`.
+fn alert_user_label<'a>(display_name: &'a str, login: &'a str) -> &'a str {
+    if display_name.is_empty() {
+        login
+    } else {
+        display_name
+    }
+}
+
 fn handle_twitch_event(
     state: &AppState,
     app_handle: &AppHandle,
@@ -218,16 +228,17 @@ fn handle_twitch_event(
                 .map(|u| u.id);
             drop(db);
 
+            let display_name = event
+                .get("user_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let payload = ChatEventPayload {
                 platform: "twitch".to_string(),
                 event_kind: "cheer".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event
-                    .get("user_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                display_name: display_name.clone(),
                 amount: Some(bits),
                 text: event
                     .get("message")
@@ -238,6 +249,9 @@ fn handle_twitch_event(
 
             let _ = app_handle.emit("chat-event", &payload);
             state.broadcast_ws("chat-event", &payload);
+
+            let label = alert_user_label(&display_name, username);
+            crate::alerts::maybe_emit_alert(state, app_handle, &cfg, "cheer", label, Some(bits));
         }
         "channel.subscribe" if cfg.twitch_event_sub_enabled => {
             let username = event
@@ -265,16 +279,17 @@ fn handle_twitch_event(
                 .map(|u| u.id);
             drop(db);
 
+            let display_name = event
+                .get("user_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let payload = ChatEventPayload {
                 platform: "twitch".to_string(),
                 event_kind: "sub".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event
-                    .get("user_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                display_name: display_name.clone(),
                 amount: None,
                 text: None,
                 extra: serde_json::json!({}),
@@ -282,6 +297,9 @@ fn handle_twitch_event(
 
             let _ = app_handle.emit("chat-event", &payload);
             state.broadcast_ws("chat-event", &payload);
+
+            let label = alert_user_label(&display_name, username);
+            crate::alerts::maybe_emit_alert(state, app_handle, &cfg, "sub", label, None);
         }
         "channel.raid" if cfg.twitch_event_raid_enabled => {
             let username = event
@@ -309,16 +327,17 @@ fn handle_twitch_event(
                 .map(|u| u.id);
             drop(db);
 
+            let display_name = event
+                .get("from_broadcaster_user_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let payload = ChatEventPayload {
                 platform: "twitch".to_string(),
                 event_kind: "raid".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event
-                    .get("from_broadcaster_user_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                display_name: display_name.clone(),
                 amount: Some(viewers),
                 text: None,
                 extra: serde_json::json!({}),
@@ -326,6 +345,9 @@ fn handle_twitch_event(
 
             let _ = app_handle.emit("chat-event", &payload);
             state.broadcast_ws("chat-event", &payload);
+
+            let label = alert_user_label(&display_name, username);
+            crate::alerts::maybe_emit_alert(state, app_handle, &cfg, "raid", label, Some(viewers));
         }
         "channel.follow" if cfg.twitch_event_follow_enabled => {
             let username = event
@@ -353,16 +375,17 @@ fn handle_twitch_event(
                 .map(|u| u.id);
             drop(db);
 
+            let display_name = event
+                .get("user_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let payload = ChatEventPayload {
                 platform: "twitch".to_string(),
                 event_kind: "follow".to_string(),
                 username: username.to_string(),
                 user_id,
-                display_name: event
-                    .get("user_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                display_name: display_name.clone(),
                 amount: None,
                 text: None,
                 extra: serde_json::json!({}),
@@ -370,6 +393,9 @@ fn handle_twitch_event(
 
             let _ = app_handle.emit("chat-event", &payload);
             state.broadcast_ws("chat-event", &payload);
+
+            let label = alert_user_label(&display_name, username);
+            crate::alerts::maybe_emit_alert(state, app_handle, &cfg, "follow", label, None);
         }
         _ => {}
     }

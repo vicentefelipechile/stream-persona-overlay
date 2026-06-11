@@ -39,13 +39,29 @@
 }
 
 .evt-feed-badge {
-  background: rgba(255, 0, 80, 0.15);
-  color: #ff0050;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
   padding: 1px 8px;
   border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* Platform origin badge (Twitch / TikTok icon) per feed row. */
+.evt-feed-platform {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+/* Section header that introduces a platform's event config (icon + title). */
+.evt-platform-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .evt-feed-user {

@@ -1,9 +1,14 @@
 // =========================================================================================================
-// EVENTOS VIEW
+// EVENTOS VIEW (centralized)
 // =========================================================================================================
-// Live event feed of the current stream + per-event alert configuration for the
-// dedicated TikTok alert overlay (overlay-tiktok.html). The streamer configures,
-// for each event kind: enabled, image, sound, text template, duration, transition.
+// Single source of truth for everything event-related on both platforms:
+//   • a unified live event feed (Twitch + TikTok, with a platform badge per row),
+//   • per-platform event types + parameters + cooldowns + TTS (+ EventSub for Twitch),
+//   • per-event visual alerts (image / sound / text / duration / transition) for the
+//     dedicated alert overlay (overlay-alerts.html), now covering Twitch kinds too.
+//
+// Connection, chat filters and chat anti-spam stay in the Twitch / TikTok views.
+// The shared event-config plumbing (presets/sliders/save) lives in _eventConfig.ts.
 // =========================================================================================================
 
 import { invoke } from "@tauri-apps/api/core";
@@ -12,9 +17,10 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { animate } from "motion";
 import { showToast, isPlatformConnected, type ChatEventPayload } from "../state";
 import { Icons } from "../icons";
+import { twitchEventSection, tiktokEventSection } from "./_eventConfig";
 
 // =========================================================================================================
-// Metadata
+// Alert metadata
 // =========================================================================================================
 
 interface AlertEntry {
@@ -29,6 +35,7 @@ interface AlertEntry {
 interface AlertEventMeta {
   kind: string;
   label: string;
+  platform: "twitch" | "tiktok";
   /** Tokens this event supports, used to render insert-chips below the text field. */
   tokens: string[];
   noisy: boolean;
@@ -42,17 +49,24 @@ interface AlertEventMeta {
 
 // Events that support a configurable alert (must match the Rust ALERT_EVENT_KINDS).
 const ALERT_EVENTS: AlertEventMeta[] = [
-  { kind: "tiktok_gift",      label: "Donación (regalo)", tokens: ["{user}", "{amount}"], noisy: false, icon: Icons.gift,  color: "#ff4d8d", sampleAmount: 100 },
-  { kind: "tiktok_gift_big",  label: "Donación grande",   tokens: ["{user}", "{amount}"], noisy: false, icon: Icons.gift,  color: "#ff2d55", sampleAmount: 500 },
-  { kind: "tiktok_follow",    label: "Nuevo seguidor",    tokens: ["{user}"],             noisy: false, icon: Icons.heart, color: "#22c55e", sampleAmount: null },
-  { kind: "tiktok_share",     label: "Compartir",         tokens: ["{user}"],             noisy: false, icon: Icons.share, color: "#3b82f6", sampleAmount: null },
-  { kind: "tiktok_subscribe", label: "Suscripción",       tokens: ["{user}"],             noisy: false, icon: Icons.star,  color: "#f0b429", sampleAmount: null },
-  { kind: "tiktok_like",      label: "Like",              tokens: ["{user}"],             noisy: true,  icon: Icons.heart, color: "#ec4899", sampleAmount: null },
-  { kind: "tiktok_member",    label: "Entrada (member)",  tokens: ["{user}"],             noisy: true,  icon: Icons.login, color: "#a855f7", sampleAmount: null },
+  // ── Twitch ──────────────────────────────────────────────────────────────────
+  { kind: "cheer",            label: "Bits (Cheer)",      platform: "twitch", tokens: ["{user}", "{amount}"], noisy: false, icon: Icons.zap,   color: "#9146ff", sampleAmount: 100 },
+  { kind: "sub",              label: "Suscripción",       platform: "twitch", tokens: ["{user}"],             noisy: false, icon: Icons.star,  color: "#a970ff", sampleAmount: null },
+  { kind: "raid",             label: "Raid",              platform: "twitch", tokens: ["{user}", "{amount}"], noisy: false, icon: Icons.users, color: "#772ce8", sampleAmount: 25 },
+  { kind: "follow",           label: "Nuevo seguidor",    platform: "twitch", tokens: ["{user}"],             noisy: false, icon: Icons.heart, color: "#22c55e", sampleAmount: null },
+  { kind: "hype_train",       label: "Hype Train",        platform: "twitch", tokens: ["{user}"],             noisy: false, icon: Icons.zap,   color: "#ff4d8d", sampleAmount: null },
+  // ── TikTok ──────────────────────────────────────────────────────────────────
+  { kind: "tiktok_gift",      label: "Donación (regalo)", platform: "tiktok", tokens: ["{user}", "{amount}"], noisy: false, icon: Icons.gift,  color: "#ff4d8d", sampleAmount: 100 },
+  { kind: "tiktok_gift_big",  label: "Donación grande",   platform: "tiktok", tokens: ["{user}", "{amount}"], noisy: false, icon: Icons.gift,  color: "#ff2d55", sampleAmount: 500 },
+  { kind: "tiktok_follow",    label: "Nuevo seguidor",    platform: "tiktok", tokens: ["{user}"],             noisy: false, icon: Icons.heart, color: "#22c55e", sampleAmount: null },
+  { kind: "tiktok_share",     label: "Compartir",         platform: "tiktok", tokens: ["{user}"],             noisy: false, icon: Icons.share, color: "#3b82f6", sampleAmount: null },
+  { kind: "tiktok_subscribe", label: "Suscripción",       platform: "tiktok", tokens: ["{user}"],             noisy: false, icon: Icons.star,  color: "#f0b429", sampleAmount: null },
+  { kind: "tiktok_like",      label: "Like",              platform: "tiktok", tokens: ["{user}"],             noisy: true,  icon: Icons.heart, color: "#ec4899", sampleAmount: null },
+  { kind: "tiktok_member",    label: "Entrada (member)",  platform: "tiktok", tokens: ["{user}"],             noisy: true,  icon: Icons.login, color: "#a855f7", sampleAmount: null },
 ];
 
 /** Resolve {user}/{amount} tokens in a text template for the in-panel preview,
- *  mirroring how the backend formats `tiktok_test_alert`. */
+ *  mirroring how the backend formats `test_event_alert`. */
 function resolveTokens(text: string, m: AlertEventMeta): string {
   return text
     .replace(/\{user\}/g, "TestUser")
@@ -77,9 +91,12 @@ const TRANSITIONS: { value: string; label: string }[] = [
   { value: "none",       label: "Sin transición" },
 ];
 
-// Human labels for the live feed (TikTok event kinds only — the feed is filtered
-// to platform === "tiktok").
+// Human labels for the unified live feed (Twitch + TikTok event kinds).
 const FEED_LABELS: Record<string, string> = {
+  // Twitch
+  cheer: "Bits", sub: "Suscripción", raid: "Raid", follow: "Seguidor",
+  hype_train: "Hype Train", stream_online: "En directo", stream_offline: "Offline",
+  // TikTok
   tiktok_gift: "Regalo", tiktok_gift_big: "Regalo grande", tiktok_like: "Like",
   tiktok_follow: "Seguidor", tiktok_share: "Compartir", tiktok_subscribe: "Suscripción",
   tiktok_envelope: "Sobre", tiktok_member: "Entrada",
@@ -99,15 +116,23 @@ const ACCEPT: Record<"image" | "sound", string[]> = {
 };
 
 const FEED_MAX = 50;
+const OBS_URL = "http://localhost:6767/overlay-alerts";
 
 // Module-level so we can detach the previous listener when the view re-renders.
 let feedUnlisten: UnlistenFn | null = null;
 
 // =========================================================================================================
-// Slider helpers (mirrors the sRow/syncSlider pattern used across views — AGENTS §9)
+// Small helpers
 // =========================================================================================================
 
 const durLabel = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+
+/** Platform badge (icon) for a feed row. */
+function platformBadge(platform: string): string {
+  if (platform === "twitch") return `<span class="evt-feed-platform" title="Twitch">${Icons.twitchMono(14)}</span>`;
+  if (platform === "tiktok") return `<span class="evt-feed-platform" title="TikTok">${Icons.tiktokMono(14)}</span>`;
+  return "";
+}
 
 /** Image thumbnail markup for the dropzone (or the empty-state placeholder). */
 function imgThumb(path: string): string {
@@ -123,19 +148,17 @@ function previewInner(e: AlertEntry, m: AlertEventMeta): string {
   return img + txt || `<span class="evt-preview-placeholder">Sin contenido</span>`;
 }
 
-function syncSlider(id: string, fmt: (v: number) => string): void {
+function syncDurSlider(id: string): void {
   const el = document.getElementById(id) as HTMLInputElement | null;
   const lbl = document.getElementById(`${id}-val`);
   if (!el) return;
-  if (lbl) lbl.textContent = fmt(Number(el.value));
+  if (lbl) lbl.textContent = durLabel(Number(el.value));
   const pct = ((Number(el.value) - Number(el.min)) / (Number(el.max) - Number(el.min))) * 100;
   el.style.setProperty("--slider-fill", `${pct}%`);
 }
 
 /** Two-step destructive confirmation: the first click arms the button (it turns
- *  red and reads "¿Borrar?"), a second click within 3 s confirms. It disarms
- *  automatically if the user doesn't confirm. `hasTarget` short-circuits the
- *  flow when there is nothing to delete. */
+ *  red and reads "¿Borrar?"), a second click within 3 s confirms. */
 function bindConfirmClick(btn: HTMLElement | null, hasTarget: () => boolean, onConfirm: () => void): void {
   if (!btn) return;
   const original = btn.innerHTML;
@@ -179,11 +202,15 @@ export async function renderEventos(): Promise<void> {
   // while editing). Every field change writes the whole object back via setConfig.
   let alerts: Record<string, AlertEntry> = {};
   try {
-    alerts = JSON.parse(String(cfg["tiktok_alerts_config"] || "{}"));
+    alerts = JSON.parse(String(cfg["alerts_config"] || "{}"));
   } catch {
     alerts = {};
   }
   const entryFor = (kind: string): AlertEntry => ({ ...DEFAULT_ENTRY, ...(alerts[kind] || {}) });
+
+  // Build the per-platform event-config sections (types + cooldowns + TTS + EventSub).
+  const twitchSection = twitchEventSection(cfg);
+  const tiktokSection = tiktokEventSection(cfg);
 
   const cardHtml = (m: AlertEventMeta): string => {
     const e = entryFor(m.kind);
@@ -197,7 +224,6 @@ export async function renderEventos(): Promise<void> {
     return `
     <div class="evt-card${m.noisy ? " evt-card-noisy" : ""}${e.enabled ? " is-enabled" : ""}"
          data-kind="${k}" style="--evt-accent:${m.color};">
-      <!-- Header: always visible, click to collapse/expand -->
       <div class="evt-card-head" id="evt-${k}-head">
         <span class="evt-card-icon">${m.icon(18)}</span>
         <span class="evt-card-title">${m.label}</span>
@@ -211,10 +237,8 @@ export async function renderEventos(): Promise<void> {
         <button type="button" class="evt-collapse-btn" id="evt-${k}-collapse" title="Mostrar/ocultar">${Icons.chevronDown(18)}</button>
       </div>
 
-      <!-- Body: collapsible -->
       <div class="evt-card-body" id="evt-${k}-body">
         <div class="evt-card-cols">
-          <!-- Left: form controls -->
           <div class="evt-card-form">
             <div class="evt-grid">
               <div class="form-group">
@@ -268,7 +292,6 @@ export async function renderEventos(): Promise<void> {
             </div>
           </div>
 
-          <!-- Right: live in-panel preview -->
           <div class="evt-card-preview">
             <div class="evt-preview-label">Vista previa ${Icons.eye(13)}</div>
             <div class="evt-preview-stage" id="evt-${k}-stage">
@@ -281,58 +304,86 @@ export async function renderEventos(): Promise<void> {
     </div>`;
   };
 
+  const twitchAlertCards = ALERT_EVENTS.filter((m) => m.platform === "twitch").map(cardHtml).join("");
+  const tiktokAlertCards = ALERT_EVENTS.filter((m) => m.platform === "tiktok").map(cardHtml).join("");
+
+  const twitchConnected = isPlatformConnected("twitch");
+  const tiktokConnected = isPlatformConnected("tiktok");
+
   container.innerHTML = `
     <div class="view-header">
-      <h1>${Icons.tiktokMono(22)} Eventos TikTok</h1>
-      <p class="view-subtitle">Feed en vivo de eventos de TikTok y alertas configurables en el overlay.</p>
+      <h1>${Icons.zap(22)} Eventos</h1>
+      <p class="view-subtitle">Centro de eventos de Twitch y TikTok: tipos de evento, cooldowns, TTS y alertas en el overlay.</p>
     </div>
-
-    ${isPlatformConnected("tiktok") ? "" : `
-    <div class="conn-banner">
-      ${Icons.tiktokMono(18)}
-      <div>
-        <strong>TikTok no está conectado.</strong> No llegarán eventos al feed hasta que conectes desde la vista
-        <strong>TikTok</strong>. Aun así puedes configurar las alertas y usar <strong>Probar</strong>.
-      </div>
-    </div>`}
 
     <div class="card">
       <div class="card-header">
-        <h2 class="section-title">Feed de eventos de TikTok en vivo</h2>
+        <h2 class="section-title">Feed de eventos en vivo</h2>
       </div>
       <p style="margin:0 0 12px;font-size:0.85rem;color:var(--color-text-muted);">
-        Solo eventos de TikTok de la transmisión actual. Los eventos muy frecuentes (like, entradas) aparecen atenuados.
+        Eventos de Twitch y TikTok de la transmisión actual. Cada fila lleva el icono de su plataforma. Los eventos muy frecuentes (like, entradas) aparecen atenuados.
       </p>
       <div id="evt-feed" class="evt-feed">
         <div class="evt-feed-empty">Esperando eventos…</div>
       </div>
     </div>
 
-    <div class="card" style="margin-top: var(--space-5);">
+    <!-- ── Twitch section ──────────────────────────────────────────────────── -->
+    <div class="evt-platform-header" style="margin-top: var(--space-5);">
+      ${Icons.twitch(22)} <h2 class="section-title" style="margin:0;">Twitch</h2>
+    </div>
+    ${twitchConnected ? "" : `
+    <div class="conn-banner">
+      ${Icons.twitchMono(18)}
+      <div><strong>Twitch no está conectado.</strong> No llegarán eventos hasta que conectes desde la vista <strong>Twitch</strong>. Igual puedes configurar todo aquí y usar <strong>Probar</strong>.</div>
+    </div>`}
+    <div style="margin-top: var(--space-4);">${twitchSection.html}</div>
+    <div style="margin-top: var(--space-5);">
+      <h3 class="section-title">Alertas por evento — Twitch</h3>
+      ${twitchAlertCards}
+    </div>
+
+    <!-- ── TikTok section ──────────────────────────────────────────────────── -->
+    <div class="evt-platform-header" style="margin-top: var(--space-6);">
+      ${Icons.tiktok(22)} <h2 class="section-title" style="margin:0;">TikTok</h2>
+    </div>
+    ${tiktokConnected ? "" : `
+    <div class="conn-banner">
+      ${Icons.tiktokMono(18)}
+      <div><strong>TikTok no está conectado.</strong> No llegarán eventos hasta que conectes desde la vista <strong>TikTok</strong>. Igual puedes configurar todo aquí y usar <strong>Probar</strong>.</div>
+    </div>`}
+    <div style="margin-top: var(--space-4);">${tiktokSection.html}</div>
+    <div style="margin-top: var(--space-5);">
+      <h3 class="section-title">Alertas por evento — TikTok</h3>
+      <p style="margin:4px 0 0;font-size:0.85rem;color:var(--color-text-muted);">
+        Para limitar la saturación de like/entradas usa los cooldowns por evento de arriba.
+      </p>
+      ${tiktokAlertCards}
+    </div>
+
+    <!-- ── OBS Browser Source ──────────────────────────────────────────────── -->
+    <div class="card" style="margin-top: var(--space-6);">
       <div class="section-title" style="display:flex;align-items:center;gap:6px;">${Icons.externalLink(16)} OBS Browser Source</div>
       <p class="view-subtitle" style="margin:8px 0;">
         Agregá esta URL como <strong>Browser Source</strong> en OBS y posicionála/escalála a tu gusto.
         Pulsá <strong>Probar</strong> en cualquier evento para previsualizarla.
+        <br><span style="font-size:0.8rem;">La URL antigua <code>/overlay-tiktok</code> sigue funcionando como alias.</span>
       </p>
       <div style="display:flex;gap:8px;">
-        <input id="evt-obs-url" type="text" readonly value="http://localhost:6767/overlay-tiktok" style="flex:1;"/>
+        <input id="evt-obs-url" type="text" readonly value="${OBS_URL}" style="flex:1;"/>
         <button id="evt-copy-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
       </div>
     </div>
-
-    <div style="margin-top: var(--space-5);">
-      <h2 class="section-title">Alertas por evento</h2>
-      <p style="margin:4px 0 0;font-size:0.85rem;color:var(--color-text-muted);">
-        Para limitar la saturación de like/entradas usa los cooldowns por evento en la vista TikTok.
-      </p>
-      ${ALERT_EVENTS.map(cardHtml).join("")}
-    </div>
   `;
+
+  // ── Wire the per-platform event-config sections ────────────────────────────
+  twitchSection.bind();
+  tiktokSection.bind();
 
   // ── OBS Browser Source URL copy ───────────────────────────────────────────
   container.querySelector("#evt-copy-url")?.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText("http://localhost:6767/overlay-tiktok");
+      await navigator.clipboard.writeText(OBS_URL);
       showToast("URL copiada al portapapeles", "success");
     } catch {
       showToast("No se pudo copiar al portapapeles", "error");
@@ -340,13 +391,13 @@ export async function renderEventos(): Promise<void> {
   });
 
   // ── Sliders initial fill ──────────────────────────────────────────────────
-  for (const m of ALERT_EVENTS) syncSlider(`evt-${m.kind}-dur`, durLabel);
+  for (const m of ALERT_EVENTS) syncDurSlider(`evt-${m.kind}-dur`);
 
   // ── Persist helper ────────────────────────────────────────────────────────
   const saveAlerts = async (): Promise<void> => {
     try {
       await invoke("set_config_cmd", {
-        key: "tiktok_alerts_config",
+        key: "alerts_config",
         value: JSON.stringify(alerts),
       });
     } catch (e) {
@@ -356,13 +407,11 @@ export async function renderEventos(): Promise<void> {
 
   const metaFor = (kind: string) => ALERT_EVENTS.find((m) => m.kind === kind)!;
 
-  // Re-render the in-panel preview content (without animating) for a card.
   const refreshPreview = (kind: string): void => {
     const prev = document.getElementById(`evt-${kind}-prev`);
     if (prev) prev.innerHTML = previewInner(alerts[kind], metaFor(kind));
   };
 
-  // Play the entry animation in the preview stage, mirroring AlertManager.
   const playPreview = async (kind: string): Promise<void> => {
     const prev = document.getElementById(`evt-${kind}-prev`);
     if (!prev) return;
@@ -377,7 +426,6 @@ export async function renderEventos(): Promise<void> {
     }
   };
 
-  // Reflect a card's enabled flag in its visual state (border + status label).
   const refreshEnabledUi = (kind: string): void => {
     const on = alerts[kind].enabled;
     document.querySelector(`.evt-card[data-kind="${kind}"]`)?.classList.toggle("is-enabled", on);
@@ -388,13 +436,10 @@ export async function renderEventos(): Promise<void> {
   // ── Per-card bindings ─────────────────────────────────────────────────────
   for (const m of ALERT_EVENTS) {
     const k = m.kind;
-    // ensure the entry exists in the model
     alerts[k] = entryFor(k);
 
     const $ = (suffix: string) => document.getElementById(`evt-${k}-${suffix}`);
 
-    // Collapse / expand (header click or chevron). Ignore clicks on interactive
-    // controls inside the header so the toggle/test/switch keep working.
     const toggleCollapse = () =>
       document.querySelector(`.evt-card[data-kind="${k}"]`)?.classList.toggle("is-collapsed");
     $("head")?.addEventListener("click", (ev) => {
@@ -413,7 +458,6 @@ export async function renderEventos(): Promise<void> {
     textEl?.addEventListener("input", () => { alerts[k].text = textEl.value; refreshPreview(k); });
     textEl?.addEventListener("change", () => { alerts[k].text = textEl.value; void saveAlerts(); });
 
-    // Token chips — insert the token at the caret position in the text field.
     document.querySelectorAll<HTMLButtonElement>(`#evt-${k}-body .evt-token-chip`).forEach((chip) => {
       chip.addEventListener("click", () => {
         if (!textEl) return;
@@ -431,7 +475,7 @@ export async function renderEventos(): Promise<void> {
     });
 
     const dur = $("dur") as HTMLInputElement | null;
-    dur?.addEventListener("input", () => syncSlider(`evt-${k}-dur`, durLabel));
+    dur?.addEventListener("input", () => syncDurSlider(`evt-${k}-dur`));
     dur?.addEventListener("change", () => {
       alerts[k].duration_ms = Number(dur.value);
       void saveAlerts();
@@ -440,12 +484,12 @@ export async function renderEventos(): Promise<void> {
     $("trans")?.addEventListener("change", (ev) => {
       alerts[k].transition = (ev.target as HTMLSelectElement).value;
       void saveAlerts();
-      void playPreview(k); // show the chosen transition immediately
+      void playPreview(k);
     });
 
     $("test")?.addEventListener("click", async () => {
       try {
-        await invoke("tiktok_test_alert", { eventKind: k });
+        await invoke("test_event_alert", { eventKind: k });
       } catch (e) {
         showToast(String(e), "error");
       }
@@ -453,12 +497,10 @@ export async function renderEventos(): Promise<void> {
 
     $("replay")?.addEventListener("click", () => void playPreview(k));
 
-    // Image upload / clear (two-step confirm) + drag & drop on the zone.
     $("img-btn")?.addEventListener("click", () => pickAsset(k, "image"));
     bindConfirmClick($("img-clear"), () => !!alerts[k].image, () => void clearAsset(k, "image"));
     setupDropzone($("img-zone"), k, "image");
 
-    // Sound upload / clear (two-step confirm) / play + drag & drop.
     $("sound-btn")?.addEventListener("click", () => pickAsset(k, "sound"));
     bindConfirmClick($("sound-clear"), () => !!alerts[k].sound, () => void clearAsset(k, "sound"));
     $("sound-play")?.addEventListener("click", () => {
@@ -477,7 +519,7 @@ export async function renderEventos(): Promise<void> {
   async function uploadFile(kind: string, assetType: "image" | "sound", file: File): Promise<void> {
     const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
     try {
-      const path = await invoke<string>("set_tiktok_alert_asset", {
+      const path = await invoke<string>("set_event_alert_asset", {
         eventKind: kind,
         assetType,
         fileName: file.name,
@@ -503,8 +545,6 @@ export async function renderEventos(): Promise<void> {
     input.click();
   }
 
-  // Wire drag & drop onto a dropzone element. Highlights on dragover, validates
-  // the dropped file's type, and uploads it through the same path as the picker.
   function setupDropzone(zone: HTMLElement | null, kind: string, assetType: "image" | "sound"): void {
     if (!zone) return;
     const accept = ACCEPT[assetType];
@@ -527,7 +567,6 @@ export async function renderEventos(): Promise<void> {
       void uploadFile(kind, assetType, file);
     });
 
-    // Click anywhere on the zone (not on a button) opens the picker.
     zone.addEventListener("click", (ev) => {
       if ((ev.target as HTMLElement).closest("button")) return;
       pickAsset(kind, assetType);
@@ -536,7 +575,7 @@ export async function renderEventos(): Promise<void> {
 
   async function clearAsset(kind: string, assetType: "image" | "sound"): Promise<void> {
     try {
-      await invoke("clear_tiktok_alert_asset", { eventKind: kind, assetType });
+      await invoke("clear_event_alert_asset", { eventKind: kind, assetType });
       alerts[kind][assetType] = "";
       refreshAssetUi(kind, assetType);
       refreshPreview(kind);
@@ -560,11 +599,10 @@ export async function renderEventos(): Promise<void> {
 }
 
 // =========================================================================================================
-// Live feed wiring
+// Live feed wiring (unified Twitch + TikTok)
 // =========================================================================================================
 
 async function setupFeed(): Promise<void> {
-  // Detach a previous listener if the view was re-entered.
   if (feedUnlisten) {
     feedUnlisten();
     feedUnlisten = null;
@@ -576,20 +614,23 @@ async function setupFeed(): Promise<void> {
 
   feedUnlisten = await listen<ChatEventPayload>("chat-event", (event) => {
     const p = event.payload;
-    // This view is TikTok-only — ignore events from other platforms (e.g. Twitch).
-    if (p.platform !== "tiktok") return;
     if (count === 0) feed.innerHTML = "";
     count++;
 
     const noisy = NOISY_KINDS.has(p.event_kind);
     const label = FEED_LABELS[p.event_kind] ?? p.event_kind;
     const time = new Date().toLocaleTimeString();
-    const amount = p.amount != null ? `${p.amount} monedas` : "";
+    // Twitch cheers/raids carry a bits/viewers count; TikTok gifts carry coins.
+    const unit = p.platform === "twitch"
+      ? (p.event_kind === "raid" ? "viewers" : "bits")
+      : "monedas";
+    const amount = p.amount != null ? `${p.amount} ${unit}` : "";
 
     const row = document.createElement("div");
     row.className = `evt-feed-row${noisy ? " evt-feed-row-noisy" : ""}`;
     row.innerHTML = `
       <span class="evt-feed-time">${time}</span>
+      ${platformBadge(p.platform)}
       <span class="evt-feed-badge">${escapeHtml(label)}</span>
       <span class="evt-feed-user">@${escapeHtml(p.username)}</span>
       <span class="evt-feed-meta">${escapeHtml(amount)}</span>`;

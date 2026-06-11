@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use tauri::Manager;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+pub mod alerts;
 pub mod chat_filters;
 pub mod chat_platform;
 pub mod commands;
@@ -15,7 +16,7 @@ pub mod tiktok;
 pub mod tts;
 pub mod twitch;
 
-use commands::alerts::{clear_tiktok_alert_asset, set_tiktok_alert_asset, tiktok_test_alert};
+use commands::alerts::{clear_event_alert_asset, set_event_alert_asset, test_event_alert};
 use commands::config::{
     disconnect_tiktok, disconnect_twitch, get_available_voices_cmd, get_config_cmd,
     save_animation_config, set_chroma_color, set_config_cmd,
@@ -261,10 +262,10 @@ pub fn run() {
             reset_streamer_sprite,
             streamer_list_mics,
             streamer_mic_apply,
-            // TikTok alerts
-            set_tiktok_alert_asset,
-            clear_tiktok_alert_asset,
-            tiktok_test_alert,
+            // Event alerts (Twitch + TikTok)
+            set_event_alert_asset,
+            clear_event_alert_asset,
+            test_event_alert,
         ])
         .build(tauri::generate_context!())
         .expect("Error iniciando la aplicación Tauri")
