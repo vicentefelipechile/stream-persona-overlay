@@ -108,22 +108,39 @@ pub async fn start_server(app_state: AppState, _dist_dir: PathBuf, dev_mode: boo
         dev_mode,
     };
 
+    // Read once at startup: when LAN access is on we bind 0.0.0.0:6767 so other
+    // devices on the local network (e.g. a phone) can reach the overlay. Toggling
+    // it in the panel therefore requires an app restart.
+    let lan_access = state
+        .app_state
+        .config_cache
+        .read()
+        .map(|cfg| cfg.lan_access_enabled)
+        .unwrap_or(false);
+
     let app = build_router().with_state(state);
 
     // Addresses we try to listen on. Both IPv4 (127.0.0.1) and IPv6 (::1) loopback are bound
     // because on Windows 'localhost' may resolve to either.
     //   :6767 — historical port used by the OBS Browser Source (http://localhost:6767/overlay).
+    //           When LAN access is enabled this becomes 0.0.0.0:6767 (all interfaces) so the
+    //           overlay is reachable from other devices on the network.
     //   :80   — standard HTTP port, required for the "eso.tilin.com" trick. TikTok LIVE Studio rejects
     //           any URL containing "localhost", a raw IP, or an explicit port, but accepts
     //           http://eso.tilin.com/ . Mapping eso.tilin.com -> 127.0.0.1 in the hosts file plus this
     //           port-80 listener makes that URL resolve to this same server. Port 80 is often taken
     //           (IIS, Skype, http.sys); if the bind fails we skip it and keep serving on :6767.
-    let addrs = ["127.0.0.1:6767", "[::1]:6767", "127.0.0.1:80", "[::1]:80"];
+    let primary_addr = if lan_access {
+        "0.0.0.0:6767"
+    } else {
+        "127.0.0.1:6767"
+    };
+    let addrs = [primary_addr, "[::1]:6767", "127.0.0.1:80", "[::1]:80"];
 
     let mut listeners = Vec::new();
     for addr in addrs {
         // The primary IPv4 :6767 listener retries in case a previous instance left it in TIME_WAIT.
-        let listener = if addr == "127.0.0.1:6767" {
+        let listener = if addr == primary_addr {
             bind_with_retry(addr).await
         } else {
             match tokio::net::TcpListener::bind(addr).await {
@@ -194,45 +211,69 @@ async fn bind_with_retry(addr: &str) -> Option<tokio::net::TcpListener> {
 // GET /overlay
 // =========================================================================================================
 
-async fn serve_overlay(State(s): State<ServerState>) -> Response {
-    serve_overlay_file(&s, "overlay-browser.html").await
+async fn serve_overlay(State(s): State<ServerState>, headers: header::HeaderMap) -> Response {
+    serve_overlay_file(&s, "overlay-browser.html", &headers).await
 }
 
 /// GET /overlay-alerts — the dedicated event-alert browser source (Twitch + TikTok).
 /// Also served at the legacy /overlay-tiktok path for backwards compatibility.
-async fn serve_overlay_alerts(State(s): State<ServerState>) -> Response {
-    serve_overlay_file(&s, "overlay-alerts.html").await
+async fn serve_overlay_alerts(State(s): State<ServerState>, headers: header::HeaderMap) -> Response {
+    serve_overlay_file(&s, "overlay-alerts.html", &headers).await
 }
 
 /// GET /overlay-streamer — the streamer persona browser source.
-async fn serve_overlay_streamer(State(s): State<ServerState>) -> Response {
-    serve_overlay_file(&s, "overlay-streamer.html").await
+async fn serve_overlay_streamer(
+    State(s): State<ServerState>,
+    headers: header::HeaderMap,
+) -> Response {
+    serve_overlay_file(&s, "overlay-streamer.html", &headers).await
 }
 
 /// Serves one of the overlay HTML pages, choosing the dev (Vite rewrite) or
 /// production (embedded) path based on `dev_mode`.
-async fn serve_overlay_file(s: &ServerState, filename: &str) -> Response {
+async fn serve_overlay_file(s: &ServerState, filename: &str, headers: &header::HeaderMap) -> Response {
     if s.dev_mode {
-        return serve_overlay_dev(filename).await;
+        return serve_overlay_dev(filename, headers).await;
     }
     serve_overlay_production(filename)
 }
 
-async fn serve_overlay_dev(filename: &str) -> Response {
-    // In dev mode Vite serves from memory at localhost:1420 — dist/ does not exist.
+/// Returns the hostname (no port) the client used to reach us, taken from the
+/// request `Host` header. Used to point the Vite dev rewrite at the same machine
+/// the page was loaded from — so a phone on the LAN fetches /src/* from
+/// http://<pc-ip>:1420 instead of localhost (which would be the phone itself).
+/// Falls back to "localhost" when the header is missing or unparseable.
+fn request_hostname(headers: &header::HeaderMap) -> String {
+    headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        // Strip the port: "192.168.1.42:6767" -> "192.168.1.42". IPv6 literals in
+        // a Host header are bracketed ("[::1]:6767"), so splitting on the last ':'
+        // outside brackets is enough for the loopback/LAN cases we serve.
+        .map(|host| host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host).to_string())
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| "localhost".to_string())
+}
+
+async fn serve_overlay_dev(filename: &str, headers: &header::HeaderMap) -> Response {
+    // In dev mode Vite serves from memory at <host>:1420 — dist/ does not exist.
     // Read the overlay HTML from the project root and rewrite /src/* references
     // so the browser loads them from the Vite dev server instead of from axum.
+    // The Vite host mirrors the request host (see request_hostname) so LAN devices
+    // load assets from this PC, not from their own localhost.
     // CARGO_MANIFEST_DIR = src-tauri/ at compile time; parent = project root
     let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(|p| p.join(filename))
         .unwrap_or_default();
 
+    let vite_base = format!("http://{}:1420", request_hostname(headers));
+
     match tokio::fs::read_to_string(&source).await {
         Ok(html) => {
             let html = html
-                .replace("href=\"/src/", "href=\"http://localhost:1420/src/")
-                .replace("src=\"/src/", "src=\"http://localhost:1420/src/");
+                .replace("href=\"/src/", &format!("href=\"{}/src/", vite_base))
+                .replace("src=\"/src/", &format!("src=\"{}/src/", vite_base));
             (
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "text/html; charset=utf-8")],

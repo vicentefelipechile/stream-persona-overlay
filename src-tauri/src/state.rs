@@ -195,6 +195,11 @@ pub struct AppConfig {
     pub discord_channel_id: String,
     /// "parallel" (default) or "queue" — controls overlay persona layout
     pub overlay_display_mode: String,
+    /// When true, the OBS Browser Source server binds 0.0.0.0 (all interfaces)
+    /// instead of loopback only, so other devices on the LAN (e.g. a phone) can
+    /// reach it at http://<pc-ip>:6767/overlay. Off by default for safety.
+    /// Read once at startup, so toggling it requires an app restart.
+    pub lan_access_enabled: bool,
     // ── Animation config ────────────────────────────────────────────────────
     pub animation_in: String,
     pub animation_out: String,

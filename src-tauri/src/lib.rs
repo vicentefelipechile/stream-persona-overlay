@@ -19,7 +19,8 @@ pub mod twitch;
 use commands::alerts::{clear_event_alert_asset, set_event_alert_asset, test_event_alert};
 use commands::config::{
     clear_overlay_background, disconnect_tiktok, disconnect_twitch, get_available_voices_cmd,
-    get_config_cmd, save_animation_config, set_chroma_color, set_config_cmd, set_overlay_background,
+    get_config_cmd, get_lan_ip_cmd, save_animation_config, set_chroma_color, set_config_cmd,
+    set_overlay_background,
 };
 use commands::control::{
     connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
@@ -234,6 +235,7 @@ pub fn run() {
             get_config_cmd,
             set_config_cmd,
             get_available_voices_cmd,
+            get_lan_ip_cmd,
             set_chroma_color,
             set_overlay_background,
             clear_overlay_background,

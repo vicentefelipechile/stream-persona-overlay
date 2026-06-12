@@ -59,7 +59,12 @@ export async function initOverlayBackground(transport: BackgroundTransport): Pro
     if (mode === "image" && cfg.overlay_bg_image_path) {
       const path = variantPath(cfg.overlay_bg_image_path, cfg.overlay_bg_quality || "original");
       // Cache-bust so re-uploads / quality switches force a reload of the same name.
-      const src = `${transport.convertFileSrc(path)}?q=${cfg.overlay_bg_quality}&t=${Date.now()}`;
+      // The browser transport already returns a URL with a query string
+      // (/persona?path=...), so the cache-bust params must join with "&", not a second
+      // "?" — otherwise they get folded into the `path` value and the file 404s.
+      const base = transport.convertFileSrc(path);
+      const joiner = base.includes("?") ? "&" : "?";
+      const src = `${base}${joiner}q=${cfg.overlay_bg_quality}&t=${Date.now()}`;
       // Preload the variant before swapping it in. Painting the new background only once
       // the bytes are decoded keeps the previous image on screen until then, avoiding the
       // chroma-color flash that appears while the browser fetches a fresh (cache-busted) URL.

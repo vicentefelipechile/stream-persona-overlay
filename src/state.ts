@@ -44,6 +44,8 @@ export interface AppConfig {
   overlay_bg_image_path: string;
   overlay_bg_quality: string;     // "original" | "media" | "baja"
   tts_enabled: boolean;
+  // When true, the OBS server binds 0.0.0.0 so other LAN devices (e.g. a phone) can reach it.
+  lan_access_enabled: boolean;
   twitch_channel: string;
   twitch_bot_username: string;
   twitch_bot_token: string;
@@ -113,6 +115,7 @@ class AppStateClass {
     overlay_bg_image_path: "",
     overlay_bg_quality: "original",
     tts_enabled: true,
+    lan_access_enabled: false,
     twitch_channel: "",
     twitch_bot_username: "",
     twitch_bot_token: "",

@@ -44,6 +44,8 @@ pub async fn set_config_cmd(
         "overlay_bg_image_path" => cache.overlay_bg_image_path = value.clone(),
         "overlay_bg_quality" => cache.overlay_bg_quality = value.clone(),
         "tts_enabled" => cache.tts_enabled = value == "true",
+        // Read once at server startup — cached here for consistency, takes effect on restart.
+        "lan_access_enabled" => cache.lan_access_enabled = value == "true",
         "twitch_channel" => cache.twitch_channel = value.clone(),
         "tiktok_username" => cache.tiktok_username = value.clone(),
         "discord_bot_token" => cache.discord_bot_token = value.clone(),
@@ -164,6 +166,27 @@ pub async fn set_config_cmd(
 #[tauri::command]
 pub async fn get_available_voices_cmd() -> CmdResult<Vec<VoiceInfo>> {
     crate::tts::get_voices().map_err(map_err)
+}
+
+/// Returns this machine's primary LAN IPv4 address (e.g. "192.168.1.42"), used to
+/// build the overlay URL shown when LAN access is enabled. No packets are actually
+/// sent: a UDP socket "connected" to a public address makes the OS pick the
+/// outbound interface, whose local address we then read. Returns None if it can't
+/// be resolved (e.g. no network).
+#[tauri::command]
+pub async fn get_lan_ip_cmd() -> CmdResult<Option<String>> {
+    let socket = match std::net::UdpSocket::bind("0.0.0.0:0") {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+    if socket.connect("8.8.8.8:80").is_err() {
+        return Ok(None);
+    }
+    Ok(socket
+        .local_addr()
+        .ok()
+        .map(|addr| addr.ip().to_string())
+        .filter(|ip| ip != "0.0.0.0"))
 }
 
 /// Cambia el color chroma del overlay en tiempo real vía evento Tauri.

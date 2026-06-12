@@ -24,7 +24,19 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Listen on all interfaces (0.0.0.0) so LAN devices (e.g. a phone reaching the
+    // overlay at http://<pc-ip>:6767/overlay) can also fetch /src/* from Vite at
+    // http://<pc-ip>:1420 in dev mode. TAURI_DEV_HOST, when set, pins a specific host.
+    host: host || true,
+    // Vite 6 blocks requests whose Host header isn't in allowedHosts (DNS-rebind
+    // guard). LAN IPs pass by default, but the "eso.tilin.com" spoof host would be
+    // rejected — allow any host since this dev server is only exposed on the LAN.
+    allowedHosts: true,
+    // The overlay HTML is served by axum on :6767 but its <script type="module">
+    // points at Vite on :1420 — a cross-origin module load. Without CORS the
+    // browser blocks it and the overlay renders blank on LAN devices (the Tauri
+    // window is same-context and unaffected). Allow any origin in dev.
+    cors: true,
     hmr: host
       ? {
           protocol: "ws",

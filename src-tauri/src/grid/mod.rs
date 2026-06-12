@@ -31,12 +31,20 @@ const SMALL_ROWS: u16 = 1;
 const NORMAL_COLS: u16 = 150;
 const NORMAL_ROWS: u16 = 30;
 
-/// Wander destination distance in cells. Each wander emits a SINGLE update to a far
-/// cell; the overlay then walks there at a constant slow speed over several seconds.
-/// On the fine 150×30 grid these spans translate to a good fraction of the screen,
-/// so the pet takes a long continuous stroll instead of a tiny hop-and-pause.
-const WANDER_MIN_STEP: i32 = 20;
-const WANDER_MAX_STEP: i32 = 60;
+/// Wander destination distance in cells. Each wander emits a SINGLE update; the
+/// overlay then walks there at a constant slow speed. The wide range mixes short
+/// shuffles with longer strolls so movement reads as natural wandering rather than
+/// every pet dashing the same long distance toward an edge. On the fine 150×30 grid
+/// even the max is well under half the width, so pets explore the middle instead of
+/// repeatedly slamming into the far columns.
+const WANDER_MIN_STEP: i32 = 6;
+const WANDER_MAX_STEP: i32 = 45;
+
+/// When a pet sits in the outer `EDGE_BIAS_FRAC` of the columns, its horizontal
+/// wander direction is biased back toward the centre with this probability, so pets
+/// drift away from the edges instead of accumulating there. 1.0 = always turn inward
+/// at the very edge, fading to no bias by the time it reaches the zone's inner border.
+const EDGE_BIAS_FRAC: f64 = 0.25;
 
 /// Per-pet idle time between finishing one stroll and starting the next, in wander
 /// ticks. Each pet draws its own value in this range, so pets move asynchronously
@@ -47,8 +55,9 @@ const WANDER_COOLDOWN_MAX_TICKS: u32 = 5;
 
 /// When picking a wander/spawn destination, prefer cells with personal space so pets
 /// keep their distance instead of piling up. We try several candidates and take the
-/// first comfortable one, falling back to any free cell if none is found.
-const WANDER_SPACING_TRIES: u32 = 8;
+/// first comfortable one, falling back to any free cell if none is found. A high count
+/// makes the spacing hold even on a busy floor before we accept any overlap.
+const WANDER_SPACING_TRIES: u32 = 24;
 
 /// "Personal space" is measured in CELLS, but the visual separation a viewer sees is
 /// anisotropic: a sprite is ~80px wide, yet a column is only ~(usableW/cols) px and a
@@ -58,8 +67,8 @@ const WANDER_SPACING_TRIES: u32 = 8;
 /// holds at any density (high-precision doubles cols/rows AND these radii). The X gap
 /// is wider because horizontal overlap is the most obvious to the eye and columns are
 /// the most compressed axis.
-const SPACING_FRAC_X: f64 = 0.05; // ~7-8 cols on a 150-wide grid
-const SPACING_FRAC_Y: f64 = 0.13; // ~4 rows on a 30-tall grid
+const SPACING_FRAC_X: f64 = 0.085; // ~13 cols on a 150-wide grid (> one sprite footprint)
+const SPACING_FRAC_Y: f64 = 0.15; // ~4-5 rows on a 30-tall grid
 
 /// A single cell coordinate. `(0,0)` is the back-left of the floor band; higher
 /// `y` is closer to the viewer (and rendered larger by the perspective scale).
@@ -252,10 +261,17 @@ impl GridManager {
         if let Some(c) = current {
             state.occupied.remove(&c);
         }
-        let dest = if state.is_free(target) {
+        // Prefer the exact target if it's both free and roomy; otherwise the nearest
+        // free cell that still has personal space; only then any nearest free cell.
+        // This keeps fight/action repositioning from stacking pets on top of each other.
+        let dest = if state.is_free(target) && state.has_personal_space(target) {
             target
         } else {
-            state.nearest_free(target).or(current).unwrap_or((0, 0))
+            state
+                .nearest_free_spaced(target)
+                .or_else(|| state.nearest_free(target))
+                .or(current)
+                .unwrap_or((0, 0))
         };
         state.cells.insert(user_id, dest);
         state.occupied.insert(dest);
@@ -330,11 +346,16 @@ impl GridManager {
                 let Some(&from) = state.cells.get(&user_id) else {
                     continue;
                 };
+                // Free the pet's own cell BEFORE searching so the personal-space check
+                // doesn't count the pet against its own nearby destinations (which would
+                // wrongly reject every short step). Restore it if no step is found.
+                state.occupied.remove(&from);
                 if let Some(to) = state.random_free_step(from) {
-                    state.occupied.remove(&from);
                     state.occupied.insert(to);
                     state.cells.insert(user_id, to);
                     moved.push((user_id, to));
+                } else {
+                    state.occupied.insert(from);
                 }
                 // Draw the next personal cooldown whether or not it found a step, so a
                 // boxed-in pet doesn't retry every single tick.
@@ -418,6 +439,36 @@ impl GridState {
         None
     }
 
+    /// Like `nearest_free`, but only accepts cells that also have personal space.
+    /// Used by action/fight placement so converging pets keep their distance. Returns
+    /// None if no roomy cell exists within the grid (caller falls back to nearest_free).
+    fn nearest_free_spaced(&self, target: Cell) -> Option<Cell> {
+        if self.is_free(target) && self.has_personal_space(target) {
+            return Some(target);
+        }
+        let max_radius = self.cols.max(self.rows);
+        for radius in 1..=max_radius {
+            let r = radius as i32;
+            let (tx, ty) = (target.0 as i32, target.1 as i32);
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let (nx, ny) = (tx + dx, ty + dy);
+                    if nx < 0 || ny < 0 {
+                        continue;
+                    }
+                    let cell = (nx as u16, ny as u16);
+                    if self.is_free(cell) && self.has_personal_space(cell) {
+                        return Some(cell);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Free cell nearest `target` by Chebyshev distance (expanding ring search).
     fn nearest_free(&self, target: Cell) -> Option<Cell> {
         if self.is_free(target) {
@@ -469,14 +520,21 @@ impl GridState {
         fallback
     }
 
-    /// One random direction/reach probe for a far free cell (no spacing preference).
+    /// One random direction/reach probe for a free destination cell (no spacing
+    /// preference). The reach is drawn from the wide WANDER_MIN/MAX range so short
+    /// shuffles and long strolls mix. The horizontal direction is biased back toward
+    /// the centre when the pet sits near an edge (see `edge_bias_dir`), so pets drift
+    /// inward instead of piling up against the far columns. Returns the free cell
+    /// CLOSEST to the desired reach (not the farthest), which keeps walks at the
+    /// intended length and stops every step from bottoming out at the wall.
     fn random_free_step_once(&self, from: Cell) -> Option<Cell> {
         let (fx, fy) = (from.0 as i32, from.1 as i32);
         let span = (WANDER_MAX_STEP - WANDER_MIN_STEP + 1).max(1);
         let reach = WANDER_MIN_STEP + (rand_f64() * span as f64) as i32;
 
-        // Mostly horizontal: dx ∈ {-1,+1}, dy biased to 0 (±1 only occasionally).
-        let dir_x: i32 = if rand_f64() < 0.5 { -1 } else { 1 };
+        let dir_x = self.edge_bias_dir(from.0);
+        // Mostly horizontal: dy biased to 0 (±1 only occasionally) so pets stroll
+        // along the floor rather than drifting between rows on every step.
         let dir_y: i32 = if rand_f64() < 0.25 {
             if rand_f64() < 0.5 {
                 -1
@@ -487,19 +545,53 @@ impl GridState {
             0
         };
 
-        // Walk outward from `reach` down to 1, returning the farthest free cell.
-        for step in (1..=reach).rev() {
+        // Walk outward from 1 up to `reach`, returning the FIRST free cell at or beyond
+        // a small minimum so the pet actually travels but lands near the chosen reach
+        // instead of always at the farthest wall-adjacent cell.
+        let mut best: Option<Cell> = None;
+        for step in 1..=reach {
             let nx = fx + dir_x * step;
             let ny = fy + dir_y * step;
             if nx < 0 || ny < 0 {
-                continue;
+                break; // ran off the near/left edge; nothing farther in this direction
             }
             let cell = (nx as u16, ny as u16);
+            if cell.0 >= self.cols || cell.1 >= self.rows {
+                break; // ran off the far/bottom edge
+            }
             if self.is_free(cell) {
-                return Some(cell);
+                best = Some(cell);
             }
         }
-        None
+        best
+    }
+
+    /// Horizontal wander direction (-1 left, +1 right). When the pet sits in the outer
+    /// EDGE_BIAS_FRAC of the columns it is nudged back toward the centre with a
+    /// probability that ramps from 0 at the zone's inner border to 1 at the very edge;
+    /// elsewhere the direction is an even coin flip. This is what pulls pets off the
+    /// walls and keeps the middle of the floor populated.
+    fn edge_bias_dir(&self, col: u16) -> i32 {
+        if self.cols <= 1 {
+            return if rand_f64() < 0.5 { -1 } else { 1 };
+        }
+        let pos = col as f64 / (self.cols - 1) as f64; // 0 = left edge, 1 = right edge
+        let zone = EDGE_BIAS_FRAC.max(f64::EPSILON);
+        // Strength rises toward each edge inside the bias zone; 0 in the middle.
+        let (toward_center, strength) = if pos < zone {
+            (1, (zone - pos) / zone) // near left edge → push right (+1)
+        } else if pos > 1.0 - zone {
+            (-1, (pos - (1.0 - zone)) / zone) // near right edge → push left (-1)
+        } else {
+            (0, 0.0)
+        };
+        if toward_center != 0 && rand_f64() < strength {
+            toward_center
+        } else if rand_f64() < 0.5 {
+            -1
+        } else {
+            1
+        }
     }
 
     /// Per-axis spacing radius in cells, derived from the grid size so the on-screen
@@ -624,4 +716,116 @@ fn seed_init() -> u64 {
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0x9E3779B97F4A7C15);
     nanos | 1 // never zero (xorshift requires a nonzero state)
+}
+
+// =========================================================================================================
+// Tests
+// =========================================================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a normal-size empty grid with the given pets placed at fixed cells.
+    fn grid_with(cells: &[(i64, Cell)]) -> GridState {
+        let (cols, rows) = GridState::dims_for(false, false);
+        let mut state = GridState {
+            cols,
+            rows,
+            cells: HashMap::new(),
+            occupied: HashSet::new(),
+            wander_wait: HashMap::new(),
+        };
+        for &(id, cell) in cells {
+            state.cells.insert(id, cell);
+            state.occupied.insert(cell);
+        }
+        state
+    }
+
+    #[test]
+    fn personal_space_radius_exceeds_one_cell() {
+        // The spacing radius must be wider than a single cell on the normal grid, else
+        // sprites (which span several columns/rows) visually overlap despite "spacing".
+        let state = grid_with(&[]);
+        let (rx, ry) = state.spacing_radius();
+        assert!(rx >= 10, "x spacing radius too small: {rx}");
+        assert!(ry >= 3, "y spacing radius too small: {ry}");
+    }
+
+    #[test]
+    fn has_personal_space_rejects_neighbor_within_radius() {
+        let state = grid_with(&[(1, (75, 15))]);
+        let (rx, ry) = state.spacing_radius();
+        let (rx, ry) = (rx as u16, ry as u16);
+        // A cell just inside the spacing rectangle is NOT roomy.
+        assert!(!state.has_personal_space((75 + rx - 1, 15)));
+        assert!(!state.has_personal_space((75, 15 + ry - 1)));
+        // A cell comfortably outside it IS roomy.
+        assert!(state.has_personal_space((75 + rx + 2, 15 + ry + 2)));
+    }
+
+    #[test]
+    fn nearest_free_spaced_keeps_distance() {
+        // One pet at centre; asking to place another AT the same target must return a
+        // cell with personal space, never the occupied/adjacent cell.
+        let state = grid_with(&[(1, (75, 15))]);
+        let placed = state.nearest_free_spaced((75, 15)).expect("a spaced cell exists");
+        assert!(state.has_personal_space(placed), "placement not roomy: {placed:?}");
+        assert!(placed != (75, 15));
+    }
+
+    #[test]
+    fn edge_bias_pushes_inward_at_walls() {
+        let state = grid_with(&[]);
+        // At the far-left column, many draws should never send the pet further left
+        // off the grid; inward (+1) must dominate. We sample to average out the RNG.
+        let mut inward = 0;
+        for _ in 0..400 {
+            if state.edge_bias_dir(0) == 1 {
+                inward += 1;
+            }
+        }
+        assert!(inward > 300, "left-edge bias too weak: {inward}/400 inward");
+
+        let mut inward_r = 0;
+        for _ in 0..400 {
+            if state.edge_bias_dir(state.cols - 1) == -1 {
+                inward_r += 1;
+            }
+        }
+        assert!(inward_r > 300, "right-edge bias too weak: {inward_r}/400 inward");
+    }
+
+    #[test]
+    fn edge_bias_is_balanced_in_the_middle() {
+        let state = grid_with(&[]);
+        let mid = state.cols / 2;
+        let mut right = 0;
+        for _ in 0..1000 {
+            if state.edge_bias_dir(mid) == 1 {
+                right += 1;
+            }
+        }
+        // No bias in the centre: roughly a coin flip (wide tolerance for the cheap RNG).
+        assert!((350..=650).contains(&right), "middle not balanced: {right}/1000 right");
+    }
+
+    #[test]
+    fn wander_steps_stay_in_bounds() {
+        // From many positions, every wander destination must be a valid in-bounds free
+        // cell — never off-grid and never the pet's own cell.
+        let mut state = grid_with(&[]);
+        for col in [0u16, 1, 75, 148, 149] {
+            for _ in 0..200 {
+                let from = (col, 15);
+                if let Some(to) = state.random_free_step(from) {
+                    assert!(to.0 < state.cols && to.1 < state.rows, "out of bounds: {to:?}");
+                    assert!(to != from, "did not move from {from:?}");
+                }
+            }
+        }
+        // Touch `state` mutably to silence unused-mut if the loop above never moved.
+        state.cells.clear();
+    }
 }

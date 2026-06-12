@@ -30,6 +30,7 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "discord_guild_id" => cfg.discord_guild_id = value,
             "discord_channel_id" => cfg.discord_channel_id = value,
             "overlay_display_mode" => cfg.overlay_display_mode = value,
+            "lan_access_enabled" => cfg.lan_access_enabled = value == "true",
             // ── Animation config ─────────────────────────────────────────────
             "animation_in" => cfg.animation_in = value,
             "animation_out" => cfg.animation_out = value,

@@ -92,6 +92,29 @@ export async function renderConfig(pane: HTMLElement): Promise<void> {
         <input id="obs-browser-url" type="text" readonly value="http://localhost:6767/overlay" style="flex:1;"/>
         <button id="btn-copy-obs-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
       </div>
+
+      <div class="divider"></div>
+
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+        <div style="flex:1;">
+          <label style="font-weight:500;">Acceso desde la red local (celular)</label>
+          <p class="view-subtitle" style="margin:4px 0 0;">
+            Permite abrir el overlay desde otros dispositivos en tu misma red WiFi (como tu celular).
+            Requiere <strong>reiniciar la app</strong> para aplicarse. El firewall de Windows puede pedir permiso la primera vez.
+          </p>
+        </div>
+        <label class="switch" style="flex-shrink:0;margin-top:2px;">
+          <input type="checkbox" id="cfg-lan-access" ${cfg.lan_access_enabled ? "checked" : ""} />
+          <span class="switch-track"></span>
+        </label>
+      </div>
+      <div id="cfg-lan-url-row" style="${cfg.lan_access_enabled ? "" : "display:none;"}margin-top:10px;">
+        <label style="font-size:0.9rem;color:var(--text-muted);">URL para tu celular (misma WiFi)</label>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <input id="lan-browser-url" type="text" readonly value="" placeholder="Detectando IP..." style="flex:1;"/>
+          <button id="btn-copy-lan-url" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.copy(14)} Copiar</button>
+        </div>
+      </div>
     </div>
 
     <!-- Overlay -->
@@ -155,6 +178,52 @@ export async function renderConfig(pane: HTMLElement): Promise<void> {
   // Copy OBS Browser Source URL to clipboard
   container.querySelector("#btn-copy-obs-url")!.addEventListener("click", async () => {
     const url = (container.querySelector<HTMLInputElement>("#obs-browser-url")!).value;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("URL copiada al portapapeles", "success");
+    } catch {
+      showToast("No se pudo copiar al portapapeles", "error");
+    }
+  });
+
+  // ── LAN access (acceso desde el celular) ────────────────────────────────────
+  const lanUrlRow = container.querySelector<HTMLElement>("#cfg-lan-url-row")!;
+  const lanUrlInput = container.querySelector<HTMLInputElement>("#lan-browser-url")!;
+
+  // Fills the LAN URL input with http://<lan-ip>:6767/overlay (or a hint if the IP
+  // can't be resolved). The server only listens on the LAN once the app restarts.
+  const refreshLanUrl = async () => {
+    try {
+      const ip = await invoke<string | null>("get_lan_ip_cmd");
+      lanUrlInput.value = ip ? `http://${ip}:6767/overlay` : "";
+      lanUrlInput.placeholder = ip ? "" : "No se pudo detectar la IP de red";
+    } catch {
+      lanUrlInput.value = "";
+      lanUrlInput.placeholder = "No se pudo detectar la IP de red";
+    }
+  };
+  if (cfg.lan_access_enabled) void refreshLanUrl();
+
+  container.querySelector<HTMLInputElement>("#cfg-lan-access")!.addEventListener("change", async (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    try {
+      await invoke("set_config_cmd", { key: "lan_access_enabled", value: String(checked) });
+      lanUrlRow.style.display = checked ? "" : "none";
+      if (checked) {
+        await refreshLanUrl();
+        showToast("Reinicia la app para activar el acceso desde la red local", "info");
+      }
+    } catch (err) {
+      showToast(String(err), "error");
+    }
+  });
+
+  container.querySelector("#btn-copy-lan-url")!.addEventListener("click", async () => {
+    const url = lanUrlInput.value;
+    if (!url) {
+      showToast("Aún no hay una URL de red disponible", "error");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(url);
       showToast("URL copiada al portapapeles", "success");
