@@ -176,6 +176,13 @@ pub struct AppConfig {
     pub chroma_color: String,
     pub overlay_width: u32,
     pub overlay_height: u32,
+    /// Overlay background mode: "color" (chroma_color / transparent) or "image".
+    pub overlay_bg_mode: String,
+    /// Absolute path to the original uploaded background image (empty = none).
+    /// The media/baja variants live next to it as bg_media.png / bg_baja.png.
+    pub overlay_bg_image_path: String,
+    /// Background image quality level: "original" | "media" | "baja".
+    pub overlay_bg_quality: String,
     pub tts_enabled: bool,
     pub twitch_channel: String,
     pub twitch_bot_username: String,
@@ -216,6 +223,10 @@ pub struct AppConfig {
     pub tama_keyword_actions: String,
     /// Pet name label font size in pixels.
     pub tama_name_font_size_px: u32,
+    /// When true, a pet shows its chat message in a bubble above its head.
+    pub tama_chat_bubble_enabled: bool,
+    /// Maximum characters shown in the chat bubble (longer text is truncated).
+    pub tama_chat_bubble_max_chars: u32,
     // ── Twitch config ────────────────────────────────────────────────────────
     pub twitch_eventsub_enabled: bool,
     pub twitch_chat_min_length: u32,
@@ -305,6 +316,10 @@ pub struct AppConfig {
     pub tama_grid_high_precision: bool,
     /// Enables the perspective scale (front rows larger, back rows smaller).
     pub tama_grid_perspective: bool,
+    /// Floor projection style: "plano" (straight trapezoid), "colina_abajo" (sides
+    /// bow inward, downhill look) or "horizonte" (back rows arch up in the centre,
+    /// spherical-horizon look). Only affects the visual shape; cells stay the same.
+    pub tama_grid_perspective_type: String,
     /// Scale applied to pets on the front-most row (perspective on).
     pub tama_grid_near_scale: f64,
     /// Scale applied to pets on the back-most row (perspective on).
@@ -313,6 +328,9 @@ pub struct AppConfig {
     pub tama_grid_floor_top_frac: f64,
     /// When true, the backend periodically nudges pets to a free neighbor cell.
     pub tama_grid_wander_enabled: bool,
+    /// Opacity (0–1) of the white perspective guide grid drawn on the floor band.
+    /// 0 = hidden. Helps the streamer align pets/scenery with the perspective.
+    pub tama_grid_guide_alpha: f64,
     /// Legacy keys — kept so get_config/set_config don't drop them, no longer used.
     pub tama_static_anchor: String,
     pub tama_static_spacing_px: u32,

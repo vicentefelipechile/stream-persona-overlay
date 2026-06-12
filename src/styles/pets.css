@@ -65,3 +65,47 @@
 .pet-fight-cloud {
   pointer-events: none;
 }
+
+/* Floating heart emitted on a TikTok "like" — rises slowly like smoke. */
+.tamagotchi-pet .pet-heart {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  font-size: 20px;
+  line-height: 1;
+  color: #ff3b6b;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 11;
+  will-change: transform, opacity;
+}
+
+/* Chat message bubble shown above a pet when tama_chat_bubble_enabled is on. */
+.tamagotchi-pet .pet-chat-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  /* Wide enough that short messages stay on one line; long ones wrap by WORD
+     (not by character) thanks to white-space:normal + overflow-wrap. */
+  width: max-content;
+  max-width: 260px;
+  min-width: 60px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 2px solid #333333;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: #1a1a1a;
+  text-align: center;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 12;
+}

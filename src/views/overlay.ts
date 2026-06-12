@@ -7,8 +7,10 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc as tauriConvertFileSrc } from "@tauri-apps/api/core";
 import { PetManager } from "../overlay/tamagotchi/core/PetManager";
 import { initOverlayNotifications } from "../overlay/overlay-notifications";
+import { initOverlayBackground } from "../overlay/overlay-background";
 
 // =========================================================================================================
 // Initialization
@@ -49,6 +51,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   resetAndTriggerFade();
+
+  // Background layer (uploaded image in "image" mode; transparent in "color" mode,
+  // letting the chroma body color show through).
+  initOverlayBackground({
+    listen:         (event, handler) => listen(event, handler),
+    invoke:         (command, args)  => invoke(command, args),
+    convertFileSrc: tauriConvertFileSrc,
+  }).catch(err => console.warn("[overlay-bg] init failed:", err));
 
   // Start the Tamagotchi pet system (non-blocking — errors don't affect main overlay)
   PetManager.init(tamagotchiContainer).catch(err => {

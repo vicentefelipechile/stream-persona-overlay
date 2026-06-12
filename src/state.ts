@@ -39,6 +39,10 @@ export interface AppConfig {
   chroma_color: string;
   overlay_width: number;
   overlay_height: number;
+  // Overlay background — stored as strings on the Rust side except where noted
+  overlay_bg_mode: string;        // "color" | "image"
+  overlay_bg_image_path: string;
+  overlay_bg_quality: string;     // "original" | "media" | "baja"
   tts_enabled: boolean;
   twitch_channel: string;
   twitch_bot_username: string;
@@ -105,6 +109,9 @@ class AppStateClass {
     chroma_color: "#00FF00",
     overlay_width: 1920,
     overlay_height: 1080,
+    overlay_bg_mode: "color",
+    overlay_bg_image_path: "",
+    overlay_bg_quality: "original",
     tts_enabled: true,
     twitch_channel: "",
     twitch_bot_username: "",

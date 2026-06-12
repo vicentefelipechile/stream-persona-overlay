@@ -25,6 +25,26 @@ html, body {
 }
 
 /* =========================================================================================================
+   Overlay background layer — flat color or uploaded image, behind the pets.
+   Managed by src/overlay/overlay-background.ts. Empty/transparent by default so the
+   OBS Browser Source stays transparent until an image (or chroma color) is set.
+   ========================================================================================================= */
+#overlay-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+#tamagotchi-container {
+  position: absolute;
+  z-index: 1;
+}
+
+/* =========================================================================================================
    Fade-in cover — prevents the bright chroma-key flashbang when the window opens.
    Starts opaque black; JS adds .fade-out after the chroma color is set, triggering
    a 2-second CSS transition to transparent. pointer-events:none keeps it non-blocking.

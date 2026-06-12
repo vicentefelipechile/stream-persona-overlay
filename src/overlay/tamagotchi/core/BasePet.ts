@@ -185,6 +185,44 @@ export class BasePet {
     }
   }
 
+  // Throttles heart emission so a rapid like burst doesn't spawn hundreds of nodes.
+  private lastHeartAt = 0;
+  private chatBubbleEl: HTMLElement | null = null;
+  private chatBubbleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Emit a floating heart over the pet (TikTok "like" reaction). Throttled. */
+  emitHeart(): void {
+    const now = performance.now();
+    if (now - this.lastHeartAt < 120) return;
+    this.lastHeartAt = now;
+    this.props.emitHeart(this.el);
+  }
+
+  /**
+   * Show a short-lived chat bubble above the pet's head. Truncated to `maxChars`
+   * (ellipsis if longer). Re-shown text resets the auto-hide timer. The bubble is a
+   * child of `.el` so it inherits the perspective scale.
+   */
+  showChatBubble(text: string, maxChars: number): void {
+    const limit = Math.max(1, maxChars);
+    const trimmed = text.length > limit ? `${text.slice(0, limit)}…` : text;
+
+    if (!this.chatBubbleEl) {
+      const bubble = document.createElement("div");
+      bubble.className = "pet-chat-bubble";
+      this.el.appendChild(bubble);
+      this.chatBubbleEl = bubble;
+    }
+    const bubble = this.chatBubbleEl;
+    bubble.textContent = trimmed;
+    animate(bubble, { opacity: 1 }, { duration: 0.15 });
+
+    if (this.chatBubbleTimer) clearTimeout(this.chatBubbleTimer);
+    this.chatBubbleTimer = setTimeout(() => {
+      animate(bubble, { opacity: 0 }, { duration: 0.3 });
+    }, 4000);
+  }
+
   setMouth(open: boolean): void {
     animate(this.imgOpen,   { opacity: open ? 1 : 0 }, { duration: 0.04 });
     animate(this.imgClosed, { opacity: open ? 0 : 1 }, { duration: 0.04 });
@@ -220,6 +258,7 @@ export class BasePet {
       clearTimeout(this.inactivityTimer);
       this.inactivityTimer = null;
     }
+    if (this.chatBubbleTimer) { clearTimeout(this.chatBubbleTimer); this.chatBubbleTimer = null; }
     this.props.hideAll();
     this.el.remove();
   }

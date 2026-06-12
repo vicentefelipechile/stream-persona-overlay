@@ -14,6 +14,8 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { BasePet, configureBasePetInvoke } from "./BasePet";
 import type { PetConfig, Cell } from "./BasePet";
 import { Grid2D } from "./Grid2D";
+import type { PerspectiveType } from "./Grid2D";
+import { GridGuide } from "./GridGuide";
 
 // =========================================================================================================
 // Transport Interface
@@ -76,6 +78,17 @@ interface TamaActionPayload {
   input: Record<string, unknown>;
 }
 
+interface ChatEventPayload {
+  platform: string;
+  event_kind: string;
+  username: string;
+  user_id: number | null;
+  display_name: string;
+  amount: number | null;
+  text: string | null;
+  extra: Record<string, unknown>;
+}
+
 interface GridConfigPayload { cols: number; rows: number; }
 interface GridUpdatePayload { user_id: number; cell_x: number; cell_y: number; }
 interface GridRemovePayload { user_id: number; }
@@ -88,6 +101,7 @@ interface GridSnapshot { cols: number; rows: number; cells: GridUpdatePayload[];
 export class PetManager {
   private static pets      = new Map<number, BasePet>();
   private static grid      = new Grid2D();
+  private static gridGuide: GridGuide | null = null;
   private static _scheduler: PetScheduler;
   private static container: HTMLElement;
   private static transport: PetTransport = _tauriTransport;
@@ -105,6 +119,9 @@ export class PetManager {
   private static jumpOnSpeak    = false;
   private static nameFontSizePx = 11;
   private static keywordActions: Record<string, string> = {};
+  private static chatBubbleEnabled  = false;
+  private static chatBubbleMaxChars = 40;
+  private static _lastGuideAlpha    = 0;
 
   // =========================================================================================================
   // Init
@@ -125,15 +142,24 @@ export class PetManager {
       this.jumpOnSpeak    = String(cfg["tama_jump_on_speak"])     === "true";
       this.nameFontSizePx = Number(cfg["tama_name_font_size_px"]) || 11;
       this.keywordActions = this._parseKeywordActions(cfg["tama_keyword_actions"]);
+      this.chatBubbleEnabled  = String(cfg["tama_chat_bubble_enabled"]) === "true";
+      this.chatBubbleMaxChars = Number(cfg["tama_chat_bubble_max_chars"]) || 40;
+      this._lastGuideAlpha    = Number(cfg["tama_grid_guide_alpha"]) || 0;
       this.grid.setConfig({
-        perspective:  String(cfg["tama_grid_perspective"]) === "true",
-        nearScale:    Number(cfg["tama_grid_near_scale"])    || 1.3,
-        farScale:     Number(cfg["tama_grid_far_scale"])     || 0.6,
-        floorTopFrac: Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
+        perspective:     String(cfg["tama_grid_perspective"]) === "true",
+        perspectiveType: this._parsePerspectiveType(cfg["tama_grid_perspective_type"]),
+        nearScale:       Number(cfg["tama_grid_near_scale"])    || 1.3,
+        farScale:        Number(cfg["tama_grid_far_scale"])     || 0.6,
+        floorTopFrac:    Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
       });
     } catch (_) {}
 
     this._scheduler = new PetScheduler(this.pets, []);
+
+    // Perspective guide grid (white trapezoid). Lives on document.body so it sits
+    // behind the pets but above the overlay background. Hidden when alpha is 0.
+    this.gridGuide = new GridGuide(document.body, this.grid);
+    this.gridGuide.setAlpha(Number(this._lastGuideAlpha));
 
     await this.transport.listen<ChatMessagePayload>("chat-message", e => {
       this._onChatMessage(e.payload).catch(console.error);
@@ -143,6 +169,9 @@ export class PetManager {
     });
     await this.transport.listen<TamaActionPayload>("tama-action", e => {
       this._onTamaAction(e.payload).catch(console.error);
+    });
+    await this.transport.listen<ChatEventPayload>("chat-event", e => {
+      this._onChatEvent(e.payload);
     });
     await this.transport.listen<Record<string, unknown>>("tama-config-changed", e => {
       this._onTamaConfigChanged(e.payload);
@@ -155,6 +184,7 @@ export class PetManager {
     await this.transport.listen<GridConfigPayload>("tama-grid-config", e => {
       this.grid.setDimensions(e.payload.cols, e.payload.rows);
       this._retranslateAll();
+      this.gridGuide?.draw();
     });
     await this.transport.listen<GridUpdatePayload>("tama-grid-update", e => {
       this._onGridUpdate(e.payload, true);
@@ -175,7 +205,7 @@ export class PetManager {
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     window.addEventListener("resize", () => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => this._retranslateAll(), 100);
+      resizeTimer = setTimeout(() => { this._retranslateAll(); this.gridGuide?.draw(); }, 100);
     });
   }
 
@@ -215,6 +245,11 @@ export class PetManager {
     }
 
     const pet = this.pets.get(payload.user_id)!;
+
+    // Show the chat message bubble over the pet, if enabled.
+    if (this.chatBubbleEnabled && payload.message) {
+      pet.showChatBubble(payload.message, this.chatBubbleMaxChars);
+    }
 
     // Keyword-triggered action takes priority over jump-on-speak.
     const kwAction = this._matchKeywordAction(payload.message);
@@ -280,6 +315,12 @@ export class PetManager {
     }
   }
 
+  /** Validates the tama_grid_perspective_type config value, defaulting to "plano". */
+  private static _parsePerspectiveType(raw: unknown): PerspectiveType {
+    const v = String(raw ?? "plano");
+    return v === "colina_abajo" || v === "horizonte" ? v : "plano";
+  }
+
   /** Converts an OS path via the transport, but passes http(s) URLs (e.g. a
    *  TikTok profile picture used as a guest sprite) through unchanged. */
   private static _resolveSrc(path: string): string {
@@ -299,6 +340,8 @@ export class PetManager {
     this.maxPets      = Number(cfg["tama_max_pets"])      || 8;
     this.jumpOnSpeak  = String(cfg["tama_jump_on_speak"]) === "true";
     this.keywordActions = this._parseKeywordActions(cfg["tama_keyword_actions"]);
+    this.chatBubbleEnabled  = String(cfg["tama_chat_bubble_enabled"]) === "true";
+    this.chatBubbleMaxChars = Number(cfg["tama_chat_bubble_max_chars"]) || 40;
 
     const newFontSize = Number(cfg["tama_name_font_size_px"]) || 11;
     if (newFontSize !== this.nameFontSizePx) {
@@ -314,12 +357,17 @@ export class PetManager {
 
     // Apply perspective / floor-band changes live, then re-translate.
     this.grid.setConfig({
-      perspective:  String(cfg["tama_grid_perspective"]) === "true",
-      nearScale:    Number(cfg["tama_grid_near_scale"])    || 1.3,
-      farScale:     Number(cfg["tama_grid_far_scale"])     || 0.6,
-      floorTopFrac: Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
+      perspective:     String(cfg["tama_grid_perspective"]) === "true",
+      perspectiveType: this._parsePerspectiveType(cfg["tama_grid_perspective_type"]),
+      nearScale:       Number(cfg["tama_grid_near_scale"])    || 1.3,
+      farScale:        Number(cfg["tama_grid_far_scale"])     || 0.6,
+      floorTopFrac:    Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
     });
     this._retranslateAll();
+
+    // Perspective guide grid alpha (redraws / hides live).
+    this._lastGuideAlpha = Number(cfg["tama_grid_guide_alpha"]) || 0;
+    this.gridGuide?.setAlpha(this._lastGuideAlpha);
 
     BasePet.inactivityMs = (Number(cfg["tama_inactivity_mins"]) || 5) * 60 * 1000;
 
@@ -335,6 +383,17 @@ export class PetManager {
   private static async _onTamaAction(payload: TamaActionPayload): Promise<void> {
     const pet = this.pets.get(payload.user_id);
     if (pet) await pet.executeAction(payload.action_id, payload.input);
+  }
+
+  /** Reacts to live events on a specific pet. Currently: a TikTok "like" makes the
+   *  user's pet (if present) emit a floating heart. This is a transient FX, not an
+   *  FSM action — it never interrupts whatever the pet is doing. */
+  private static _onChatEvent(payload: ChatEventPayload): void {
+    if (!this.enabled) return;
+    if (payload.event_kind !== "tiktok_like") return;
+    if (payload.user_id === null || payload.user_id === undefined) return;
+    const pet = this.pets.get(payload.user_id);
+    if (pet) pet.emitHeart();
   }
 
   // =========================================================================================================

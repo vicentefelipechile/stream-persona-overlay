@@ -99,26 +99,28 @@ class ViewRouter {
     if (!(view in routes)) return;
 
     const pane = this.paneFor(view);
-
-    // Hide the previously active pane, show the target one. No re-render, no
-    // "loading" flash — the pane keeps its DOM, scroll and listeners.
     const prev = this.panes.get(this.current);
-    if (prev && prev !== pane) prev.style.display = "none";
-    pane.style.display = "";
 
+    // The hash + active sidebar state update immediately (cheap, no visual flash).
     this.current = view;
     window.location.hash = `/${view}`;
-
-    // Actualizar clases active en sidebar
     this.navLinks.forEach((link) => {
       const linkView = (link as HTMLElement).dataset.view;
       link.classList.toggle("active", linkView === view);
     });
 
-    // Render only the first time this view is shown.
-    if (this.rendered.has(view)) return;
-    this.rendered.add(view);
+    // If the target view was already rendered, this is a pure visibility swap —
+    // hide prev, show target. No render, no flash.
+    if (this.rendered.has(view)) {
+      if (prev && prev !== pane) prev.style.display = "none";
+      pane.style.display = "";
+      return;
+    }
 
+    // First visit: render into the still-HIDDEN pane while the previous pane stays
+    // visible, then swap visibility only once the render has finished. This avoids
+    // the "everything vanishes for a frame" flash on the first load of a view.
+    this.rendered.add(view);
     try {
       await routes[view](pane);
     } catch (err) {
@@ -133,6 +135,12 @@ class ViewRouter {
         </div>
       `;
     }
+
+    // A rapid second navigation may have changed the target before this render
+    // finished. Only swap visibility if this view is still the current one.
+    if (this.current !== view) return;
+    if (prev && prev !== pane) prev.style.display = "none";
+    pane.style.display = "";
   }
 
   /** Force a fresh render of `view` on its next show (used after connection

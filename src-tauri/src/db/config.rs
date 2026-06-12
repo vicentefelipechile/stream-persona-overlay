@@ -16,6 +16,9 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "chroma_color" => cfg.chroma_color = value,
             "overlay_width" => cfg.overlay_width = value.parse().unwrap_or(1920),
             "overlay_height" => cfg.overlay_height = value.parse().unwrap_or(1080),
+            "overlay_bg_mode" => cfg.overlay_bg_mode = value,
+            "overlay_bg_image_path" => cfg.overlay_bg_image_path = value,
+            "overlay_bg_quality" => cfg.overlay_bg_quality = value,
             "tts_enabled" => cfg.tts_enabled = value == "true",
             "twitch_channel" => cfg.twitch_channel = value,
             "twitch_bot_username" => cfg.twitch_bot_username = value,
@@ -54,6 +57,10 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_jump_on_speak" => cfg.tama_jump_on_speak = value == "true",
             "tama_keyword_actions" => cfg.tama_keyword_actions = value,
             "tama_name_font_size_px" => cfg.tama_name_font_size_px = value.parse().unwrap_or(11),
+            "tama_chat_bubble_enabled" => cfg.tama_chat_bubble_enabled = value == "true",
+            "tama_chat_bubble_max_chars" => {
+                cfg.tama_chat_bubble_max_chars = value.parse().unwrap_or(40)
+            }
             // ── Twitch config ─────────────────────────────────────────────────
             "twitch_eventsub_enabled" => cfg.twitch_eventsub_enabled = value == "true",
             "twitch_chat_min_length" => cfg.twitch_chat_min_length = value.parse().unwrap_or(0),
@@ -189,12 +196,14 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_layout_mode" => cfg.tama_layout_mode = value,
             "tama_grid_high_precision" => cfg.tama_grid_high_precision = value == "true",
             "tama_grid_perspective" => cfg.tama_grid_perspective = value == "true",
+            "tama_grid_perspective_type" => cfg.tama_grid_perspective_type = value,
             "tama_grid_near_scale" => cfg.tama_grid_near_scale = value.parse().unwrap_or(1.3),
             "tama_grid_far_scale" => cfg.tama_grid_far_scale = value.parse().unwrap_or(0.6),
             "tama_grid_floor_top_frac" => {
                 cfg.tama_grid_floor_top_frac = value.parse().unwrap_or(0.55)
             }
             "tama_grid_wander_enabled" => cfg.tama_grid_wander_enabled = value == "true",
+            "tama_grid_guide_alpha" => cfg.tama_grid_guide_alpha = value.parse().unwrap_or(0.0),
             "tama_static_anchor" => cfg.tama_static_anchor = value,
             "tama_static_spacing_px" => cfg.tama_static_spacing_px = value.parse().unwrap_or(100),
             // ── Streamer persona config ───────────────────────────────────────

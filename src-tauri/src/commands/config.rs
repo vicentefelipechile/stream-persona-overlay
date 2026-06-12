@@ -40,6 +40,9 @@ pub async fn set_config_cmd(
         "chroma_color" => cache.chroma_color = value.clone(),
         "overlay_width" => cache.overlay_width = value.parse().unwrap_or(1920),
         "overlay_height" => cache.overlay_height = value.parse().unwrap_or(1080),
+        "overlay_bg_mode" => cache.overlay_bg_mode = value.clone(),
+        "overlay_bg_image_path" => cache.overlay_bg_image_path = value.clone(),
+        "overlay_bg_quality" => cache.overlay_bg_quality = value.clone(),
         "tts_enabled" => cache.tts_enabled = value == "true",
         "twitch_channel" => cache.twitch_channel = value.clone(),
         "tiktok_username" => cache.tiktok_username = value.clone(),
@@ -78,6 +81,7 @@ pub async fn set_config_cmd(
         "tama_layout_mode" => cache.tama_layout_mode = value.clone(),
         "tama_grid_high_precision" => cache.tama_grid_high_precision = value == "true",
         "tama_grid_perspective" => cache.tama_grid_perspective = value == "true",
+        "tama_grid_perspective_type" => cache.tama_grid_perspective_type = value.clone(),
         "tama_grid_near_scale" => cache.tama_grid_near_scale = value.parse().unwrap_or(1.3),
         "tama_grid_far_scale" => cache.tama_grid_far_scale = value.parse().unwrap_or(0.6),
         "tama_grid_floor_top_frac" => {
@@ -120,10 +124,24 @@ pub async fn set_config_cmd(
 
     let is_tama = key.starts_with("tama_");
     let is_streamer = key.starts_with("streamer_");
+    let is_overlay_bg = key.starts_with("overlay_bg_");
     drop(cache);
 
     if rebuild_grid {
         state.grid.reconfigure(&app, small_mode, high_precision);
+    }
+
+    // Background mode/quality changes (set via the generic command, not the upload
+    // command) must reach the overlay live. Reuse the same `overlay-bg-changed`
+    // event the dedicated upload command emits.
+    if is_overlay_bg {
+        let full_config = {
+            let db = state.db.lock().map_err(map_err)?;
+            get_config(&db).map_err(map_err)?
+        };
+        app.emit("overlay-bg-changed", &full_config)
+            .map_err(map_err)?;
+        state.broadcast_ws("overlay-bg-changed", &full_config);
     }
 
     if is_tama || is_streamer {
@@ -165,6 +183,123 @@ pub async fn set_chroma_color(
     app.emit("chroma-color-changed", &color).map_err(map_err)?;
     state.broadcast_ws("chroma-color-changed", &color);
 
+    Ok(())
+}
+
+// ─── Overlay Background Commands ─────────────────────────────────────────────
+
+const BG_IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+const MAX_BG_BYTES: usize = 8 * 1024 * 1024;
+
+/// Emits the full config as `overlay-bg-changed` (Tauri window + WS browser source)
+/// so both overlays re-read the background mode / quality / image path live.
+fn emit_overlay_bg_changed(state: &AppState, app: &AppHandle) -> CmdResult<()> {
+    let full_config = {
+        let db = state.db.lock().map_err(map_err)?;
+        get_config(&db).map_err(map_err)?
+    };
+    app.emit("overlay-bg-changed", &full_config)
+        .map_err(map_err)?;
+    state.broadcast_ws("overlay-bg-changed", &full_config);
+    Ok(())
+}
+
+/// Uploads a custom overlay background image. Saves three quality variants under
+/// `{app_data_dir}/overlay_bg/`:
+///   - `bg_original.<ext>` — bytes verbatim (preserves animated GIFs at full quality)
+///   - `bg_media.png`      — ~960px wide, lightly blurred (smaller + softer)
+///   - `bg_baja.png`       — ~160px wide (very low-res; reads as pixelated/blurry)
+/// Switches `overlay_bg_mode` to "image", stores the original path, and emits the
+/// background-changed event. The overlay derives the variant filename from the
+/// chosen quality.
+#[tauri::command]
+pub async fn set_overlay_background(
+    file_name: String,
+    data: Vec<u8>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> CmdResult<String> {
+    if data.len() > MAX_BG_BYTES {
+        return Err("La imagen no puede superar los 8 MB".to_string());
+    }
+
+    let ext = file_name
+        .rsplit('.')
+        .next()
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    if !BG_IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err(format!(
+            "Formato no soportado (.{}). Permitidos: {}",
+            ext,
+            BG_IMAGE_EXTS.join(", ")
+        ));
+    }
+
+    let bg_dir = state.app_data_dir.join("overlay_bg");
+    std::fs::create_dir_all(&bg_dir)
+        .map_err(|e| format!("No se pudo crear el directorio de fondo: {}", e))?;
+
+    // Original — verbatim bytes (keeps animated GIFs intact).
+    let original_path = bg_dir.join(format!("bg_original.{}", ext));
+    std::fs::write(&original_path, &data)
+        .map_err(|e| format!("Error guardando imagen original: {}", e))?;
+
+    // Decode once for the downscaled variants. If decoding fails (rare formats),
+    // the original still works and the lower qualities fall back to it on the
+    // frontend — but treat a decode error as fatal here to surface bad uploads.
+    let img = image::load_from_memory(&data).map_err(|e| format!("Imagen inválida: {}", e))?;
+
+    // Media — reduced resolution + light blur.
+    let media = img.resize(960, 960, image::imageops::FilterType::Lanczos3);
+    let media = image::DynamicImage::ImageRgba8(image::imageops::blur(&media.to_rgba8(), 2.0));
+    media
+        .save(bg_dir.join("bg_media.png"))
+        .map_err(|e| format!("Error guardando variante media: {}", e))?;
+
+    // Baja — very small; CSS upscaling makes it read as low-resolution.
+    let baja = img.resize(160, 160, image::imageops::FilterType::Triangle);
+    baja.save(bg_dir.join("bg_baja.png"))
+        .map_err(|e| format!("Error guardando variante baja: {}", e))?;
+
+    let path_str = original_path.to_string_lossy().to_string();
+
+    {
+        let db = state.db.lock().map_err(map_err)?;
+        set_config_value(&db, "overlay_bg_image_path", &path_str).map_err(map_err)?;
+        set_config_value(&db, "overlay_bg_mode", "image").map_err(map_err)?;
+    }
+    {
+        let mut cache = state.config_cache.write().map_err(map_err)?;
+        cache.overlay_bg_image_path = path_str.clone();
+        cache.overlay_bg_mode = "image".to_string();
+    }
+
+    emit_overlay_bg_changed(&state, &app)?;
+    tracing::info!("[overlay] Fondo personalizado guardado: {}", path_str);
+    Ok(path_str)
+}
+
+/// Clears the custom overlay background, reverting `overlay_bg_mode` to "color".
+/// The files on disk are left in place; only the config is updated.
+#[tauri::command]
+pub async fn clear_overlay_background(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> CmdResult<()> {
+    {
+        let db = state.db.lock().map_err(map_err)?;
+        set_config_value(&db, "overlay_bg_mode", "color").map_err(map_err)?;
+        set_config_value(&db, "overlay_bg_image_path", "").map_err(map_err)?;
+    }
+    {
+        let mut cache = state.config_cache.write().map_err(map_err)?;
+        cache.overlay_bg_mode = "color".to_string();
+        cache.overlay_bg_image_path = String::new();
+    }
+
+    emit_overlay_bg_changed(&state, &app)?;
+    tracing::info!("[overlay] Fondo personalizado eliminado");
     Ok(())
 }
 

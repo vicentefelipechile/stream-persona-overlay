@@ -95,7 +95,7 @@ export async function renderConfig(pane: HTMLElement): Promise<void> {
     </div>
 
     <!-- Overlay -->
-    <section class="section">
+    <section class="section" style="margin-top:24px;">
       <div class="section-title">Overlay</div>
       <div class="card">
         <div class="config-grid">
@@ -109,6 +109,39 @@ export async function renderConfig(pane: HTMLElement): Promise<void> {
               <input type="checkbox" id="cfg-tts" ${cfg.tts_enabled ? "checked" : ""} />
               <span class="switch-track"></span>
             </label>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="section-title" style="display:flex;align-items:center;gap:6px;font-size:1rem;">${Icons.image(16)} Fondo del overlay</div>
+        <p class="view-subtitle" style="margin:6px 0 12px;">
+          Detrás de las mascotas. En modo <strong>Color</strong> el fondo es transparente en OBS (o el chroma en la ventana). En modo <strong>Imagen</strong> se muestra la imagen subida.
+        </p>
+        <div class="form-group">
+          <label>Modo de fondo</label>
+          <div id="cfg-bg-mode" style="display:flex;gap:8px;">
+            <button data-bg-mode="color" class="btn ${cfg.overlay_bg_mode !== "image" ? "btn-primary" : "btn-outline"}" style="flex:1;">Color</button>
+            <button data-bg-mode="image" class="btn ${cfg.overlay_bg_mode === "image" ? "btn-primary" : "btn-outline"}" style="flex:1;">Imagen</button>
+          </div>
+        </div>
+        <div id="cfg-bg-image-section" style="${cfg.overlay_bg_mode === "image" ? "" : "display:none;"}">
+          <div class="form-group">
+            <label>Imagen de fondo</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button id="cfg-bg-upload" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">${Icons.image(16)} Subir imagen</button>
+              <button id="cfg-bg-clear" class="btn btn-outline" style="display:inline-flex;align-items:center;gap:6px;">${Icons.trash(16)} Quitar</button>
+              <span id="cfg-bg-name" style="font-size:0.9rem;color:var(--color-text-muted);">${cfg.overlay_bg_image_path ? "Imagen cargada" : "Sin imagen"}</span>
+            </div>
+            <input type="file" id="cfg-bg-file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;" />
+          </div>
+          <div class="form-group">
+            <label>Calidad de imagen</label>
+            <div id="cfg-bg-quality" style="display:flex;gap:8px;">
+              ${["original", "media", "baja"].map(q =>
+                `<button data-bg-quality="${q}" class="btn ${(cfg.overlay_bg_quality || "original") === q ? "btn-primary" : "btn-outline"}" style="flex:1;">${q === "original" ? "Original" : q === "media" ? "Media" : "Baja"}</button>`
+              ).join("")}
+            </div>
           </div>
         </div>
       </div>
@@ -173,6 +206,79 @@ export async function renderConfig(pane: HTMLElement): Promise<void> {
     const checked = (e.target as HTMLInputElement).checked;
     try {
       await invoke("set_config_cmd", { key: "tts_enabled", value: String(checked) });
+    } catch (e) {
+      showToast(String(e), "error");
+    }
+  });
+
+  // ── Overlay background ──────────────────────────────────────────────────────
+  const bgImageSection = container.querySelector<HTMLElement>("#cfg-bg-image-section")!;
+
+  // Generic helper to repaint a button group's active state.
+  const setActive = (selector: string, attr: string, value: string) => {
+    container.querySelectorAll<HTMLButtonElement>(selector).forEach(btn => {
+      const on = btn.getAttribute(attr) === value;
+      btn.classList.toggle("btn-primary", on);
+      btn.classList.toggle("btn-outline", !on);
+    });
+  };
+
+  // Background mode (Color / Imagen)
+  container.querySelectorAll<HTMLButtonElement>("#cfg-bg-mode button").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const mode = btn.getAttribute("data-bg-mode")!;
+      setActive("#cfg-bg-mode button", "data-bg-mode", mode);
+      bgImageSection.style.display = mode === "image" ? "" : "none";
+      try {
+        await invoke("set_config_cmd", { key: "overlay_bg_mode", value: mode });
+      } catch (e) {
+        showToast(String(e), "error");
+      }
+    });
+  });
+
+  // Background quality (Original / Media / Baja)
+  container.querySelectorAll<HTMLButtonElement>("#cfg-bg-quality button").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const quality = btn.getAttribute("data-bg-quality")!;
+      setActive("#cfg-bg-quality button", "data-bg-quality", quality);
+      try {
+        await invoke("set_config_cmd", { key: "overlay_bg_quality", value: quality });
+      } catch (e) {
+        showToast(String(e), "error");
+      }
+    });
+  });
+
+  // Background image upload
+  const bgFile = container.querySelector<HTMLInputElement>("#cfg-bg-file")!;
+  container.querySelector("#cfg-bg-upload")!.addEventListener("click", () => bgFile.click());
+  bgFile.addEventListener("change", async () => {
+    const file = bgFile.files?.[0];
+    if (!file) return;
+    try {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+      await invoke("set_overlay_background", { fileName: file.name, data: bytes });
+      container.querySelector("#cfg-bg-name")!.textContent = "Imagen cargada";
+      // Uploading switches mode to "image" in the backend; reflect it in the UI.
+      setActive("#cfg-bg-mode button", "data-bg-mode", "image");
+      bgImageSection.style.display = "";
+      showToast("Fondo guardado", "success");
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      bgFile.value = "";
+    }
+  });
+
+  // Clear background image
+  container.querySelector("#cfg-bg-clear")!.addEventListener("click", async () => {
+    try {
+      await invoke("clear_overlay_background");
+      container.querySelector("#cfg-bg-name")!.textContent = "Sin imagen";
+      setActive("#cfg-bg-mode button", "data-bg-mode", "color");
+      bgImageSection.style.display = "none";
+      showToast("Fondo eliminado", "info");
     } catch (e) {
       showToast(String(e), "error");
     }

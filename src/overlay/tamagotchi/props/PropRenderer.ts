@@ -43,6 +43,35 @@ export class PropRenderer {
     }, 1600);
   }
 
+  /**
+   * Emits a single heart that rises slowly like smoke and fades out, then removes
+   * itself. Used for the TikTok "like" reaction. Not tracked in `activeProps` — it
+   * is fully self-contained and ephemeral, so many can coexist during a like burst.
+   */
+  emitHeart(parentEl: HTMLElement): void {
+    const heart = document.createElement("div");
+    heart.className = "pet-prop pet-heart";
+    heart.textContent = "❤"; // ❤
+    // Slight random horizontal start + drift so a burst of likes spreads out.
+    const startX = (Math.random() - 0.5) * 24;
+    const drift  = (Math.random() - 0.5) * 30;
+    const rise   = 70 + Math.random() * 40;
+    const dur    = 1.8 + Math.random() * 0.8;
+    parentEl.appendChild(heart);
+    animate(heart,
+      {
+        opacity: [0, 1, 1, 0],
+        transform: [
+          `translateX(${startX}px) translateY(0px) scale(0.6)`,
+          `translateX(${startX + drift * 0.4}px) translateY(-${rise * 0.4}px) scale(1.1)`,
+          `translateX(${startX + drift * 0.8}px) translateY(-${rise * 0.8}px) scale(1)`,
+          `translateX(${startX + drift}px) translateY(-${rise}px) scale(0.9)`,
+        ],
+      },
+      { duration: dur, ease: "easeOut" }
+    ).then(() => heart.remove());
+  }
+
   hideAll(): void {
     for (const [, el] of this.activeProps) {
       if (el._interval) clearInterval(el._interval);

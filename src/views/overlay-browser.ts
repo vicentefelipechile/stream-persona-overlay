@@ -10,6 +10,7 @@ import { wsListen, wsInvoke, browserConvertFileSrc } from "../overlay/ws-transpo
 import { PetManager } from "../overlay/tamagotchi/core/PetManager";
 import type { PetTransport } from "../overlay/tamagotchi/core/PetManager";
 import { initOverlayNotifications } from "../overlay/overlay-notifications";
+import { initOverlayBackground } from "../overlay/overlay-background";
 
 // =========================================================================================================
 // Initialization
@@ -29,6 +30,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     invoke:         (command, args)  => wsInvoke(command, args),
     convertFileSrc: browserConvertFileSrc,
   };
+
+  // Background layer (uploaded image in "image" mode; transparent otherwise).
+  initOverlayBackground(browserTransport).catch(err =>
+    console.warn("[overlay-bg] init failed:", err),
+  );
 
   // Start the Tamagotchi pet system using the WS transport
   PetManager.init(tamagotchiContainer, browserTransport).catch(err => {

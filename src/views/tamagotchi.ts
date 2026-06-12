@@ -90,10 +90,14 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
   const layoutMode      = String(cfg["tama_layout_mode"]           ?? "dynamic") === "static" ? "static" : "dynamic";
   const gridHighPrec    = String(cfg["tama_grid_high_precision"]   ?? "false") === "true";
   const gridPerspective = String(cfg["tama_grid_perspective"]      ?? "true")  === "true";
+  const gridPerspType   = String(cfg["tama_grid_perspective_type"] ?? "plano");
   const gridNearScale   = Number(cfg["tama_grid_near_scale"])      || 1.3;
   const gridFarScale    = Number(cfg["tama_grid_far_scale"])       || 0.6;
   const gridFloorTop    = Number(cfg["tama_grid_floor_top_frac"])  || 0.55;
   const gridWander      = String(cfg["tama_grid_wander_enabled"]   ?? "true")  === "true";
+  const gridGuideAlpha  = Number(cfg["tama_grid_guide_alpha"])     || 0;
+  const bubbleEnabled   = String(cfg["tama_chat_bubble_enabled"]   ?? "false") === "true";
+  const bubbleMaxChars  = Number(cfg["tama_chat_bubble_max_chars"]) || 40;
 
   let enabledActions: string[] = [];
   try {
@@ -200,13 +204,47 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
         </label>
       </div>
 
-      <div id="grid-perspective-options" style="${!gridPerspective ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-5);margin-top:var(--space-4);padding-left:var(--space-5);border-left:2px solid var(--color-border);">
+      <div id="grid-perspective-options" style="${!gridPerspective ? "opacity:.4;pointer-events:none;" : ""}display:flex;flex-direction:column;gap:var(--space-6);margin-top:var(--space-5);padding:var(--space-5);background:var(--color-bg-elevated, rgba(255,255,255,0.02));border-radius:6px;border-left:3px solid var(--color-accent);">
+        <div class="form-group" style="margin:0;">
+          <label for="cfg-grid-persp-type" style="margin-bottom:6px;">Tipo de perspectiva</label>
+          <select id="cfg-grid-persp-type" style="width:100%;">
+            <option value="plano"        ${gridPerspType === "plano"        ? "selected" : ""}>Plano (trapecio recto)</option>
+            <option value="colina_abajo" ${gridPerspType === "colina_abajo" ? "selected" : ""}>Colina abajo (lados curvos)</option>
+            <option value="horizonte"    ${gridPerspType === "horizonte"    ? "selected" : ""}>Horizonte (fondo arqueado)</option>
+          </select>
+        </div>
         ${_slider("cfg-grid-near", "cfg-grid-near-val", "Escala frontal (cerca)", gridNearScale, "×", 1, 2.5, 0.1)}
         ${_slider("cfg-grid-far",  "cfg-grid-far-val",  "Escala de fondo (lejos)", gridFarScale,  "×", 0.3, 1, 0.05)}
       </div>
 
-      <div style="margin-top:var(--space-5);">
+      <div class="divider" style="margin:var(--space-6) 0;"></div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--space-6);">
         ${_slider("cfg-grid-floor-top", "cfg-grid-floor-top-val", "Inicio de la banda de piso", gridFloorTop, "", 0.1, 0.9, 0.05)}
+
+        <div style="display:flex;flex-direction:column;gap:var(--space-3);">
+          ${_slider("cfg-grid-guide", "cfg-grid-guide-val", "Cuadrícula de perspectiva (guía)", gridGuideAlpha, "", 0, 1, 0.05)}
+          <div class="tama-setting-desc">Líneas blancas en forma de trapecio para alinear la perspectiva. 0 = oculta. Súbela mientras ajustas y bájala a 0 al terminar.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header">
+        <h2 class="section-title">Mensajes sobre la mascota</h2>
+      </div>
+      <div class="tama-setting-row">
+        <div>
+          <div class="tama-setting-label">Mostrar mensaje al hablar</div>
+          <div class="tama-setting-desc">Cuando un usuario escribe, su mascota muestra el mensaje en una burbuja (se trunca al máximo de caracteres).</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="cfg-bubble-enabled" ${bubbleEnabled ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
+      </div>
+      <div id="bubble-options" style="${!bubbleEnabled ? "opacity:.4;pointer-events:none;" : ""}margin-top:var(--space-4);">
+        ${_slider("cfg-bubble-max", "cfg-bubble-max-val", "Máximo de caracteres", bubbleMaxChars, "", 10, 100, 1)}
       </div>
     </div>
 
@@ -550,9 +588,27 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
       .catch(err => showToast(String(err), "error"));
   });
 
+  container.querySelector<HTMLSelectElement>("#cfg-grid-persp-type")!.addEventListener("change", (e) => {
+    const value = (e.target as HTMLSelectElement).value;
+    invoke("set_config_cmd", { key: "tama_grid_perspective_type", value })
+      .catch(err => showToast(String(err), "error"));
+  });
+
   _bindRange("cfg-grid-near",      "cfg-grid-near-val",      "×");
   _bindRange("cfg-grid-far",       "cfg-grid-far-val",       "×");
   _bindRange("cfg-grid-floor-top", "cfg-grid-floor-top-val", "");
+  _bindRange("cfg-grid-guide",     "cfg-grid-guide-val",     "");
+  _bindRange("cfg-bubble-max",     "cfg-bubble-max-val",     "");
+
+  // Chat bubble enable toggle (dims the max-chars slider when off).
+  const bubbleOptionsEl = container.querySelector<HTMLDivElement>("#bubble-options")!;
+  container.querySelector<HTMLInputElement>("#cfg-bubble-enabled")!.addEventListener("change", (e) => {
+    const on = (e.target as HTMLInputElement).checked;
+    bubbleOptionsEl.style.opacity       = on ? "" : "0.4";
+    bubbleOptionsEl.style.pointerEvents = on ? "" : "none";
+    invoke("set_config_cmd", { key: "tama_chat_bubble_enabled", value: on ? "true" : "false" })
+      .catch(err => showToast(String(err), "error"));
+  });
 
   const sliderMap: Array<[string, string]> = [
     ["cfg-size",           "tama_pet_size_px"],
@@ -564,12 +620,30 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
     ["cfg-grid-near",      "tama_grid_near_scale"],
     ["cfg-grid-far",       "tama_grid_far_scale"],
     ["cfg-grid-floor-top", "tama_grid_floor_top_frac"],
+    ["cfg-grid-guide",     "tama_grid_guide_alpha"],
+    ["cfg-bubble-max",     "tama_chat_bubble_max_chars"],
   ];
   sliderMap.forEach(([inputId, key]) => {
-    container.querySelector<HTMLInputElement>(`#${inputId}`)!.addEventListener("change", (e) => {
-      const value = (e.target as HTMLInputElement).value;
+    const input = container.querySelector<HTMLInputElement>(`#${inputId}`)!;
+    const save = (value: string) =>
       invoke("set_config_cmd", { key, value }).catch(err => showToast(String(err), "error"));
+
+    // Live update while dragging: persist on each `input`, but coalesce to one save per
+    // animation frame so a fast drag doesn't fire dozens of IPC/DB writes per second.
+    // A final `change` (fired on release) guarantees the settled value is stored even if
+    // it landed between frames.
+    let pending: string | null = null;
+    input.addEventListener("input", (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      if (pending !== null) { pending = value; return; }
+      pending = value;
+      requestAnimationFrame(() => {
+        const v = pending!;
+        pending = null;
+        save(v);
+      });
     });
+    input.addEventListener("change", (e) => save((e.target as HTMLInputElement).value));
   });
 
   const actionTogglesEl = container.querySelector("#action-toggles")!;

@@ -392,12 +392,15 @@ fn handle_chat(
             )
         };
         tracing::info!("[tiktok/guest] Spawning guest pet for @{}", username);
+        // Use the human-friendly nickname for the pet label (falls back to uniqueId).
+        // The uniqueId is still used for DB lookup, ignore-lists and logging above.
+        let guest_label = extract_user_label(data, &username);
         Some(ChatMessagePayload {
             platform: "tiktok".to_string(),
             username: username.clone(),
             message: message.clone(),
             user_id: guest_user_id("tiktok", &username),
-            display_name: format!("{}{}", cfg.tama_guests_label_prefix, username),
+            display_name: format!("{}{}", cfg.tama_guests_label_prefix, guest_label),
             mouth_open_path: mouth_open,
             mouth_closed_path: mouth_closed,
             voice_id: if cfg.tama_guests_tts {

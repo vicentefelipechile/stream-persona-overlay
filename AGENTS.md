@@ -180,6 +180,7 @@ stream-persona-overlay/
 |   |   +-- overlay-streamer.ts   # Entry point for overlay-streamer.html (OBS Browser Source — streamer persona)
 |   +-- overlay/                  # Overlay-specific modules (used by overlay.ts and overlay-browser.ts)
 |   |   +-- ws-transport.ts       # WebSocket transport — mirrors Tauri API for browser context
+|   |   +-- overlay-background.ts  # Shared #overlay-bg layer (color/image + quality variant) for both overlays; reacts to overlay-bg-changed
 |   |   +-- overlay-notifications.ts # Pill toasts for overlay-notification events (Tauri + WS), used by all overlay views
 |   |   +-- alerts/               # Event-alert overlay system
 |   |   |   +-- AlertManager.ts   # Queues + renders event-alert payloads (image/text/sound/transition)
@@ -187,7 +188,7 @@ stream-persona-overlay/
 |   |   |   +-- BlinkScheduler.ts # Timestamp-based eye-blink state machine (no per-frame recompute)
 |   |   |   +-- StreamerPersona.ts# 4-sprite renderer + rAF loop (mouth from streamer-speaking event, eyes from scheduler)
 |   |   +-- tamagotchi/           # Tamagotchi pet system (see Section 16)
-|   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, Grid2D, BasePet, PetScheduler, PetManager
+|   |       +-- core/             # PetStateMachine, BaseAction, ActionRegistry, Grid2D, GridGuide, BasePet, PetScheduler, PetManager
 |   |       +-- actions/          # IdleWalkAction, JumpAction, PopcornAction, FightAction, ExplodeAction, DanceAction, SleepAction, ConfettiAction, HypeTrainAction, _template
 |   |       +-- props/            # PropRenderer, PropAssetLoader
 |   |       +-- eventReactions.ts # chat-event listener → maps event_kind to pet action
@@ -275,7 +276,6 @@ stream-persona-overlay/
 +-- tsconfig.json
 +-- package.json
 +-- AGENTS.md                     # This file
-+-- plan-proyecto-streamoverlay.md  # Original design document (reference)
 ```
 
 ---
@@ -314,6 +314,9 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `chroma_color` | `#00FF00` | Overlay background color |
 | `overlay_width` | `1920` | Overlay width |
 | `overlay_height` | `1080` | Overlay height |
+| `overlay_bg_mode` | `"color"` | Overlay background mode: `"color"` (transparent layer; chroma color on the chroma window) or `"image"`. The `#overlay-bg` layer (behind the pets) only paints in `"image"` mode. |
+| `overlay_bg_image_path` | `""` | Absolute path to the original uploaded background image. The `media`/`baja` variants live next to it as `bg_media.png` / `bg_baja.png`. Written by `set_overlay_background`. |
+| `overlay_bg_quality` | `"original"` | Background image quality: `"original"` (verbatim) / `"media"` (~960px + light blur) / `"baja"` (~160px, reads as low-res). The overlay derives the variant filename from `overlay_bg_image_path` + this key. |
 | `tts_enabled` | `true` | Enable TTS (used for pet lip-sync via tts-state events) |
 | `twitch_channel` | `""` | Twitch channel to listen to |
 | `twitch_bot_username` | `""` | Authenticated Twitch bot username |
@@ -385,6 +388,9 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_jump_on_speak` | `"false"` | When `"true"`, pets execute a `jump` action in place when their owner sends a chat message instead of walking to the center |
 | `tama_keyword_actions` | *(JSON)* | JSON map of chat keyword → tama action ID (e.g. `{"pelea":"fight","baila":"dance"}`). When a pet's owner types a keyword (whole-word, case-insensitive), that action is forced, taking priority over `tama_jump_on_speak` / walk-to-center. Edited in the Tamagotchi admin view; applied live via `tama-config-changed`. |
 | `tama_name_font_size_px` | `"11"` | Pet name label font size in pixels. Applied live via `tama-config-changed`. |
+| `tama_chat_bubble_enabled` | `"false"` | When `"true"`, a pet shows its chat message in a bubble above its head when its owner speaks. Applied live by `PetManager`. |
+| `tama_chat_bubble_max_chars` | `"40"` | Max characters shown in the chat bubble (longer text is truncated with `…`). User-configurable in the Tamagotchi admin view. |
+| `tama_grid_guide_alpha` | `"0"` | Opacity (0–1) of the white isosceles-trapezoid perspective guide grid drawn on the floor band (a streamer alignment aid). 0 = hidden. Drawn by `GridGuide` on a `<canvas>` in both overlays; applied live. |
 | `tama_guests_enabled` | `"false"` | Master toggle — enables guest viewer pets globally |
 | `tama_guests_twitch` | `"true"` | Allow guest pets from Twitch (only effective when master is on) |
 | `tama_guests_tiktok` | `"true"` | Allow guest pets from TikTok (only effective when master is on) |
@@ -396,6 +402,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_layout_mode` | `"dynamic"` | Reinterpreted for the 2D grid: `"static"` => small floor grid (6×1), anything else (incl. legacy `"dynamic"`) => normal grid (150×30). Changing it rebuilds the grid live (`GridManager::reconfigure`). |
 | `tama_grid_high_precision` | `"false"` | Doubles both grid axes (the "Matriz de alta precisión" toggle: 6×1→12×2, 150×30→300×60). Rebuilds the grid live. |
 | `tama_grid_perspective` | `"true"` | Front rows (higher `cellY`) render larger, back rows smaller. Applied live by the overlay (`Grid2D`). |
+| `tama_grid_perspective_type` | `"plano"` | Floor projection shape (only affects visuals; cells unchanged): `"plano"` (straight trapezoid), `"colina_abajo"` (side walls bow inward — downhill look) or `"horizonte"` (back rows arch up in the centre — spherical-horizon look). Applied live by `Grid2D`/`GridGuide`. |
 | `tama_grid_near_scale` | `"1.3"` | Sprite scale on the front-most row when perspective is on. |
 | `tama_grid_far_scale` | `"0.6"` | Sprite scale on the back-most row when perspective is on. |
 | `tama_grid_floor_top_frac` | `"0.55"` | Fraction of viewport height where the floor band starts (0–1). |
@@ -506,6 +513,8 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `set_config_cmd` | `invoke("set_config_cmd", { key, value })` | Save a single key-value pair |
 | `get_available_voices_cmd` | `invoke<VoiceInfo[]>("get_available_voices_cmd")` | System TTS voices |
 | `set_chroma_color` | `invoke("set_chroma_color", { color })` | Update color and emit `chroma-color-changed` |
+| `set_overlay_background` | `invoke<string>("set_overlay_background", { fileName, data: number[] })` | Upload an overlay background image (png/jpg/gif/webp, max 8 MB). Saves 3 variants to `{app_data_dir}/overlay_bg/` (`bg_original.<ext>` verbatim, `bg_media.png` ~960px+blur, `bg_baja.png` ~160px), sets `overlay_bg_mode="image"` + `overlay_bg_image_path`, emits `overlay-bg-changed`. Returns the original path. |
+| `clear_overlay_background` | `invoke("clear_overlay_background")` | Revert `overlay_bg_mode` to `"color"` (files left on disk), emit `overlay-bg-changed`. |
 | `save_animation_config` | `invoke("save_animation_config", { animation_in, animation_out, visible_duration_secs, idle_wiggle, idle_breathe, glow_effect, glow_color, outline_effect, persona_size_px, audio_threshold, max_visible_personas })` | Persist all animation fields at once and emit `animation-config-changed` |
 | `disconnect_twitch` | `invoke("disconnect_twitch")` | Abort Twitch IRC + EventSub clients |
 | `disconnect_tiktok` | `invoke("disconnect_tiktok")` | Abort TikTok WS client and emit an `info`-level `overlay-notification` ("TikTok desconectado") via `notify_overlay` |
@@ -574,6 +583,7 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | `streamer-config-changed` | `AppConfig` (full) | `commands/config.rs` (`set_config_cmd` when key starts with `streamer_`), `commands/streamer.rs` (sprite set/reset) | `StreamerPersona.applyConfig` (overlay-streamer.ts) — applies sprites/timing/anim live | Yes |
 | `tts-state` | `TtsStatePayload` | `tts/mod.rs` | `PetManager` (lip-sync only) | Yes |
 | `chroma-color-changed` | `string` (hex color) | `commands/config.rs` | `overlay.ts` | Yes |
+| `overlay-bg-changed` | `AppConfig` (full) | `commands/config.rs` (`set_overlay_background`/`clear_overlay_background`, and `set_config_cmd` for `overlay_bg_*` keys) | `overlay-background.ts` (both overlays) | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
 | `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `PetManager` (overlay.ts) | Yes |
 | `tama-grid-config` | `{ cols, rows }` | `grid/mod.rs` (`reconfigure`) | `PetManager` → `Grid2D.setDimensions` | Yes |
@@ -796,6 +806,7 @@ export type ViewId = "config" | "users" | "logs" | "tamagotchi" | "twitch" | "ti
 ```
 
 - **Cached, persistent panes — render once, no "loading" flash.** Each view lives in its own `<div class="view-pane">` appended to `#view-container`. A view is rendered **exactly once** (lazily, the first time it is shown); navigating afterwards only toggles `display` between panes. This is a local desktop app, so there is no loading spinner and no full re-render on navigation — switching views (or returning to one) preserves scroll position, form state, collapsed cards and live listeners. Do **not** reintroduce a `container.innerHTML = "...loading..."` step.
+- **First-visit swap is deferred until the render finishes (no blank flash).** On a view's first navigation, `navigate()` keeps the *previous* pane visible and renders the target into its still-hidden pane, then swaps `display` only after `await routes[view](pane)` resolves. (Already-rendered views are a pure instant visibility swap.) This avoids showing an empty pane for a frame while the async render runs. A rapid second navigation is handled by re-checking `this.current === view` before the swap, so a slow render can't clobber a newer target. The hash + active sidebar state still update immediately on click.
 - Each view exports `render<Name>(pane: HTMLElement): Promise<void>` and paints into the `pane` it is given (`const container = pane;`). Never grab `#view-container` directly — multiple panes coexist, so writing to the shared container would clobber other views. View-internal control ids must stay unique across views (they already use per-view prefixes: `evt-`, `twitch-`, `tiktok-`, `tama-`, `cfg-`, …).
 - **Re-rendering after a state change:** call `router.invalidate(view)` — it re-renders that view now if it's the active one, otherwise marks it to re-render next time it's shown, without touching other cached panes. Used by `main.ts` on connection events (`*-connected`/`*-error`) and by views after a mutating action (user edit, sprite upload). `router.navigate(view)` is only for switching the visible view.
 - To add a new view: add an entry in `routes`, create `src/views/<name>.ts` exporting `render<Name>(pane)`, and add `data-view="new-view"` to the sidebar in `index.html`.
@@ -1077,10 +1088,11 @@ overlay.ts
 | `PetStateMachine.ts` | FSM with transition(), onEnter(), canDo(). Valid states: spawning → idle, idle → action → idle, idle → sleeping → despawning. (The old approaching/talking/returning focus states are gone — pets no longer walk to a center; the backend places them.) |
 | `BaseAction.ts` | Abstract base for all actions. Uses `import type { BasePet }` (avoids circular dep). Provides `wait(ms)`, `cancelled` flag, `onCancel()` hook |
 | `ActionRegistry.ts` | Static singleton. Actions self-register at module load via `ActionRegistry.register(MyAction)`. Exposes `get()`, `getAllMeta()`, `getRandomId()` (weighted by `probability`) |
-| `Grid2D.ts` | Pure cell → pixel translator. Holds the grid dimensions + perspective config received from the backend (`tama-grid-config` / `get_config`). `cellToPx(cellX, cellY, petSizePx)` maps a cell onto the floor band (`floorTopFrac`..bottom) and returns `{ left, top, scale, z }`. Perspective: `scale = lerp(farScale, nearScale, cellY/(rows-1))`. Holds NO authoritative pet state. |
+| `Grid2D.ts` | Pure cell → pixel translator and the **single source of truth for the floor-band projection**. Holds grid dimensions + perspective config (`tama-grid-config` / `get_config`). `rowTop(cellY)` (floor-line Y) and `rowEdges(cellY)` (left/right edges) define the floor band as a **trapezoid**: it runs vertically from `floorTopFrac*h` to `(1 - BOTTOM_MARGIN_FRAC)*h`, and each row's width tapers toward the back by the perspective ratio (`farScale/nearScale`) — so a pet's column converges exactly as its sprite shrinks. `cellToPx(cellX, cellY, petSizePx)` places a cell *within its row's edges* and returns `{ left, top, scale, z }` (`scale = lerp(farScale, nearScale, cellY/(rows-1))`). `GridGuide` draws the white grid from these same `rowTop`/`rowEdges`, so pets stand exactly on the guide lines. Holds NO authoritative pet state. |
 | `BasePet.ts` | Concrete pet class. Manages DOM, FSM transitions, mouth images, sleep, despawn, and DB persistence via `tama_upsert_pet_state` (now `cellX`/`cellY`) / `tama_remove_pet_state`. **No local walk loop** — `applyCell(cell, cellPx, animateMove)` is called by PetManager to glide/snap the pet to the backend-assigned cell. The perspective `scale()` + horizontal flip live on `.pet-inner` (combined transform), leaving the outer `.el` transform free for actions. `updateSize(px)` / `updateNameFontSize(px)` apply runtime config to existing pets. `BasePet.inactivityMs` is static mutable. |
 | `PetScheduler.ts` | `setInterval` at `tama_action_check_secs`. Rolls a random action for a random idle pet; excludes `"idle_walk"` and `"sleep"` from the pool. `enabledActionIds` further restricts the pool to `tama_enabled_actions`. `update(checkSecs, probability, enabledActions?)` restarts the interval. |
-| `PetManager.ts` | Static singleton. Owns `Map<userId, BasePet>` + a `Map<userId, cell>` mirror + the shared `Grid2D`. Listens to chat-message/tts-state/tama-action and the `tama-grid-*` events; on spawn it calls `tama_grid_ensure` so the backend assigns a cell. `getCell()`, `getGrid()`, `requestMove(userId, cellX, cellY)` (→ `tama_grid_move`) are used by actions (fight). Re-translates every pet's cell → px on window resize (cells stay authoritative). `_onTamaConfigChanged()` applies enabled/maxPets/petSizePx/perspective/floorTopFrac/inactivity/scheduler live. |
+| `PetManager.ts` | Static singleton. Owns `Map<userId, BasePet>` + a `Map<userId, cell>` mirror + the shared `Grid2D` + the `GridGuide`. Listens to chat-message/tts-state/tama-action/**chat-event** and the `tama-grid-*` events; on spawn it calls `tama_grid_ensure` so the backend assigns a cell. On `chat-event` with `event_kind="tiktok_like"` it calls `pet.emitHeart()` on the liker's pet (transient FX, not an FSM action). On chat-message, if `tama_chat_bubble_enabled`, calls `pet.showChatBubble(message, maxChars)`. `getCell()`, `getGrid()`, `requestMove(...)` are used by actions (fight). Re-translates every pet's cell → px on resize. `_onTamaConfigChanged()` applies enabled/maxPets/petSizePx/perspective/floorTopFrac/inactivity/scheduler/chat-bubble/grid-guide-alpha live. |
+| `GridGuide.ts` | Optional white perspective guide grid (trapezoid) drawn on a full-window `<canvas>` behind the pets (z-index 1, above `#overlay-bg`). Geometry comes straight from `Grid2D.rowTop`/`rowEdges` (the same projection that places + scales the pets), so the lines land exactly where pets stand. Controlled by `tama_grid_guide_alpha` (0 = hidden). Redrawn on resize / grid-config / config change. Pure alignment aid; holds no pet state. |
 
 ### Actions (`src/overlay/tamagotchi/actions/`)
 
@@ -1333,7 +1345,7 @@ Pet placement is owned entirely by Rust (`grid/mod.rs`, modeled on `streamer_mic
 - **Assignment** — on spawn the overlay calls `tama_grid_ensure(user_id)`; the backend allocates a free cell (front-center bias, **two-pass**: first only cells with personal space, then any free cell) and broadcasts `tama-grid-update`. The overlay **snaps** the pet to its first cell (never walks it from the `(0,0)` corner — that read as a bug); subsequent updates animate. The pet `applyCell`s to the resolved pixels.
 - **Wander** — if `tama_grid_wander_enabled`, a tokio interval task (`GridManager::wander_tick`, fixed 6 s period) drives **asynchronous** movement: each pet has its own randomized cooldown (`wander_wait`, 1–5 ticks) so they don't all step on the same beat. When a pet's cooldown elapses it strolls to a far free cell (`WANDER_MIN/MAX_STEP`, mostly horizontal) that ideally has **personal space** — `random_free_step` tries several candidates and prefers one with no occupied cell inside an *anisotropic* spacing rectangle (wider in X than Y via `SPACING_FRAC_X/Y`, since a sprite spans more columns than rows on screen). Only moved pets emit an update.
 - **Actions** — fight (and any movement action) call `PetManager.requestMove(userId, cellX, cellY)` → `tama_grid_move`, which resolves the free cell nearest the target via an expanding ring search and resets that pet's wander cooldown so it doesn't immediately stroll off. The overlay animates the resulting `tama-grid-update`.
-- **Perspective** — `Grid2D.cellToPx` applies `scale = lerp(farScale, nearScale, cellY/(rows-1))` when `tama_grid_perspective` is on, so front-row pets are larger. The scale lives on `.el` via the individual `scale` CSS property (so it scales the sprite, the name label, AND action props together and composes with the `transform` strings actions animate); only the horizontal flip lives on `.pet-inner`.
+- **Perspective (one unified projection)** — when `tama_grid_perspective` is on, the floor band is owned by `Grid2D.rowTop`/`rowEdges` and projected once via `projectPoint(fx, fy)`, shared by pets AND the `GridGuide`. It tapers horizontally toward the back by `farScale/nearScale` (a curved, foreshortened depth via `rowDepth`), and `cellToPx` places each pet inside its row's edges, so a pet's column AND its `scale = lerp(farScale, nearScale, …)` shrink together. `tama_grid_near_scale` / `tama_grid_far_scale` drive BOTH sprite size and how much the band/columns converge; `tama_grid_floor_top_frac` moves the whole projection; the band stops `BOTTOM_MARGIN_FRAC` (4%) short of the bottom. **`tama_grid_perspective_type`** picks the band's shape: `"plano"` (straight trapezoid), `"colina_abajo"` (side walls bow inward, `rowEdges`) or `"horizonte"` (back rows arch up in the centre, `rowTop` varies with `fx`). The `GridGuide` white grid (`tama_grid_guide_alpha`) samples the same `projectPoint` as polylines, so its lines bend with whatever style is active and pets stand exactly on them. The scale lives on `.el` via the individual `scale` CSS property; only the horizontal flip lives on `.pet-inner`.
 - **Resize** — `PetManager` re-translates each pet's authoritative cell to new pixels on window resize; cells never change, only their pixel projection.
 - **Rehydration** — a client connecting after pets exist calls `tama_grid_get_state` to get dims + every cell.
 
