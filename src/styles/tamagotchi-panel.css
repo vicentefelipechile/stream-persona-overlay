@@ -128,6 +128,15 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* When a setting row is the first element right after the card header, the header
+   already draws a divider (border-bottom) — drop the row's own border-top so they
+   don't read as a double separator line. */
+.card-header + .tama-setting-row {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
 .tama-setting-label {
   font-size: 13px;
   font-weight: 500;

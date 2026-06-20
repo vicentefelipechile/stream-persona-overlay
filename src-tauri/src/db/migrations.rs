@@ -224,6 +224,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         ("tama_guests_label_prefix", ""),
         ("tama_guest_tiktok_avatar", "true"),
         // ── Grid layout config ────────────────────────────────────────────────
+        ("tama_placement_mode", "free"),
+        ("tama_row_anchor", "left"),
         ("tama_layout_mode", "dynamic"),
         ("tama_grid_high_precision", "false"),
         ("tama_grid_perspective", "true"),
@@ -267,6 +269,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     )?;
 
     seed_tama_commands_v1(conn)?;
+    migrate_placement_mode_key(conn)?;
 
     Ok(())
 }
@@ -307,6 +310,48 @@ fn migrate_alerts_config_key(conn: &Connection) -> Result<()> {
         conn.execute("DELETE FROM config WHERE key = 'tiktok_alerts_config'", [])?;
     }
 
+    Ok(())
+}
+
+/// One-time, gated migration that derives the new `tama_placement_mode` key from
+/// the legacy `tama_layout_mode`. An install that had `tama_layout_mode = "static"`
+/// (the old "Piso estático 6x1" small grid) is mapped to the new static-row mode
+/// (`tama_placement_mode = "row"`), so the streamer's intent ("pin pets to the
+/// bottom") is preserved. Gated by a sentinel key so it runs exactly once and never
+/// re-overrides a value the user later changed in the panel.
+fn migrate_placement_mode_key(conn: &Connection) -> Result<()> {
+    let already_run = conn
+        .query_row(
+            "SELECT 1 FROM config WHERE key = 'tama_placement_mode_migrated'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if already_run {
+        return Ok(());
+    }
+
+    let legacy_mode: Option<String> = conn
+        .query_row(
+            "SELECT value FROM config WHERE key = 'tama_layout_mode'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if legacy_mode.as_deref() == Some("static") {
+        conn.execute(
+            "UPDATE config SET value = 'row' WHERE key = 'tama_placement_mode'",
+            [],
+        )?;
+        tracing::info!("[migrations] tama_placement_mode='row' heredado de tama_layout_mode='static'");
+    }
+
+    conn.execute(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('tama_placement_mode_migrated', 'true')",
+        [],
+    )?;
     Ok(())
 }
 

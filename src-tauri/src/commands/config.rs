@@ -80,6 +80,8 @@ pub async fn set_config_cmd(
         "tama_guest_mouth_open_path" => cache.tama_guest_mouth_open_path = value.clone(),
         "tama_guest_mouth_closed_path" => cache.tama_guest_mouth_closed_path = value.clone(),
         // ── Grid layout cache (read live by the grid reconfigure below) ────────
+        "tama_placement_mode" => cache.tama_placement_mode = value.clone(),
+        "tama_row_anchor" => cache.tama_row_anchor = value.clone(),
         "tama_layout_mode" => cache.tama_layout_mode = value.clone(),
         "tama_grid_high_precision" => cache.tama_grid_high_precision = value == "true",
         "tama_grid_perspective" => cache.tama_grid_perspective = value == "true",
@@ -117,10 +119,10 @@ pub async fn set_config_cmd(
     // re-emits cells to every client. Only the dimension keys trigger a rebuild.
     let rebuild_grid = matches!(
         key.as_str(),
-        "tama_layout_mode" | "tama_grid_high_precision"
+        "tama_placement_mode" | "tama_row_anchor" | "tama_grid_high_precision"
     );
-    let (small_mode, high_precision) = (
-        cache.tama_layout_mode == "static",
+    let (row_mode, high_precision) = (
+        cache.tama_placement_mode == "row",
         cache.tama_grid_high_precision,
     );
 
@@ -130,7 +132,7 @@ pub async fn set_config_cmd(
     drop(cache);
 
     if rebuild_grid {
-        state.grid.reconfigure(&app, small_mode, high_precision);
+        state.grid.reconfigure(&app, row_mode, high_precision);
     }
 
     // Background mode/quality changes (set via the generic command, not the upload

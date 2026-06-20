@@ -194,6 +194,8 @@ pub fn get_config(conn: &Connection) -> Result<AppConfig> {
             "tama_guest_mouth_closed_path" => cfg.tama_guest_mouth_closed_path = value,
             "tama_guest_tiktok_avatar" => cfg.tama_guest_tiktok_avatar = value == "true",
             // ── Grid layout config ────────────────────────────────────────────
+            "tama_placement_mode" => cfg.tama_placement_mode = value,
+            "tama_row_anchor" => cfg.tama_row_anchor = value,
             "tama_layout_mode" => cfg.tama_layout_mode = value,
             "tama_grid_high_precision" => cfg.tama_grid_high_precision = value == "true",
             "tama_grid_perspective" => cfg.tama_grid_perspective = value == "true",

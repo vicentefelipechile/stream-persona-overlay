@@ -108,13 +108,13 @@ pub fn run() {
             // cells. The grid is backend-authoritative: it broadcasts cell
             // coordinates so the Tauri overlay and OBS Browser Source stay in sync.
             {
-                let (small_mode, high_precision, wander_enabled) = {
+                let (row_mode, high_precision, wander_enabled) = {
                     let cfg = app_state
                         .config_cache
                         .read()
                         .expect("config cache poisoned");
                     (
-                        cfg.tama_layout_mode == "static",
+                        cfg.tama_placement_mode == "row",
                         cfg.tama_grid_high_precision,
                         cfg.tama_grid_wander_enabled,
                     )
@@ -122,9 +122,10 @@ pub fn run() {
                 let grid_handle = app.handle().clone();
                 app_state
                     .grid
-                    .reconfigure(&grid_handle, small_mode, high_precision);
+                    .reconfigure(&grid_handle, row_mode, high_precision);
 
-                if wander_enabled {
+                // The static row never wanders, so only start the tick in free mode.
+                if wander_enabled && !row_mode {
                     // Wander runs on its own cadence (NOT tama_action_check_secs, which
                     // paces random *actions*). Each tick may send a pet on a long walk
                     // to a far cell; the overlay glides there over several seconds at a

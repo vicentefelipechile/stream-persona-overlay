@@ -399,7 +399,9 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_guest_mouth_open_path` | `""` | Absolute path to a custom guest mouth-open PNG (empty = use bundled `guest_open.png`) |
 | `tama_guest_mouth_closed_path` | `""` | Absolute path to a custom guest mouth-closed PNG (empty = use bundled `guest_closed.png`) |
 | `tama_guest_tiktok_avatar` | `"true"` | When `"true"`, TikTok guest pets use the chatter's TikTok profile picture (`data.user.profilePictureUrl`) as their sprite, taking priority over the bundled/custom guest sprite. The avatar is an `https` URL passed straight to the `<img>` (PetManager skips `convertFileSrc` for `http(s)` paths). |
-| `tama_layout_mode` | `"dynamic"` | Reinterpreted for the 2D grid: `"static"` => small floor grid (6×1), anything else (incl. legacy `"dynamic"`) => normal grid (150×30). Changing it rebuilds the grid live (`GridManager::reconfigure`). |
+| `tama_placement_mode` | `"free"` | Pet placement model: `"free"` (the wandering 2D grid 150×30) or `"row"` (a single **static row** of equally-sized pets pinned to one bottom corner — no wander, no perspective). Changing it rebuilds the grid live (`GridManager::reconfigure`). On first run, an install that had `tama_layout_mode="static"` is migrated to `"row"` (gated by `tama_placement_mode_migrated`). |
+| `tama_row_anchor` | `"left"` | Which bottom corner the static row anchors to: `"left"` or `"right"`. Pets stack from that edge toward the centre. Only used when `tama_placement_mode="row"`; applied by the overlay (`Grid2D.rowCellToPx`) — the backend always emits sequential columns `0..n`. |
+| `tama_layout_mode` | `"dynamic"` | **Legacy** — previously picked the free grid size (`"static"`=6×1 / else 150×30). Superseded by `tama_placement_mode`; kept so get/set config don't drop it. No longer read by the grid. |
 | `tama_grid_high_precision` | `"false"` | Doubles both grid axes (the "Matriz de alta precisión" toggle: 6×1→12×2, 150×30→300×60). Rebuilds the grid live. |
 | `tama_grid_perspective` | `"true"` | Front rows (higher `cellY`) render larger, back rows smaller. Applied live by the overlay (`Grid2D`). |
 | `tama_grid_perspective_type` | `"plano"` | Floor projection shape (only affects visuals; cells unchanged): `"plano"` (straight trapezoid), `"colina_abajo"` (side walls bow inward — downhill look) or `"horizonte"` (back rows arch up in the centre — spherical-horizon look). Applied live by `Grid2D`/`GridGuide`. |
@@ -1148,7 +1150,8 @@ chat-message (returning user while sleeping)
 
 **Layout & Components:**
 - **Header** — Tamagotchi title with system ON/OFF toggle (teal accent, status text)
-- **Config card** — grid of custom-styled range sliders (pet size, max visible, inactivity, action interval, probability, name size) + grid controls: matrix size mode (Piso estático 6×1 / Normal 150×30), "Matriz de alta precisión" toggle, "Movimiento ambiental" toggle, "Efecto de perspectiva" toggle with near/far scale sliders, and the floor-band start slider
+- **Modo de disposición card** — chooses the placement model: a "Fila estática" toggle (`#cfg-placement-row` → `tama_placement_mode`) and an "Esquina de la fila" Left/Right select (`#cfg-row-anchor` → `tama_row_anchor`, dimmed via opacity/pointer-events when the row toggle is off). See §17 "Static-row mode".
+- **Config card** — grid of custom-styled range sliders (pet size, max visible, inactivity, action interval, probability, name size) + free-grid controls: "Matriz de alta precisión" toggle, "Movimiento ambiental" toggle, "Efecto de perspectiva" toggle with near/far scale sliders, and the floor-band start slider (these only affect free mode). The old "Tamaño de la matriz" selector was removed — the grid size is no longer user-pickable; free mode is always 150×30.
   - Each slider has `.tama-slider-item` with label + teal value display
   - Custom range input styling (`.tama-range`) with teal thumb and glow on focus
   - **"Saltar al hablar" toggle** (`.tama-setting-row`) — pets jump in place instead of walking to chat message
@@ -1341,13 +1344,26 @@ That panic fires inside `start_server` **before the socket `bind`**. Because the
 
 Pet placement is owned entirely by Rust (`grid/mod.rs`, modeled on `streamer_mic`). The overlay never decides where a pet stands; it renders the cell the backend assigns. See §8 (`GridUpdatePayload`) and §16 (core modules / lifecycle) for the full flow.
 
-- **Grid model** — the screen is a `cols × rows` grid laid over a floor band. Cell `(0,0)` is the back-left (far/small); higher `cellY` is the front (near/large). Dimensions are fixed per mode: small `6×1` (`tama_layout_mode = "static"`) / normal `150×30`, doubled when `tama_grid_high_precision` is on.
+- **Two placement modes (`tama_placement_mode`)** — `"free"` (default) is the wandering 2D grid described below; `"row"` is a **static row** (see the dedicated subsection). The mode is owned by `GridState.mode` and switching it calls `GridManager::reconfigure`, which rebuilds the grid and re-emits config + every cell live (no overlay reload).
+- **Grid model (free mode)** — the screen is a `cols × rows` grid laid over a floor band. Cell `(0,0)` is the back-left (far/small); higher `cellY` is the front (near/large). Dimensions are `150×30`, doubled when `tama_grid_high_precision` is on.
 - **Assignment** — on spawn the overlay calls `tama_grid_ensure(user_id)`; the backend allocates a free cell (front-center bias, **two-pass**: first only cells with personal space, then any free cell) and broadcasts `tama-grid-update`. The overlay **snaps** the pet to its first cell (never walks it from the `(0,0)` corner — that read as a bug); subsequent updates animate. The pet `applyCell`s to the resolved pixels.
 - **Wander** — if `tama_grid_wander_enabled`, a tokio interval task (`GridManager::wander_tick`, fixed 6 s period) drives **asynchronous** movement: each pet has its own randomized cooldown (`wander_wait`, 1–5 ticks) so they don't all step on the same beat. When a pet's cooldown elapses it strolls to a far free cell (`WANDER_MIN/MAX_STEP`, mostly horizontal) that ideally has **personal space** — `random_free_step` tries several candidates and prefers one with no occupied cell inside an *anisotropic* spacing rectangle (wider in X than Y via `SPACING_FRAC_X/Y`, since a sprite spans more columns than rows on screen). Only moved pets emit an update.
 - **Actions** — fight (and any movement action) call `PetManager.requestMove(userId, cellX, cellY)` → `tama_grid_move`, which resolves the free cell nearest the target via an expanding ring search and resets that pet's wander cooldown so it doesn't immediately stroll off. The overlay animates the resulting `tama-grid-update`.
 - **Perspective (one unified projection)** — when `tama_grid_perspective` is on, the floor band is owned by `Grid2D.rowTop`/`rowEdges` and projected once via `projectPoint(fx, fy)`, shared by pets AND the `GridGuide`. It tapers horizontally toward the back by `farScale/nearScale` (a curved, foreshortened depth via `rowDepth`), and `cellToPx` places each pet inside its row's edges, so a pet's column AND its `scale = lerp(farScale, nearScale, …)` shrink together. `tama_grid_near_scale` / `tama_grid_far_scale` drive BOTH sprite size and how much the band/columns converge; `tama_grid_floor_top_frac` moves the whole projection; the band stops `BOTTOM_MARGIN_FRAC` (4%) short of the bottom. **`tama_grid_perspective_type`** picks the band's shape: `"plano"` (straight trapezoid), `"colina_abajo"` (side walls bow inward, `rowEdges`) or `"horizonte"` (back rows arch up in the centre, `rowTop` varies with `fx`). The `GridGuide` white grid (`tama_grid_guide_alpha`) samples the same `projectPoint` as polylines, so its lines bend with whatever style is active and pets stand exactly on them. The scale lives on `.el` via the individual `scale` CSS property; only the horizontal flip lives on `.pet-inner`.
 - **Resize** — `PetManager` re-translates each pet's authoritative cell to new pixels on window resize; cells never change, only their pixel projection.
 - **Rehydration** — a client connecting after pets exist calls `tama_grid_get_state` to get dims + every cell.
+
+### Static-row mode (`tama_placement_mode = "row"`)
+
+A second placement model that runs **in parallel** with the free grid, selected by the new "Modo de disposición" card in the Tamagotchi admin view. Pets do **not** wander: they line up in a single static row pinned to one bottom corner (`tama_row_anchor` = `"left"` / `"right"`), all the **same size** (no perspective), stacked from the edge toward the centre in arrival order (FIFO).
+
+- **Backend (`grid/mod.rs`)** — `GridState.mode` is `Row`; the grid is `ROW_COLS × 1` (one cell tall). `GridState.order: Vec<i64>` records arrival order. `repack_row()` reassigns columns `0..n` from that order and returns the pets whose cell changed.
+  - **Join:** `ensure_cell` pushes the user onto `order` and calls `repack_row`, returning the new pet's cell **plus** any siblings the re-pack shifted; `ensure`/`ensure_ws` emit a `tama-grid-update` for each.
+  - **Leave:** `release_cell` removes the user from `order` and `repack_row`s, so the trailing pets slide in to close the gap; `release`/`release_ws` emit the gap-close updates after the `tama-grid-remove`.
+  - **No wander / no fight repositioning:** `wander_tick` returns immediately in Row mode, and `place_nearest` is a no-op that returns the pet's current cell (the line is fixed). The wander tokio task in `lib.rs` is not even spawned when the app starts in Row mode.
+  - The backend always emits sequential columns `0..n`; it does **not** know the anchor.
+- **Overlay (`Grid2D.rowCellToPx`)** — translates the column to a flat row along the bottom (`top = (1 - BOTTOM_MARGIN_FRAC)·h - petSizePx`, `scale = 1`). `tama_row_anchor` decides whether column 0 sits flush left (`EDGE_PAD + col·pitch`) or flush right (mirrored). `pitch = petSizePx·(1 + ROW_GAP_FRAC)`. The `GridGuide` is force-hidden in row mode (no floor band to align to).
+- **Lifecycle reuse** — entry on chat-message, sleep/despawn on inactivity (`tama_inactivity_mins`), bubbles, lip-sync and per-pet actions (jump, dance…) all behave exactly as in free mode; only the *position* model differs. "Stops talking → leaves" is the existing inactivity timer; `release` + `repack_row` close the gap.
 
 ### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
 
@@ -1368,7 +1384,7 @@ Every call to `set_config_cmd` with a key that starts with `tama_` causes Rust t
 | `tama_enabled_actions` | Updates PetScheduler action pool immediately |
 | `tama_jump_on_speak` | Applies on the next chat message |
 | `tama_grid_perspective` / `tama_grid_near_scale` / `tama_grid_far_scale` / `tama_grid_floor_top_frac` | Applied live by `Grid2D` + a re-translate of all pets |
-| `tama_layout_mode` / `tama_grid_high_precision` | Rebuild the grid live in the backend (`GridManager::reconfigure`) — re-emits config + cells; no overlay reload needed |
+| `tama_placement_mode` / `tama_row_anchor` / `tama_grid_high_precision` | Rebuild the grid live in the backend (`GridManager::reconfigure`) — re-emits config + cells; no overlay reload needed. `tama_placement_mode` switches free grid ↔ static row; `tama_row_anchor` flips the row's corner. |
 | `tama_grid_wander_enabled` | Requires overlay reload to start/stop the wander task (admin panel shows info toast) |
 
 ---

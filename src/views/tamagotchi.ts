@@ -87,7 +87,8 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
   const guestsPrefix    = String(cfg["tama_guests_label_prefix"]   ?? "");
   const guestOpenPath   = String(cfg["tama_guest_mouth_open_path"]   ?? "");
   const guestClosedPath = String(cfg["tama_guest_mouth_closed_path"] ?? "");
-  const layoutMode      = String(cfg["tama_layout_mode"]           ?? "dynamic") === "static" ? "static" : "dynamic";
+  const placementMode   = String(cfg["tama_placement_mode"]        ?? "free") === "row" ? "row" : "free";
+  const rowAnchor       = String(cfg["tama_row_anchor"]            ?? "left") === "right" ? "right" : "left";
   const gridHighPrec    = String(cfg["tama_grid_high_precision"]   ?? "false") === "true";
   const gridPerspective = String(cfg["tama_grid_perspective"]      ?? "true")  === "true";
   const gridPerspType   = String(cfg["tama_grid_perspective_type"] ?? "plano");
@@ -139,6 +140,32 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
 
     <div class="card">
       <div class="card-header">
+        <h2 class="section-title">Modo de disposición</h2>
+      </div>
+      <div class="tama-setting-row">
+        <div>
+          <div class="tama-setting-label">Fila estática</div>
+          <div class="tama-setting-desc">En vez de moverse libremente por la pantalla, las mascotas se quedan en fila en una esquina inferior. Entran al hablar y se acomodan solas cuando una entra o se va.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="cfg-placement-row" ${placementMode === "row" ? "checked" : ""}/>
+          <span class="switch-track"></span>
+        </label>
+      </div>
+      <div id="row-anchor-options" class="tama-setting-row" style="margin-top:var(--space-4);${placementMode !== "row" ? "opacity:.4;pointer-events:none;" : ""}">
+        <div>
+          <div class="tama-setting-label">Esquina de la fila</div>
+          <div class="tama-setting-desc">A qué borde de la pantalla se pega la fila. Las mascotas se apilan desde ese borde hacia el centro.</div>
+        </div>
+        <select id="cfg-row-anchor" style="width:160px;">
+          <option value="left"  ${rowAnchor === "left"  ? "selected" : ""}>Izquierda</option>
+          <option value="right" ${rowAnchor === "right" ? "selected" : ""}>Derecha</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header">
         <h2 class="section-title">Configuración Global</h2>
       </div>
       <div class="tama-sliders-grid">
@@ -158,17 +185,6 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
           <input type="checkbox" id="cfg-jump-on-speak" ${jumpOnSpeak ? "checked" : ""}/>
           <span class="switch-track"></span>
         </label>
-      </div>
-
-      <div class="tama-setting-row" style="margin-top:var(--space-4);">
-        <div>
-          <div class="tama-setting-label">Tamaño de la matriz</div>
-          <div class="tama-setting-desc">Piso estático: rejilla pequeña 6×1 (pocas mascotas fijas). Normal: rejilla 150×30 (4500 posiciones).</div>
-        </div>
-        <select id="cfg-layout-mode" style="width:160px;">
-          <option value="dynamic" ${layoutMode === "dynamic" ? "selected" : ""}>Normal (150×30)</option>
-          <option value="static"  ${layoutMode === "static"  ? "selected" : ""}>Piso estático (6×1)</option>
-        </select>
       </div>
 
       <div class="tama-setting-row" style="margin-top:var(--space-4);">
@@ -559,10 +575,21 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
     invoke("set_config_cmd", { key: "tama_jump_on_speak", value }).catch(err => showToast(String(err), "error"));
   });
 
-  const layoutModeEl = container.querySelector<HTMLSelectElement>("#cfg-layout-mode")!;
-  layoutModeEl.addEventListener("change", () => {
-    // The backend rebuilds the grid live on this key; no overlay reload needed.
-    invoke("set_config_cmd", { key: "tama_layout_mode", value: layoutModeEl.value })
+  // Placement mode (Free grid <-> Static row). The backend rebuilds the grid live on
+  // this key (GridManager::reconfigure re-emits config + cells), so no overlay reload.
+  const placementRowEl  = container.querySelector<HTMLInputElement>("#cfg-placement-row")!;
+  const rowAnchorOptsEl = container.querySelector<HTMLDivElement>("#row-anchor-options")!;
+  placementRowEl.addEventListener("change", () => {
+    const on = placementRowEl.checked;
+    rowAnchorOptsEl.style.opacity       = on ? "" : "0.4";
+    rowAnchorOptsEl.style.pointerEvents = on ? "" : "none";
+    invoke("set_config_cmd", { key: "tama_placement_mode", value: on ? "row" : "free" })
+      .catch(err => showToast(String(err), "error"));
+  });
+
+  const rowAnchorEl = container.querySelector<HTMLSelectElement>("#cfg-row-anchor")!;
+  rowAnchorEl.addEventListener("change", () => {
+    invoke("set_config_cmd", { key: "tama_row_anchor", value: rowAnchorEl.value })
       .catch(err => showToast(String(err), "error"));
   });
 

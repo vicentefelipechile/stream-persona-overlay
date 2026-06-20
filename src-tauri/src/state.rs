@@ -314,8 +314,14 @@ pub struct AppConfig {
     /// their sprite (takes priority over the bundled/custom default guest sprite).
     pub tama_guest_tiktok_avatar: bool,
     // ── Grid layout config ───────────────────────────────────────────────────
-    /// Reinterpreted for the 2D grid: "static" => small floor grid (6x1),
-    /// anything else (incl. legacy "dynamic") => normal grid (150x30).
+    /// Pet placement model: "free" (the default 2D grid where pets wander) or
+    /// "row" (a single static row of equally-sized pets pinned to the bottom edge).
+    pub tama_placement_mode: String,
+    /// Which edge the static row is anchored to: "left" or "right". Only used when
+    /// tama_placement_mode == "row".
+    pub tama_row_anchor: String,
+    /// Legacy — used to pick the free grid size ("static" => 6x1, else 150x30).
+    /// Superseded by tama_placement_mode; kept so get/set config don't drop it.
     pub tama_layout_mode: String,
     /// Doubles both grid axes when true (the "Matriz de alta precisión" toggle).
     pub tama_grid_high_precision: bool,

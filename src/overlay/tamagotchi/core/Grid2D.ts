@@ -18,6 +18,13 @@
  *  inward (downhill); "horizonte" = back rows arch up in the centre (spherical horizon). */
 export type PerspectiveType = "plano" | "colina_abajo" | "horizonte";
 
+/** Pet placement model. "free" = the wandering 2D grid with perspective; "row" = a
+ *  single static line of equally-sized pets pinned to one bottom corner. */
+export type PlacementMode = "free" | "row";
+
+/** Which edge the static row is anchored to (row mode only). */
+export type RowAnchor = "left" | "right";
+
 export interface GridConfig {
   cols: number;
   rows: number;
@@ -26,6 +33,8 @@ export interface GridConfig {
   nearScale: number;
   farScale: number;
   floorTopFrac: number;
+  placementMode: PlacementMode;
+  rowAnchor: RowAnchor;
 }
 
 export interface CellPx {
@@ -43,6 +52,8 @@ const DEFAULT_CONFIG: GridConfig = {
   nearScale: 1.3,
   farScale: 0.6,
   floorTopFrac: 0.55,
+  placementMode: "free",
+  rowAnchor: "left",
 };
 
 export class Grid2D {
@@ -82,6 +93,10 @@ export class Grid2D {
    * visually centered on its column and stands on the floor band.
    */
   cellToPx(cellX: number, cellY: number, petSizePx: number): CellPx {
+    if (this.cfg.placementMode === "row") {
+      return this.rowCellToPx(cellX, petSizePx);
+    }
+
     const { cols, rows } = this.cfg;
 
     // Normalized position within the grid (0..1). Guard against 1-wide/1-tall grids.
@@ -102,6 +117,39 @@ export class Grid2D {
     const z = Math.round(cellY * 1000 + (cols - cellX));
 
     return { left, top, scale, z };
+  }
+
+  // =========================================================================================================
+  // Static-row projection (placementMode === "row")
+  // =========================================================================================================
+
+  /** Gap between two adjacent pets in the static row, as a fraction of the sprite
+   *  size. The slot pitch is `petSizePx * (1 + ROW_GAP_FRAC)`. */
+  private static readonly ROW_GAP_FRAC = 0.2;
+
+  /**
+   * Flat-row placement: pets are equal-sized (scale 1) and packed in a single line
+   * along the bottom, starting flush against the anchored edge. `col` is the
+   * backend-assigned slot (0 = nearest the edge). The row sits on the same floor line
+   * the free band would use at its front (`1 - BOTTOM_MARGIN_FRAC`), so toggling modes
+   * keeps the pets near the bottom of the screen.
+   */
+  private rowCellToPx(col: number, petSizePx: number): CellPx {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const pitch = petSizePx * (1 + Grid2D.ROW_GAP_FRAC);
+
+    // Left edge of the slot, measured from the anchored side toward the centre.
+    const offset = Grid2D.EDGE_PAD + col * pitch;
+    const left = this.cfg.rowAnchor === "right"
+      ? w - Grid2D.EDGE_PAD - petSizePx - col * pitch
+      : offset;
+
+    const top = h * (1 - Grid2D.BOTTOM_MARGIN_FRAC) - petSizePx;
+    // Newest/outermost pets paint behind the ones nearer the edge so overlaps (if the
+    // line ever gets dense) read as a queue stacking away from the corner.
+    const z = Math.round(10_000 - col);
+    return { left, top, scale: 1, z };
   }
 
   /** Perspective scale for a given row, or 1 when perspective is off. Uses the same

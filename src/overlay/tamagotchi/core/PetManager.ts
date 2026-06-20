@@ -14,7 +14,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { BasePet, configureBasePetInvoke } from "./BasePet";
 import type { PetConfig, Cell } from "./BasePet";
 import { Grid2D } from "./Grid2D";
-import type { PerspectiveType } from "./Grid2D";
+import type { PerspectiveType, PlacementMode, RowAnchor } from "./Grid2D";
 import { GridGuide } from "./GridGuide";
 
 // =========================================================================================================
@@ -151,6 +151,8 @@ export class PetManager {
         nearScale:       Number(cfg["tama_grid_near_scale"])    || 1.3,
         farScale:        Number(cfg["tama_grid_far_scale"])     || 0.6,
         floorTopFrac:    Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
+        placementMode:   this._parsePlacementMode(cfg["tama_placement_mode"]),
+        rowAnchor:       this._parseRowAnchor(cfg["tama_row_anchor"]),
       });
     } catch (_) {}
 
@@ -321,6 +323,16 @@ export class PetManager {
     return v === "colina_abajo" || v === "horizonte" ? v : "plano";
   }
 
+  /** Validates the tama_placement_mode config value, defaulting to "free". */
+  private static _parsePlacementMode(raw: unknown): PlacementMode {
+    return String(raw ?? "free") === "row" ? "row" : "free";
+  }
+
+  /** Validates the tama_row_anchor config value, defaulting to "left". */
+  private static _parseRowAnchor(raw: unknown): RowAnchor {
+    return String(raw ?? "left") === "right" ? "right" : "left";
+  }
+
   /** Converts an OS path via the transport, but passes http(s) URLs (e.g. a
    *  TikTok profile picture used as a guest sprite) through unchanged. */
   private static _resolveSrc(path: string): string {
@@ -355,18 +367,24 @@ export class PetManager {
       for (const pet of this.pets.values()) pet.updateSize(newSizePx);
     }
 
-    // Apply perspective / floor-band changes live, then re-translate.
+    // Apply perspective / floor-band / placement changes live, then re-translate.
+    const placementMode = this._parsePlacementMode(cfg["tama_placement_mode"]);
     this.grid.setConfig({
       perspective:     String(cfg["tama_grid_perspective"]) === "true",
       perspectiveType: this._parsePerspectiveType(cfg["tama_grid_perspective_type"]),
       nearScale:       Number(cfg["tama_grid_near_scale"])    || 1.3,
       farScale:        Number(cfg["tama_grid_far_scale"])     || 0.6,
       floorTopFrac:    Number(cfg["tama_grid_floor_top_frac"]) || 0.55,
+      placementMode,
+      rowAnchor:       this._parseRowAnchor(cfg["tama_row_anchor"]),
     });
     this._retranslateAll();
 
-    // Perspective guide grid alpha (redraws / hides live).
-    this._lastGuideAlpha = Number(cfg["tama_grid_guide_alpha"]) || 0;
+    // Perspective guide grid alpha (redraws / hides live). The guide is meaningless
+    // in row mode (no floor band), so force it hidden there.
+    this._lastGuideAlpha = placementMode === "row"
+      ? 0
+      : Number(cfg["tama_grid_guide_alpha"]) || 0;
     this.gridGuide?.setAlpha(this._lastGuideAlpha);
 
     BasePet.inactivityMs = (Number(cfg["tama_inactivity_mins"]) || 5) * 60 * 1000;

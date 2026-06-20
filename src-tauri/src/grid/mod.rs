@@ -25,11 +25,25 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::{AppState, GridUpdatePayload};
 
-// Base dimensions per mode. The high-precision toggle doubles each axis.
-const SMALL_COLS: u16 = 6;
-const SMALL_ROWS: u16 = 1;
+// Base dimensions for the free grid. The high-precision toggle doubles each axis.
 const NORMAL_COLS: u16 = 150;
 const NORMAL_ROWS: u16 = 30;
+
+/// Number of slots in the static row. The row is one cell tall; pets pack into
+/// columns `0..ROW_COLS` from the anchored edge. A pet that arrives when the row is
+/// full simply gets the last slot (the overlay's `tama_max_pets` already caps how
+/// many pets exist, so this is a safety bound, not the real limit).
+const ROW_COLS: u16 = 64;
+
+/// How pets are placed on screen. `Free` is the historical wandering 2D grid; `Row`
+/// is a single static line pinned to one bottom corner (no wander, uniform size).
+/// The anchor only matters to the overlay (it decides which edge column 0 sits at);
+/// the backend always emits sequential columns `0..n`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlacementMode {
+    Free,
+    Row,
+}
 
 /// Wander destination distance in cells. Each wander emits a SINGLE update; the
 /// overlay then walks there at a constant slow speed. The wide range mixes short
@@ -85,6 +99,7 @@ pub struct GridSnapshot {
 
 /// Authoritative grid state. Stored behind a Mutex inside `GridManager`.
 struct GridState {
+    mode: PlacementMode,
     cols: u16,
     rows: u16,
     /// userId -> assigned cell.
@@ -95,20 +110,46 @@ struct GridState {
     /// Decremented each tick; a pet only wanders when its counter reaches 0, after
     /// which it draws a fresh per-pet cooldown. This desynchronizes movement.
     wander_wait: HashMap<i64, u32>,
+    /// Arrival order of the pets, kept so the static row packs FIFO (oldest nearest
+    /// the edge) and re-packs deterministically when a pet leaves. Only used in Row
+    /// mode; harmlessly maintained in Free mode too.
+    order: Vec<i64>,
 }
 
 impl GridState {
-    fn dims_for(small_mode: bool, high_precision: bool) -> (u16, u16) {
-        let (mut c, mut r) = if small_mode {
-            (SMALL_COLS, SMALL_ROWS)
-        } else {
-            (NORMAL_COLS, NORMAL_ROWS)
+    fn dims_for(mode: PlacementMode, high_precision: bool) -> (u16, u16) {
+        let (mut c, mut r) = match mode {
+            PlacementMode::Row => (ROW_COLS, 1),
+            PlacementMode::Free => (NORMAL_COLS, NORMAL_ROWS),
         };
         if high_precision {
             c = c.saturating_mul(2);
             r = r.saturating_mul(2);
         }
         (c.max(1), r.max(1))
+    }
+
+    /// Recomputes every pet's column from `order` (oldest at column 0, packing toward
+    /// the anchored edge) for the static row. Returns the pets whose cell changed so
+    /// the caller can emit updates. No-op in Free mode.
+    fn repack_row(&mut self) -> Vec<(i64, Cell)> {
+        if self.mode != PlacementMode::Row {
+            return Vec::new();
+        }
+        // Drop ids that are no longer present, keeping arrival order for the rest.
+        self.order.retain(|id| self.cells.contains_key(id));
+        let mut moved = Vec::new();
+        self.occupied.clear();
+        for (idx, &id) in self.order.iter().enumerate() {
+            let col = (idx as u16).min(self.cols.saturating_sub(1));
+            let cell = (col, 0);
+            self.occupied.insert(cell);
+            if self.cells.get(&id) != Some(&cell) {
+                moved.push((id, cell));
+            }
+            self.cells.insert(id, cell);
+        }
+        moved
     }
 
     fn is_free(&self, cell: Cell) -> bool {
@@ -129,39 +170,64 @@ impl GridManager {
         }
     }
 
-    /// (Re)builds the grid from the layout config. `small_mode` comes from
-    /// `tama_layout_mode == "static"`; `high_precision` from `tama_grid_high_precision`.
-    /// Pets whose cell falls outside the new bounds are repacked into free cells.
-    /// Emits the new config + a fresh snapshot so every client re-renders. Called at
-    /// startup and whenever a grid-shaping config key changes.
-    pub fn reconfigure(&self, app: &AppHandle, small_mode: bool, high_precision: bool) {
+    /// (Re)builds the grid from the layout config. `row_mode` comes from
+    /// `tama_placement_mode == "row"`; `high_precision` from `tama_grid_high_precision`.
+    /// Pets are carried across the rebuild: in Free mode their old cell is kept (or the
+    /// nearest free one); in Row mode they are re-packed by arrival order against the
+    /// anchored edge. Emits the new config + a fresh snapshot so every client
+    /// re-renders. Called at startup and whenever a grid-shaping config key changes.
+    pub fn reconfigure(&self, app: &AppHandle, row_mode: bool, high_precision: bool) {
         let Ok(mut guard) = self.inner.lock() else {
             return;
         };
 
-        let (cols, rows) = GridState::dims_for(small_mode, high_precision);
+        let mode = if row_mode {
+            PlacementMode::Row
+        } else {
+            PlacementMode::Free
+        };
+        let (cols, rows) = GridState::dims_for(mode, high_precision);
 
         // Preserve existing pet assignments across a reconfigure when possible.
         let previous = guard.take();
         let mut state = GridState {
+            mode,
             cols,
             rows,
             cells: HashMap::new(),
             occupied: HashSet::new(),
             wander_wait: HashMap::new(),
+            order: Vec::new(),
         };
 
         if let Some(prev) = previous {
-            for (user_id, cell) in prev.cells {
-                let target = if state.is_free(cell) {
-                    cell
-                } else {
-                    state.nearest_free(cell).unwrap_or((0, 0))
-                };
-                state.cells.insert(user_id, target);
-                state.occupied.insert(target);
-                // Stagger initial cooldowns so pets don't all wander on the first tick.
-                state.wander_wait.insert(user_id, state.random_cooldown());
+            // Carry the arrival order forward so the row re-packs deterministically;
+            // append any pet missing from `order` (defensive — should not happen).
+            state.order = prev.order;
+            for id in prev.cells.keys() {
+                if !state.order.contains(id) {
+                    state.order.push(*id);
+                }
+            }
+
+            if mode == PlacementMode::Row {
+                // Seed the cells map so repack_row sees the pets, then pack them.
+                for &id in &state.order {
+                    state.cells.insert(id, (0, 0));
+                }
+                state.repack_row();
+            } else {
+                for (user_id, cell) in prev.cells {
+                    let target = if state.is_free(cell) {
+                        cell
+                    } else {
+                        state.nearest_free(cell).unwrap_or((0, 0))
+                    };
+                    state.cells.insert(user_id, target);
+                    state.occupied.insert(target);
+                    // Stagger initial cooldowns so pets don't all wander on the first tick.
+                    state.wander_wait.insert(user_id, state.random_cooldown());
+                }
             }
         }
 
@@ -172,40 +238,59 @@ impl GridManager {
         emit_grid_config(app, cols, rows);
         broadcast_snapshot(app, &snapshot);
         tracing::info!(
-            "[grid] Reconfigurada: {}x{} (small={}, precision={})",
+            "[grid] Reconfigurada: {}x{} (row_mode={}, precision={})",
             cols,
             rows,
-            small_mode,
+            row_mode,
             high_precision
         );
     }
 
-    /// Allocates the pet's cell if it doesn't have one yet. Returns the cell plus
-    /// whether it was newly assigned (vs already present). Pure state mutation — the
-    /// caller is responsible for emitting. Shared by both the Tauri and WS paths.
-    fn ensure_cell(&self, user_id: i64) -> Option<(Cell, bool)> {
+    /// Allocates the pet's cell if it doesn't have one yet. Returns the pet's own cell
+    /// plus any OTHER pets the assignment moved (only non-empty in Row mode, where a
+    /// new arrival re-packs the line). Pure state mutation — the caller emits. Shared
+    /// by both the Tauri and WS paths.
+    fn ensure_cell(&self, user_id: i64) -> Option<(Cell, Vec<(i64, Cell)>)> {
         let mut guard = self.inner.lock().ok()?;
         let state = guard.as_mut()?;
         if let Some(c) = state.cells.get(&user_id) {
-            Some((*c, false))
-        } else {
-            let c = state.first_free().unwrap_or((0, 0));
-            state.cells.insert(user_id, c);
-            state.occupied.insert(c);
-            // Give the fresh pet a randomized cooldown so its first stroll doesn't
-            // coincide with everyone else's.
-            let cooldown = state.random_cooldown();
-            state.wander_wait.insert(user_id, cooldown);
-            Some((c, true))
+            return Some((*c, Vec::new()));
         }
+
+        if state.mode == PlacementMode::Row {
+            // Append to the line and re-pack; the new pet lands at the next column.
+            state.order.push(user_id);
+            state.cells.insert(user_id, (0, 0));
+            let mut moved = state.repack_row();
+            // Split out this pet's own cell from the siblings the repack shifted.
+            let own = state.cells.get(&user_id).copied().unwrap_or((0, 0));
+            moved.retain(|(id, _)| *id != user_id);
+            return Some((own, moved));
+        }
+
+        let c = state.first_free().unwrap_or((0, 0));
+        state.cells.insert(user_id, c);
+        state.occupied.insert(c);
+        if !state.order.contains(&user_id) {
+            state.order.push(user_id);
+        }
+        // Give the fresh pet a randomized cooldown so its first stroll doesn't
+        // coincide with everyone else's.
+        let cooldown = state.random_cooldown();
+        state.wander_wait.insert(user_id, cooldown);
+        Some((c, Vec::new()))
     }
 
-    /// Returns the pet's current cell, assigning a fresh free one on first call.
-    /// Always emits a `tama-grid-update` so late-joining clients converge. Called by
-    /// the overlay (Tauri window) when a pet spawns. Returns `None` if uninitialized.
+    /// Returns the pet's current cell, assigning a fresh one on first call. Always
+    /// emits a `tama-grid-update` (plus updates for any siblings the row re-pack moved)
+    /// so every client converges. Called by the overlay when a pet spawns. Returns
+    /// `None` if uninitialized.
     pub fn ensure(&self, app: &AppHandle, user_id: i64) -> Option<Cell> {
-        let (cell, _) = self.ensure_cell(user_id)?;
+        let (cell, moved) = self.ensure_cell(user_id)?;
         emit_grid_update(app, user_id, cell);
+        for (id, c) in moved {
+            emit_grid_update(app, id, c);
+        }
         Some(cell)
     }
 
@@ -213,50 +298,61 @@ impl GridManager {
     /// dispatcher has an `AppState` but no `AppHandle`). Broadcasts the update over
     /// the WebSocket fan-out only; there is no Tauri window to `emit` to from here.
     pub fn ensure_ws(&self, state: &AppState, user_id: i64) -> Option<Cell> {
-        let (cell, _) = self.ensure_cell(user_id)?;
-        state.broadcast_ws(
-            "tama-grid-update",
-            &GridUpdatePayload {
-                user_id,
-                cell_x: cell.0,
-                cell_y: cell.1,
-            },
-        );
+        let (cell, moved) = self.ensure_cell(user_id)?;
+        broadcast_cell(state, user_id, cell);
+        for (id, c) in moved {
+            broadcast_cell(state, id, c);
+        }
         Some(cell)
     }
 
-    /// Removes the pet from the grid. Pure state mutation; the caller emits.
-    fn release_cell(&self, user_id: i64) {
+    /// Removes the pet from the grid. Returns the pets the row re-pack shifted to close
+    /// the gap (empty in Free mode). Pure state mutation; the caller emits.
+    fn release_cell(&self, user_id: i64) -> Vec<(i64, Cell)> {
         if let Ok(mut guard) = self.inner.lock() {
             if let Some(state) = guard.as_mut() {
                 if let Some(cell) = state.cells.remove(&user_id) {
                     state.occupied.remove(&cell);
                 }
                 state.wander_wait.remove(&user_id);
+                state.order.retain(|id| *id != user_id);
+                return state.repack_row();
             }
         }
+        Vec::new()
     }
 
     /// Frees the pet's cell (call on despawn) and emits `tama-grid-remove`.
     pub fn release(&self, app: &AppHandle, user_id: i64) {
-        self.release_cell(user_id);
+        let moved = self.release_cell(user_id);
         emit_grid_remove(app, user_id);
+        // Slide the rest of the static row in to close the gap.
+        for (id, c) in moved {
+            emit_grid_update(app, id, c);
+        }
     }
 
     /// WS-only variant of `release` for OBS Browser Source clients.
     pub fn release_ws(&self, state: &AppState, user_id: i64) {
-        self.release_cell(user_id);
+        let moved = self.release_cell(user_id);
         state.broadcast_ws(
             "tama-grid-remove",
             &serde_json::json!({ "user_id": user_id }),
         );
+        for (id, c) in moved {
+            broadcast_cell(state, id, c);
+        }
     }
 
     /// Resolves the free cell nearest `target` and assigns it to the pet. Pure state
-    /// mutation; the caller emits. Shared by the Tauri and WS paths.
+    /// mutation; the caller emits. Shared by the Tauri and WS paths. In Row mode the
+    /// line is fixed, so this is a no-op that just returns the pet's current cell.
     fn place_nearest(&self, user_id: i64, target: Cell) -> Option<Cell> {
         let mut guard = self.inner.lock().ok()?;
         let state = guard.as_mut()?;
+        if state.mode == PlacementMode::Row {
+            return state.cells.get(&user_id).copied();
+        }
         let current = state.cells.get(&user_id).copied();
         if let Some(c) = current {
             state.occupied.remove(&c);
@@ -328,6 +424,10 @@ impl GridManager {
             let Some(state) = guard.as_mut() else {
                 return;
             };
+            // The static row never wanders; pets stay pinned to their slots.
+            if state.mode == PlacementMode::Row {
+                return;
+            }
             // Don't wander a 1-cell grid or empty grid.
             if state.cols * state.rows <= 1 || state.cells.is_empty() {
                 return;
@@ -663,6 +763,19 @@ fn emit_grid_update(app: &AppHandle, user_id: i64, cell: Cell) {
     state_of(app).broadcast_ws("tama-grid-update", &payload);
 }
 
+/// WS-only single-cell broadcast (no Tauri `emit`), used by the `*_ws` paths to push
+/// a pet's cell to OBS Browser Source clients.
+fn broadcast_cell(state: &AppState, user_id: i64, cell: Cell) {
+    state.broadcast_ws(
+        "tama-grid-update",
+        &GridUpdatePayload {
+            user_id,
+            cell_x: cell.0,
+            cell_y: cell.1,
+        },
+    );
+}
+
 fn emit_grid_remove(app: &AppHandle, user_id: i64) {
     #[derive(serde::Serialize, Clone)]
     struct Rm {
@@ -728,19 +841,66 @@ mod tests {
 
     /// Builds a normal-size empty grid with the given pets placed at fixed cells.
     fn grid_with(cells: &[(i64, Cell)]) -> GridState {
-        let (cols, rows) = GridState::dims_for(false, false);
+        let (cols, rows) = GridState::dims_for(PlacementMode::Free, false);
         let mut state = GridState {
+            mode: PlacementMode::Free,
             cols,
             rows,
             cells: HashMap::new(),
             occupied: HashSet::new(),
             wander_wait: HashMap::new(),
+            order: Vec::new(),
         };
         for &(id, cell) in cells {
             state.cells.insert(id, cell);
             state.occupied.insert(cell);
+            state.order.push(id);
         }
         state
+    }
+
+    /// Builds an empty static-row grid (one cell tall).
+    fn row_grid() -> GridState {
+        let (cols, rows) = GridState::dims_for(PlacementMode::Row, false);
+        GridState {
+            mode: PlacementMode::Row,
+            cols,
+            rows,
+            cells: HashMap::new(),
+            occupied: HashSet::new(),
+            wander_wait: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn row_packs_pets_from_the_edge_in_arrival_order() {
+        let mut state = row_grid();
+        for id in [10i64, 20, 30] {
+            state.order.push(id);
+            state.cells.insert(id, (0, 0));
+        }
+        state.repack_row();
+        assert_eq!(state.cells[&10], (0, 0));
+        assert_eq!(state.cells[&20], (1, 0));
+        assert_eq!(state.cells[&30], (2, 0));
+    }
+
+    #[test]
+    fn row_closes_the_gap_when_a_pet_leaves() {
+        let mut state = row_grid();
+        for id in [10i64, 20, 30] {
+            state.order.push(id);
+            state.cells.insert(id, (0, 0));
+        }
+        state.repack_row();
+        // Remove the middle pet; the trailing pet must slide in to close the gap.
+        state.cells.remove(&20);
+        state.order.retain(|id| *id != 20);
+        let moved = state.repack_row();
+        assert_eq!(state.cells[&10], (0, 0));
+        assert_eq!(state.cells[&30], (1, 0));
+        assert!(moved.iter().any(|(id, c)| *id == 30 && *c == (1, 0)));
     }
 
     #[test]
