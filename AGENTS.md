@@ -535,6 +535,8 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `tama_grid_move` | `invoke("tama_grid_move", { user_id, cell_x, cell_y })` | Move a pet to the free cell nearest a target (the grid resolves it) and broadcast the update. Used by actions (e.g. fight) instead of hard-coded screen positions. |
 | `set_guest_image` | `invoke("set_guest_image", { imageType: "open" \| "closed", imageData: number[] })` | Upload a custom PNG/JPEG sprite for guest pets (max 2 MB). Resizes to 512×512 PNG, saves to `{app_data_dir}/guest_open\|closed.png`, updates `tama_guest_mouth_open\|closed_path` config key and emits `tama-config-changed`. |
 | `reset_guest_image` | `invoke("reset_guest_image", { imageType: "open" \| "closed" })` | Clear the custom guest image, reverting to the bundled default. |
+| `tama_demo_start` | `invoke("tama_demo_start", { count })` | Populate the overlay with `count` (1–20) synthetic **demo pets** so a first-time user can preview the overlay without a live stream. Emits `chat-message` (Tauri + WS) for each — reusing the exact real-chat spawn path — then runs a background loop (`AppState.demo_handle`) re-messaging random pets every ~2.5 s so they keep moving and never sleep. Re-callable: stops any running demo first. Demo pets use negative `user_id`s (`guest_user_id("demo", name)`) and the guest sprite. |
+| `tama_demo_stop` | `invoke("tama_demo_stop")` | Abort the demo loop and despawn every demo pet (emits `tama-action`/`despawn` per pet) so they leave cleanly instead of timing out. |
 
 ### Control (`commands/control.rs`)
 
@@ -1163,6 +1165,7 @@ chat-message (returning user while sleeping)
   - Grid items have `min-width: 0` to prevent overflow
   - Live badge count shows enabled actions
 - **Fire action card** — flexbox row: user select + action select + fire button
+- **Mascotas de prueba card** — dedicated card to populate the overlay with synthetic demo pets without a live stream: a "Cantidad a generar" slider (`#demo-count`, 1–20) plus "Generar mascotas" (`#btn-demo-start` → `tama_demo_start`) and "Quitar de prueba" (`#btn-demo-stop` → `tama_demo_stop`) buttons. Warns via toast if the Tamagotchi system toggle is off (pets only render when enabled).
 - **Active pets card** — list of `.tama-pet-row` with avatar (🐾), name, position, status badge, delete button
 
 **Styling notes:**

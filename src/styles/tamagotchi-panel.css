@@ -143,6 +143,14 @@
   color: var(--color-text);
 }
 
+/* When a setting label leads with an inline icon (e.g. the Twitch/TikTok glyphs in
+   the guest section), align the icon to the text baseline so they read as one unit
+   instead of the SVG floating above the words. */
+.tama-setting-label svg {
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+
 .tama-setting-desc {
   font-size: 12px;
   color: var(--color-text-muted);
@@ -292,4 +300,96 @@
   color: var(--color-text-dim);
   font-family: var(--font-mono);
   margin-top: 2px;
+}
+
+/* =========================================================================================================
+   Guest Viewers card — advanced section
+   ========================================================================================================= */
+
+/* The advanced section is a stack of setting rows. Rows already draw their own
+   top divider via .tama-setting-row, so the container only needs vertical rhythm. */
+.tama-guests-advanced {
+  margin-top: var(--space-4);
+}
+
+/* A labelled subsection inside the advanced area (name prefix, custom sprite). It
+   sits on the same divider rhythm as the setting rows above it. */
+.tama-guests-section {
+  padding-top: var(--space-5);
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+}
+
+.tama-guests-section .form-group {
+  margin-bottom: 0;
+}
+
+.tama-guests-section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 3px;
+}
+
+.tama-guests-section-desc {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+  margin-bottom: var(--space-4);
+}
+
+/* Custom sprite previews: two equal cards (mouth open / closed) side by side. */
+.tama-sprite-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.tama-sprite-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.tama-sprite-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.tama-sprite-preview {
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.tama-sprite-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tama-sprite-preview-empty {
+  font-size: 11px;
+  color: var(--color-text-dim);
+}
+
+.tama-sprite-card-actions {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+  justify-content: center;
 }

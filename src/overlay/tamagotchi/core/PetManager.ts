@@ -172,6 +172,9 @@ export class PetManager {
     await this.transport.listen<TamaActionPayload>("tama-action", e => {
       this._onTamaAction(e.payload).catch(console.error);
     });
+    await this.transport.listen<{ user_id: number }>("tama-despawn", e => {
+      this._onDespawn(e.payload.user_id).catch(console.error);
+    });
     await this.transport.listen<ChatEventPayload>("chat-event", e => {
       this._onChatEvent(e.payload);
     });
@@ -248,6 +251,12 @@ export class PetManager {
 
     const pet = this.pets.get(payload.user_id)!;
 
+    // Any chat message counts as activity: reset the inactivity timer and wake the
+    // pet if it was asleep. This MUST run regardless of which action path runs below,
+    // otherwise a user who only sends keyword/command messages (or any user when
+    // jump-on-speak is on) never resets the timer and their pet wrongly despawns.
+    await pet.onChatMessage();
+
     // Show the chat message bubble over the pet, if enabled.
     if (this.chatBubbleEnabled && payload.message) {
       pet.showChatBubble(payload.message, this.chatBubbleMaxChars);
@@ -262,14 +271,19 @@ export class PetManager {
 
     if (this.jumpOnSpeak) {
       await pet.executeAction("jump");
-    } else {
-      await pet.onChatMessage();
     }
   }
 
   private static _onGridUpdate(payload: GridUpdatePayload, animateMove: boolean): void {
     const cell: Cell = { x: payload.cell_x, y: payload.cell_y };
     const isFirstPlacement = !this.placed.has(payload.user_id);
+    const prevCell = this.cells.get(payload.user_id);
+    // A re-emitted cell that didn't actually change (e.g. the snapshot a `reconfigure`
+    // broadcasts when the anchor/placement mode changes) must NOT animate: the pixels
+    // moved because the projection changed, not because the pet walked. Walking here
+    // would start an animation toward the new edge that fights the layout snap and can
+    // leave pets stranded on the wrong side until a resize.
+    const cellUnchanged = !!prevCell && prevCell.x === cell.x && prevCell.y === cell.y;
     this.cells.set(payload.user_id, cell);
     this.placed.add(payload.user_id);
     const pet = this.pets.get(payload.user_id);
@@ -278,7 +292,7 @@ export class PetManager {
     // First placement must SNAP, never walk: the backend assigns the cell after the
     // pet spawns, so a pet that defaults to (0,0)=top-left would otherwise be seen
     // strolling from the corner to its spot — which reads as a bug to streamers.
-    pet.applyCell(cell, px, animateMove && !isFirstPlacement).catch(() => {});
+    pet.applyCell(cell, px, animateMove && !isFirstPlacement && !cellUnchanged).catch(() => {});
   }
 
   /** Re-derive pixels for every pet from its authoritative cell (resize / config). */
@@ -401,6 +415,14 @@ export class PetManager {
   private static async _onTamaAction(payload: TamaActionPayload): Promise<void> {
     const pet = this.pets.get(payload.user_id);
     if (pet) await pet.executeAction(payload.action_id, payload.input);
+  }
+
+  /** Backend-requested despawn (e.g. stopping the demo pets). Runs the normal
+   *  despawn animation + callback so the pet leaves the overlay cleanly; the
+   *  despawnCallback drops the local references. */
+  private static async _onDespawn(userId: number): Promise<void> {
+    const pet = this.pets.get(userId);
+    if (pet) await pet.remove();
   }
 
   /** Reacts to live events on a specific pet. Currently: a TikTok "like" makes the

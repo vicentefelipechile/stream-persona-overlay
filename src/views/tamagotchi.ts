@@ -277,10 +277,11 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
       </p>
       <details id="guests-advanced"${!guestsEnabled ? " style=\"pointer-events:none;opacity:.4;\"" : ""}>
         <summary class="details-toggle">Avanzado</summary>
-        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4);">
+        <div class="tama-guests-advanced">
           <div class="tama-setting-row">
             <div>
-              <div class="tama-setting-label">${Icons.twitch(14)} Invitados de Twitch</div>
+              <div class="tama-setting-label">${Icons.twitch(14)}Invitados de Twitch</div>
+              <div class="tama-setting-desc">Genera mascotas para chatters de Twitch no registrados</div>
             </div>
             <label class="switch">
               <input type="checkbox" id="guests-twitch" ${guestsTwitch ? "checked" : ""}/>
@@ -289,7 +290,8 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
           </div>
           <div class="tama-setting-row">
             <div>
-              <div class="tama-setting-label">${Icons.tiktok(14)} Invitados de TikTok</div>
+              <div class="tama-setting-label">${Icons.tiktok(14)}Invitados de TikTok</div>
+              <div class="tama-setting-desc">Genera mascotas para chatters de TikTok no registrados</div>
             </div>
             <label class="switch">
               <input type="checkbox" id="guests-tiktok" ${guestsTiktok ? "checked" : ""}/>
@@ -308,7 +310,7 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
           </div>
           <div class="tama-setting-row">
             <div>
-              <div class="tama-setting-label">${Icons.tiktok(14)} Usar foto de perfil de TikTok</div>
+              <div class="tama-setting-label">${Icons.tiktok(14)}Usar foto de perfil de TikTok</div>
               <div class="tama-setting-desc">Los invitados de TikTok usan su foto de perfil como sprite (tiene prioridad sobre el sprite por defecto/personalizado)</div>
             </div>
             <label class="switch">
@@ -316,35 +318,39 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
               <span class="switch-track"></span>
             </label>
           </div>
-          <div class="form-group">
-            <label for="guests-prefix">Prefijo del nombre</label>
-            <input type="text" id="guests-prefix" value="${guestsPrefix}" placeholder="[G] " style="max-width:200px;"/>
-            <small style="color:var(--color-text-muted);">Se antepone al nombre de usuario del invitado en la etiqueta de la mascota</small>
+
+          <div class="tama-guests-section">
+            <div class="form-group">
+              <label for="guests-prefix">Prefijo del nombre</label>
+              <input type="text" id="guests-prefix" value="${guestsPrefix}" placeholder="[G] " style="max-width:200px;"/>
+              <small style="color:var(--color-text-muted);">Se antepone al nombre de usuario del invitado en la etiqueta de la mascota</small>
+            </div>
           </div>
-          <div style="border-top:1px solid var(--color-border);padding-top:var(--space-4);margin-top:var(--space-2);">
-            <div class="tama-setting-label" style="margin-bottom:var(--space-2);">Sprite personalizado de invitado</div>
-            <div class="tama-setting-desc" style="margin-bottom:var(--space-3);">Imagen PNG/JPEG que reemplaza el sprite genérico. Vacío = usar sprite por defecto incluido.</div>
-            <div style="display:flex;gap:var(--space-5);flex-wrap:wrap;">
-              <div>
-                <div style="font-size:12px;color:var(--color-text-muted);margin-bottom:var(--space-2);">Boca abierta</div>
-                <div style="width:80px;height:80px;border:1px solid var(--color-border);border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:var(--space-2);background:var(--color-surface);">
+
+          <div class="tama-guests-section">
+            <div class="tama-guests-section-title">Sprite personalizado de invitado</div>
+            <div class="tama-guests-section-desc">Imagen PNG/JPEG que reemplaza el sprite genérico. Vacío = usar el sprite por defecto incluido.</div>
+            <div class="tama-sprite-grid">
+              <div class="tama-sprite-card">
+                <span class="tama-sprite-card-label">Boca abierta</span>
+                <div class="tama-sprite-preview">
                   ${guestOpenPath
-                    ? `<img src="${convertFileSrc(guestOpenPath)}" style="width:100%;height:100%;object-fit:contain;" />`
-                    : `<span style="font-size:11px;color:var(--color-text-muted);">Default</span>`}
+                    ? `<img src="${convertFileSrc(guestOpenPath)}" />`
+                    : `<span class="tama-sprite-preview-empty">Default</span>`}
                 </div>
-                <div style="display:flex;gap:var(--space-2);">
+                <div class="tama-sprite-card-actions">
                   <button class="btn btn-secondary btn-sm" id="btn-guest-img-open">Cambiar</button>
                   ${guestOpenPath ? `<button class="btn btn-outline btn-sm" id="btn-guest-img-open-reset">Restablecer</button>` : ""}
                 </div>
               </div>
-              <div>
-                <div style="font-size:12px;color:var(--color-text-muted);margin-bottom:var(--space-2);">Boca cerrada</div>
-                <div style="width:80px;height:80px;border:1px solid var(--color-border);border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:var(--space-2);background:var(--color-surface);">
+              <div class="tama-sprite-card">
+                <span class="tama-sprite-card-label">Boca cerrada</span>
+                <div class="tama-sprite-preview">
                   ${guestClosedPath
-                    ? `<img src="${convertFileSrc(guestClosedPath)}" style="width:100%;height:100%;object-fit:contain;" />`
-                    : `<span style="font-size:11px;color:var(--color-text-muted);">Default</span>`}
+                    ? `<img src="${convertFileSrc(guestClosedPath)}" />`
+                    : `<span class="tama-sprite-preview-empty">Default</span>`}
                 </div>
-                <div style="display:flex;gap:var(--space-2);">
+                <div class="tama-sprite-card-actions">
                   <button class="btn btn-secondary btn-sm" id="btn-guest-img-closed">Cambiar</button>
                   ${guestClosedPath ? `<button class="btn btn-outline btn-sm" id="btn-guest-img-closed-reset">Restablecer</button>` : ""}
                 </div>
@@ -411,6 +417,22 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
           </select>
         </div>
         <button class="btn btn-primary" id="btn-fire" style="display:inline-flex;align-items:center;gap:6px;">${Icons.zap(14)} Disparar</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);">
+      <div class="card-header">
+        <h2 class="section-title">Mascotas de prueba</h2>
+      </div>
+      <p style="font-size:13px;color:var(--color-text-muted);margin:0 0 var(--space-4);">
+        Genera mascotas ficticias para probar el overlay sin necesidad de un stream en vivo. Se mueven y hablan solas; recuerda activar el sistema Tamagotchi arriba.
+      </p>
+      <div class="tama-sliders-grid" style="grid-template-columns:1fr;">
+        ${_slider("demo-count", "demo-count-val", "Cantidad a generar", 5, "", 1, 20, 1)}
+      </div>
+      <div style="display:flex;gap:var(--space-3);margin-top:var(--space-5);">
+        <button class="btn btn-primary" id="btn-demo-start" style="display:inline-flex;align-items:center;gap:6px;">${Icons.paw(14)} Generar mascotas</button>
+        <button class="btn btn-outline" id="btn-demo-stop" style="display:inline-flex;align-items:center;gap:6px;">${Icons.trash()} Quitar de prueba</button>
       </div>
     </div>
 
@@ -699,6 +721,31 @@ export async function renderTamagotchi(pane: HTMLElement): Promise<void> {
     try {
       await invoke("tama_trigger_action", { userId, actionId, input: {} });
       showToast("Acción disparada", "success");
+    } catch (e) {
+      showToast(`Error: ${String(e)}`, "error");
+    }
+  });
+
+  // Demo (fake) pets — spawn synthetic pets so a first-time user can see the overlay
+  // without a live stream. The backend keeps them moving via a re-messaging loop.
+  _bindRange("demo-count", "demo-count-val", "");
+  container.querySelector("#btn-demo-start")!.addEventListener("click", async () => {
+    if (!tamaToggle.checked) {
+      showToast("Activa el sistema Tamagotchi (arriba) para ver las mascotas", "info");
+    }
+    const count = Number(container.querySelector<HTMLInputElement>("#demo-count")!.value) || 5;
+    try {
+      await invoke("tama_demo_start", { count });
+      showToast(`${count} mascota${count !== 1 ? "s" : ""} de prueba generada${count !== 1 ? "s" : ""}`, "success");
+    } catch (e) {
+      showToast(`Error: ${String(e)}`, "error");
+    }
+  });
+
+  container.querySelector("#btn-demo-stop")!.addEventListener("click", async () => {
+    try {
+      await invoke("tama_demo_stop");
+      showToast("Mascotas de prueba quitadas", "success");
     } catch (e) {
       showToast(`Error: ${String(e)}`, "error");
     }

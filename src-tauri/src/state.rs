@@ -57,6 +57,10 @@ pub struct AppState {
     /// and broadcasts `tama-grid-*` so the overlay and OBS Browser Source render
     /// the same positions instead of each deriving them from `window.innerWidth`.
     pub grid: Arc<GridManager>,
+    /// Handle for the demo (fake pets) loop task. Lets a first-time user populate
+    /// the overlay with synthetic pets without a live stream; the loop re-messages
+    /// them so they keep moving. Aborted when the demo is stopped or the app closes.
+    pub demo_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl AppState {
@@ -76,6 +80,7 @@ impl AppState {
             chat_filters: Arc::new(Mutex::new(ChatFilters::default())),
             streamer_mic: Arc::new(StreamerMic::new()),
             grid: Arc::new(GridManager::new()),
+            demo_handle: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -130,6 +135,16 @@ impl AppState {
         }
     }
 
+    /// Aborta la tarea del loop de mascotas de prueba (demo) si está corriendo.
+    pub fn abort_demo(&self) {
+        if let Ok(mut guard) = self.demo_handle.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+                tracing::info!("[demo] Tarea de mascotas de prueba abortada");
+            }
+        }
+    }
+
     /// Aborta la tarea del servidor HTTP/WebSocket si está corriendo.
     pub fn abort_server(&self) {
         if let Ok(mut guard) = self.server_handle.lock() {
@@ -146,6 +161,7 @@ impl AppState {
         self.abort_twitch();
         self.abort_twitch_eventsub();
         self.abort_tiktok();
+        self.abort_demo();
         self.abort_server();
         self.streamer_mic.stop();
     }

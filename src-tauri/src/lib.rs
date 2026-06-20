@@ -26,6 +26,7 @@ use commands::control::{
     connect_tiktok, connect_twitch, restart_discord_bot, send_test_message, toggle_overlay,
     validate_twitch_token,
 };
+use commands::demo::{tama_demo_start, tama_demo_stop};
 use commands::streamer::{
     reset_streamer_sprite, set_streamer_sprite, streamer_list_mics, streamer_mic_apply,
 };
@@ -262,6 +263,8 @@ pub fn run() {
             tama_grid_move,
             set_guest_image,
             reset_guest_image,
+            tama_demo_start,
+            tama_demo_stop,
             // Streamer persona
             set_streamer_sprite,
             reset_streamer_sprite,

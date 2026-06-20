@@ -131,10 +131,6 @@ pub async fn set_config_cmd(
     let is_overlay_bg = key.starts_with("overlay_bg_");
     drop(cache);
 
-    if rebuild_grid {
-        state.grid.reconfigure(&app, row_mode, high_precision);
-    }
-
     // Background mode/quality changes (set via the generic command, not the upload
     // command) must reach the overlay live. Reuse the same `overlay-bg-changed`
     // event the dedicated upload command emits.
@@ -148,6 +144,14 @@ pub async fn set_config_cmd(
         state.broadcast_ws("overlay-bg-changed", &full_config);
     }
 
+    // Emit the full-config event BEFORE rebuilding the grid. A grid-shaping change
+    // (e.g. tama_row_anchor) emits both `tama-config-changed` (carries the new anchor)
+    // and, from reconfigure(), `tama-grid-config` + a fresh snapshot of cell updates.
+    // The overlay applies the anchor from `tama-config-changed`; if the snapshot's
+    // grid-updates arrived first they'd re-place pets using the OLD anchor and the
+    // resulting walk animation would fight the later snap (pets stuck on the wrong
+    // edge until a resize). Emitting the config first guarantees Grid2D has the new
+    // anchor before any cell update lands, so every placement uses the right edge.
     if is_tama || is_streamer {
         let full_config = {
             let db = state.db.lock().map_err(map_err)?;
@@ -161,6 +165,10 @@ pub async fn set_config_cmd(
         app.emit(event, &full_config).map_err(map_err)?;
         state.broadcast_ws(event, &full_config);
         tracing::info!("[config] {} emitido (key={})", event, key);
+    }
+
+    if rebuild_grid {
+        state.grid.reconfigure(&app, row_mode, high_precision);
     }
     Ok(())
 }
