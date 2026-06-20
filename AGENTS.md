@@ -48,6 +48,7 @@ Viewers register and manage their pet images through the **Discord bot** (slash 
 | `reqwest 0.12` | HTTP client for external API validation (Twitch) |
 | `once_cell 1` | Global static initialization |
 | `tauri-plugin-shell` | Shell plugin (registered but not used for user-facing features — kept for potential future use) |
+| `tauri-plugin-window-state` | Persists each window's size / position / maximized state across sessions. Registered with `StateFlags::all() & !VISIBLE` so the `overlay` window's hidden-by-default visibility is never restored (it would otherwise appear on launch). |
 | `axum 0.7` (feature `ws`) | HTTP + WebSocket server for the OBS Browser Source |
 | `tower-http 0.5` (feature `fs`) | Static file serving middleware (`ServeDir`) used by the axum server |
 
@@ -119,6 +120,10 @@ broadcast_ws()  --> axum WS /ws        (OBS Browser Source — overlay-browser.h
 | `overlay` | `overlay.html` | 1920×1080, `transparent: true`, normal decorations, `visible: false` by default |
 
 The `overlay` window starts hidden. The "Toggle Overlay" button in the panel calls the `toggle_overlay` command.
+
+> **Window state persistence:** `tauri-plugin-window-state` saves each window's size, position and maximized state on close and restores them on launch (so the user's maximized/sized `main` window comes back as they left it). The `VISIBLE` flag is intentionally excluded from the persisted set — otherwise the `overlay` window (which must start hidden and be shown only via `toggle_overlay`) would reappear at launch if it happened to be visible last session.
+
+> **Splash screen:** `index.html` includes a `#app-splash` overlay (logo `src/assets/app-logo.png` + title) styled with **inline** critical CSS in `<head>` so it paints as early as possible, before `entry-panel.css` loads. `main.ts` calls `dismissSplash()` in a `finally` after the initial `AppState.load*()` calls — it fades the splash out (`.is-hidden`, 0.45s) and removes it on `transitionend` (with a `setTimeout` fallback). `finally` guarantees the splash is never left frozen if a load fails. It is **not** a separate Tauri window — keeping it in-page avoids cross-process sync with the panel's existing `DOMContentLoaded` load. **Caveat:** an initial black frame from the window `backgroundColor` before WebView2's first paint is inherent — no in-page HTML (inline or not) can render before the webview initializes, so the splash cannot literally be the *first* frame.
 
 > ⚠️ **CRITICAL — What "overlay" means in this project:**
 > The `overlay` window is **NOT a system-level overlay on top of the entire screen**.

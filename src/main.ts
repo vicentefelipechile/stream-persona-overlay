@@ -22,12 +22,17 @@ import { startTour, maybeAutoStartTour } from "./onboarding/tour";
 // =========================================================================================================
 
 window.addEventListener("DOMContentLoaded", async () => {
-  // Cargar datos iniciales
-  await Promise.all([
-    AppState.loadConfig(),
-    AppState.loadUsers(),
-    AppState.loadVoices(),
-  ]);
+  // Cargar datos iniciales. Pase lo que pase, retiramos el splash al final para
+  // no dejarlo congelado si una carga falla.
+  try {
+    await Promise.all([
+      AppState.loadConfig(),
+      AppState.loadUsers(),
+      AppState.loadVoices(),
+    ]);
+  } finally {
+    dismissSplash();
+  }
 
   // Inyectar iconos SVG en el sidebar
   injectNavIcons();
@@ -117,6 +122,22 @@ window.addEventListener("DOMContentLoaded", async () => {
 function refreshViewIfCurrent(views: ViewId[]): void {
   if (!router) return;
   for (const view of views) router.invalidate(view);
+}
+
+// Desvanece el splash screen y lo elimina del DOM una vez termina la transición.
+// Idempotente: si ya se ocultó, no hace nada.
+function dismissSplash(): void {
+  const splash = document.getElementById("app-splash");
+  if (!splash || splash.classList.contains("is-hidden")) return;
+
+  splash.classList.add("is-hidden");
+  splash.addEventListener(
+    "transitionend",
+    () => splash.remove(),
+    { once: true },
+  );
+  // Respaldo por si el evento transitionend no llega (p. ej. movimiento reducido).
+  window.setTimeout(() => splash.remove(), 800);
 }
 
 function updateConnectionStatus(connected: boolean, label: string): void {

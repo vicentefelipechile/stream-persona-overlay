@@ -54,6 +54,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        // Persiste tamaño/posición/maximizado de las ventanas entre sesiones.
+        // Se excluye VISIBLE: el overlay arranca oculto (visible:false) y se
+        // muestra con toggle_overlay; restaurar la visibilidad lo haría aparecer
+        // al inicio si la última sesión lo dejó visible.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .setup(|app| {
             // Inicializar base de datos
             let app_data_dir = app

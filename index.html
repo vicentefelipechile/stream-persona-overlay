@@ -7,13 +7,69 @@
     <title>Stream Persona — Panel</title>
     <!-- Critical inline background so the first paint is the app's dark theme,
          not the webview's default white, before entry-panel.css loads. -->
+    <!-- The splash styles are inlined here too so the logo paints on the very
+         first frame, before entry-panel.css has loaded. main.ts removes the
+         splash (fading it out) once the panel has finished its initial load. -->
     <style>
       html, body { background: #0d0f14; }
+
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Degradado sutil (no negro plano) para que el splash se distinga del
+           backgroundColor #0d0f14 de la ventana Tauri en cuanto la webview pinta. */
+        background: radial-gradient(circle at 50% 42%, #1a2030 0%, #0d0f14 70%);
+        opacity: 1;
+        transition: opacity 0.45s ease;
+      }
+      #app-splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #app-splash .splash-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+      }
+      #app-splash .splash-logo {
+        width: 112px;
+        height: 112px;
+        image-rendering: auto;
+        animation: splash-pulse 1.8s ease-in-out infinite;
+      }
+      #app-splash .splash-title {
+        font-family: system-ui, sans-serif;
+        font-size: 15px;
+        letter-spacing: 0.04em;
+        color: #7a8099;
+      }
+      @keyframes splash-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.85; }
+        50% { transform: scale(1.06); opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash .splash-logo { animation: none; }
+      }
     </style>
     <link rel="stylesheet" href="/src/styles/entry-panel.css" />
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
+    <!-- Splash screen — shown until the panel finishes its initial load, then
+         faded out and removed by main.ts. The logo (src/assets/app-logo.png) is
+         rewritten by Vite to a hashed/bundled URL. -->
+    <div id="app-splash">
+      <div class="splash-inner">
+        <img class="splash-logo" src="/src/assets/app-logo.png" alt="Stream Persona Overlay" />
+        <span class="splash-title">Stream Persona Overlay</span>
+      </div>
+    </div>
+
     <!-- Sidebar Navigation -->
     <nav id="sidebar" class="sidebar">
       <div class="sidebar-header">
@@ -21,7 +77,7 @@
           <span class="logo-icon">◈</span>
           <div class="logo-text">
             <span class="logo-title">Stream Persona</span>
-            <span class="logo-version">v0.11.0</span>
+            <span class="logo-version">v0.12.0</span>
           </div>
         </div>
       </div>
