@@ -217,7 +217,10 @@ async fn serve_overlay(State(s): State<ServerState>, headers: header::HeaderMap)
 
 /// GET /overlay-alerts — the dedicated event-alert browser source (Twitch + TikTok).
 /// Also served at the legacy /overlay-tiktok path for backwards compatibility.
-async fn serve_overlay_alerts(State(s): State<ServerState>, headers: header::HeaderMap) -> Response {
+async fn serve_overlay_alerts(
+    State(s): State<ServerState>,
+    headers: header::HeaderMap,
+) -> Response {
     serve_overlay_file(&s, "overlay-alerts.html", &headers).await
 }
 
@@ -231,7 +234,11 @@ async fn serve_overlay_streamer(
 
 /// Serves one of the overlay HTML pages, choosing the dev (Vite rewrite) or
 /// production (embedded) path based on `dev_mode`.
-async fn serve_overlay_file(s: &ServerState, filename: &str, headers: &header::HeaderMap) -> Response {
+async fn serve_overlay_file(
+    s: &ServerState,
+    filename: &str,
+    headers: &header::HeaderMap,
+) -> Response {
     if s.dev_mode {
         return serve_overlay_dev(filename, headers).await;
     }
@@ -250,7 +257,12 @@ fn request_hostname(headers: &header::HeaderMap) -> String {
         // Strip the port: "192.168.1.42:6767" -> "192.168.1.42". IPv6 literals in
         // a Host header are bracketed ("[::1]:6767"), so splitting on the last ':'
         // outside brackets is enough for the loopback/LAN cases we serve.
-        .map(|host| host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host).to_string())
+        .map(|host| {
+            host.rsplit_once(':')
+                .map(|(h, _)| h)
+                .unwrap_or(host)
+                .to_string()
+        })
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| "localhost".to_string())
 }

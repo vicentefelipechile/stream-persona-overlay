@@ -345,7 +345,9 @@ fn migrate_placement_mode_key(conn: &Connection) -> Result<()> {
             "UPDATE config SET value = 'row' WHERE key = 'tama_placement_mode'",
             [],
         )?;
-        tracing::info!("[migrations] tama_placement_mode='row' heredado de tama_layout_mode='static'");
+        tracing::info!(
+            "[migrations] tama_placement_mode='row' heredado de tama_layout_mode='static'"
+        );
     }
 
     conn.execute(

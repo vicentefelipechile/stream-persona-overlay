@@ -21,8 +21,8 @@ type CmdResult<T> = Result<T, String>;
 
 /// Display names for the demo pets, cycled when more than this many are requested.
 const DEMO_NAMES: &[&str] = &[
-    "Pixel", "Bit", "Nova", "Luna", "Ziggy", "Mochi", "Taco", "Pep", "Boop", "Kiwi",
-    "Mango", "Suki", "Rex", "Coco", "Gizmo", "Toby", "Maya", "Zelda", "Olive", "Remy",
+    "Pixel", "Bit", "Nova", "Luna", "Ziggy", "Mochi", "Taco", "Pep", "Boop", "Kiwi", "Mango",
+    "Suki", "Rex", "Coco", "Gizmo", "Toby", "Maya", "Zelda", "Olive", "Remy",
 ];
 
 /// Sample chat lines the loop sends so bubbles and jump-on-speak look alive.

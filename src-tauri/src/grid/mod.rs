@@ -930,8 +930,13 @@ mod tests {
         // One pet at centre; asking to place another AT the same target must return a
         // cell with personal space, never the occupied/adjacent cell.
         let state = grid_with(&[(1, (75, 15))]);
-        let placed = state.nearest_free_spaced((75, 15)).expect("a spaced cell exists");
-        assert!(state.has_personal_space(placed), "placement not roomy: {placed:?}");
+        let placed = state
+            .nearest_free_spaced((75, 15))
+            .expect("a spaced cell exists");
+        assert!(
+            state.has_personal_space(placed),
+            "placement not roomy: {placed:?}"
+        );
         assert!(placed != (75, 15));
     }
 
@@ -954,7 +959,10 @@ mod tests {
                 inward_r += 1;
             }
         }
-        assert!(inward_r > 300, "right-edge bias too weak: {inward_r}/400 inward");
+        assert!(
+            inward_r > 300,
+            "right-edge bias too weak: {inward_r}/400 inward"
+        );
     }
 
     #[test]
@@ -968,7 +976,10 @@ mod tests {
             }
         }
         // No bias in the centre: roughly a coin flip (wide tolerance for the cheap RNG).
-        assert!((350..=650).contains(&right), "middle not balanced: {right}/1000 right");
+        assert!(
+            (350..=650).contains(&right),
+            "middle not balanced: {right}/1000 right"
+        );
     }
 
     #[test]
@@ -980,7 +991,10 @@ mod tests {
             for _ in 0..200 {
                 let from = (col, 15);
                 if let Some(to) = state.random_free_step(from) {
-                    assert!(to.0 < state.cols && to.1 < state.rows, "out of bounds: {to:?}");
+                    assert!(
+                        to.0 < state.cols && to.1 < state.rows,
+                        "out of bounds: {to:?}"
+                    );
                     assert!(to != from, "did not move from {from:?}");
                 }
             }
