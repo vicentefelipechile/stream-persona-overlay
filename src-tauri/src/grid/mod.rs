@@ -94,12 +94,21 @@ type Cell = (u16, u16);
 pub struct GridSnapshot {
     pub cols: u16,
     pub rows: u16,
+    /// "free" or "row" — so a client rehydrating via `tama_grid_get_state` knows which
+    /// projection to use without relying on a separate (possibly racy) config fetch.
+    pub placement_mode: String,
+    /// Anchored edge for the static row ("left"/"right"); ignored in free mode.
+    pub row_anchor: String,
     pub cells: Vec<GridUpdatePayload>,
 }
 
 /// Authoritative grid state. Stored behind a Mutex inside `GridManager`.
 struct GridState {
     mode: PlacementMode,
+    /// Which bottom corner the static row packs against ("left" or "right"). Only
+    /// meaningful in Row mode; carried in the grid-config event so every client renders
+    /// the same anchor without depending on a racy initial `get_config_cmd`.
+    row_anchor: String,
     cols: u16,
     rows: u16,
     /// userId -> assigned cell.
@@ -114,6 +123,11 @@ struct GridState {
     /// the edge) and re-packs deterministically when a pet leaves. Only used in Row
     /// mode; harmlessly maintained in Free mode too.
     order: Vec<i64>,
+    /// Pets the overlay has flagged inactive (went to sleep). In Row mode they sort
+    /// AFTER all active pets, so going quiet drifts a pet toward the far end of the
+    /// line and keeps the talkers packed against the anchor. Cleared per-pet when the
+    /// overlay reports activity again. Unused in Free mode.
+    inactive: HashSet<i64>,
 }
 
 impl GridState {
@@ -129,18 +143,31 @@ impl GridState {
         (c.max(1), r.max(1))
     }
 
-    /// Recomputes every pet's column from `order` (oldest at column 0, packing toward
-    /// the anchored edge) for the static row. Returns the pets whose cell changed so
-    /// the caller can emit updates. No-op in Free mode.
+    /// Recomputes every pet's column for the static row. Active pets pack first (column
+    /// 0 = nearest the anchored edge), inactive pets after them; within each group the
+    /// original arrival order is preserved. So a pet that goes quiet drifts toward the
+    /// far end and the talkers stay packed against the anchor. Returns the pets whose
+    /// cell changed so the caller can emit updates. No-op in Free mode.
     fn repack_row(&mut self) -> Vec<(i64, Cell)> {
         if self.mode != PlacementMode::Row {
             return Vec::new();
         }
         // Drop ids that are no longer present, keeping arrival order for the rest.
         self.order.retain(|id| self.cells.contains_key(id));
+        self.inactive.retain(|id| self.cells.contains_key(id));
+
+        // Stable partition: active pets first, then inactive, each in arrival order.
+        let packing: Vec<i64> = self
+            .order
+            .iter()
+            .filter(|id| !self.inactive.contains(id))
+            .chain(self.order.iter().filter(|id| self.inactive.contains(id)))
+            .copied()
+            .collect();
+
         let mut moved = Vec::new();
         self.occupied.clear();
-        for (idx, &id) in self.order.iter().enumerate() {
+        for (idx, &id) in packing.iter().enumerate() {
             let col = (idx as u16).min(self.cols.saturating_sub(1));
             let cell = (col, 0);
             self.occupied.insert(cell);
@@ -176,7 +203,13 @@ impl GridManager {
     /// nearest free one); in Row mode they are re-packed by arrival order against the
     /// anchored edge. Emits the new config + a fresh snapshot so every client
     /// re-renders. Called at startup and whenever a grid-shaping config key changes.
-    pub fn reconfigure(&self, app: &AppHandle, row_mode: bool, high_precision: bool) {
+    pub fn reconfigure(
+        &self,
+        app: &AppHandle,
+        row_mode: bool,
+        high_precision: bool,
+        row_anchor: &str,
+    ) {
         let Ok(mut guard) = self.inner.lock() else {
             return;
         };
@@ -192,12 +225,14 @@ impl GridManager {
         let previous = guard.take();
         let mut state = GridState {
             mode,
+            row_anchor: row_anchor.to_string(),
             cols,
             rows,
             cells: HashMap::new(),
             occupied: HashSet::new(),
             wander_wait: HashMap::new(),
             order: Vec::new(),
+            inactive: HashSet::new(),
         };
 
         if let Some(prev) = previous {
@@ -209,6 +244,9 @@ impl GridManager {
                     state.order.push(*id);
                 }
             }
+            // Preserve inactivity flags so sleeping pets stay at the far end across a
+            // reconfigure instead of jumping back up to the anchor.
+            state.inactive = prev.inactive;
 
             if mode == PlacementMode::Row {
                 // Seed the cells map so repack_row sees the pets, then pack them.
@@ -235,14 +273,15 @@ impl GridManager {
         *guard = Some(state);
         drop(guard);
 
-        emit_grid_config(app, cols, rows);
+        emit_grid_config(app, &snapshot);
         broadcast_snapshot(app, &snapshot);
         tracing::info!(
-            "[grid] Reconfigurada: {}x{} (row_mode={}, precision={})",
+            "[grid] Reconfigurada: {}x{} (row_mode={}, precision={}, anchor={})",
             cols,
             rows,
             row_mode,
-            high_precision
+            high_precision,
+            row_anchor
         );
     }
 
@@ -316,6 +355,7 @@ impl GridManager {
                 }
                 state.wander_wait.remove(&user_id);
                 state.order.retain(|id| *id != user_id);
+                state.inactive.remove(&user_id);
                 return state.repack_row();
             }
         }
@@ -339,6 +379,47 @@ impl GridManager {
             "tama-grid-remove",
             &serde_json::json!({ "user_id": user_id }),
         );
+        for (id, c) in moved {
+            broadcast_cell(state, id, c);
+        }
+    }
+
+    /// Flags a pet active/inactive and re-packs the static row so inactive pets sort to
+    /// the far end. Returns the pets the re-pack moved (empty in Free mode, or when the
+    /// flag didn't actually change the ordering). Pure state mutation; the caller emits.
+    fn set_active_cell(&self, user_id: i64, active: bool) -> Vec<(i64, Cell)> {
+        if let Ok(mut guard) = self.inner.lock() {
+            if let Some(state) = guard.as_mut() {
+                // Only pets the grid knows about can be (de)activated.
+                if !state.cells.contains_key(&user_id) {
+                    return Vec::new();
+                }
+                let changed = if active {
+                    state.inactive.remove(&user_id)
+                } else {
+                    state.inactive.insert(user_id)
+                };
+                if changed {
+                    return state.repack_row();
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    /// Marks a pet active/inactive (overlay reports sleep/wake) and emits the resulting
+    /// row re-pack. The static row keeps active pets nearest the anchor; inactive pets
+    /// drift to the far end. No-op in Free mode.
+    pub fn set_active(&self, app: &AppHandle, user_id: i64, active: bool) {
+        let moved = self.set_active_cell(user_id, active);
+        for (id, c) in moved {
+            emit_grid_update(app, id, c);
+        }
+    }
+
+    /// WS-only variant of `set_active` for OBS Browser Source clients.
+    pub fn set_active_ws(&self, state: &AppState, user_id: i64, active: bool) {
+        let moved = self.set_active_cell(user_id, active);
         for (id, c) in moved {
             broadcast_cell(state, id, c);
         }
@@ -479,6 +560,8 @@ impl GridManager {
             .unwrap_or(GridSnapshot {
                 cols: 1,
                 rows: 1,
+                placement_mode: "free".to_string(),
+                row_anchor: "left".to_string(),
                 cells: Vec::new(),
             })
     }
@@ -502,6 +585,11 @@ impl GridState {
         GridSnapshot {
             cols: self.cols,
             rows: self.rows,
+            placement_mode: match self.mode {
+                PlacementMode::Row => "row".to_string(),
+                PlacementMode::Free => "free".to_string(),
+            },
+            row_anchor: self.row_anchor.clone(),
             cells,
         }
     }
@@ -742,13 +830,24 @@ fn state_of(app: &AppHandle) -> tauri::State<'_, AppState> {
     app.state::<AppState>()
 }
 
-fn emit_grid_config(app: &AppHandle, cols: u16, rows: u16) {
+/// Emits `tama-grid-config` carrying the grid dimensions AND the layout (placement
+/// mode + row anchor). The layout travels with this authoritative event so any client
+/// — including one that connects mid-stream — renders the correct projection without
+/// depending on a separate, possibly racy, `get_config_cmd`.
+fn emit_grid_config(app: &AppHandle, snapshot: &GridSnapshot) {
     #[derive(serde::Serialize, Clone)]
-    struct Cfg {
+    struct Cfg<'a> {
         cols: u16,
         rows: u16,
+        placement_mode: &'a str,
+        row_anchor: &'a str,
     }
-    let payload = Cfg { cols, rows };
+    let payload = Cfg {
+        cols: snapshot.cols,
+        rows: snapshot.rows,
+        placement_mode: &snapshot.placement_mode,
+        row_anchor: &snapshot.row_anchor,
+    };
     let _ = app.emit("tama-grid-config", payload.clone());
     state_of(app).broadcast_ws("tama-grid-config", &payload);
 }
@@ -787,12 +886,16 @@ fn emit_grid_remove(app: &AppHandle, user_id: i64) {
 }
 
 fn broadcast_snapshot(app: &AppHandle, snapshot: &GridSnapshot) {
-    // Re-emit every pet's cell so existing clients converge after a reconfigure.
+    // Re-emit the config (dims + layout) and every pet's cell so existing clients
+    // converge after a reconfigure. The Tauri `emit` mirrors `emit_grid_config`;
+    // browser clients already got the WS copy from `emit_grid_config`.
     let _ = app.emit(
         "tama-grid-config",
         serde_json::json!({
             "cols": snapshot.cols,
             "rows": snapshot.rows,
+            "placement_mode": snapshot.placement_mode,
+            "row_anchor": snapshot.row_anchor,
         }),
     );
     for cell in &snapshot.cells {
@@ -844,12 +947,14 @@ mod tests {
         let (cols, rows) = GridState::dims_for(PlacementMode::Free, false);
         let mut state = GridState {
             mode: PlacementMode::Free,
+            row_anchor: "left".to_string(),
             cols,
             rows,
             cells: HashMap::new(),
             occupied: HashSet::new(),
             wander_wait: HashMap::new(),
             order: Vec::new(),
+            inactive: HashSet::new(),
         };
         for &(id, cell) in cells {
             state.cells.insert(id, cell);
@@ -864,12 +969,14 @@ mod tests {
         let (cols, rows) = GridState::dims_for(PlacementMode::Row, false);
         GridState {
             mode: PlacementMode::Row,
+            row_anchor: "left".to_string(),
             cols,
             rows,
             cells: HashMap::new(),
             occupied: HashSet::new(),
             wander_wait: HashMap::new(),
             order: Vec::new(),
+            inactive: HashSet::new(),
         }
     }
 
@@ -901,6 +1008,41 @@ mod tests {
         assert_eq!(state.cells[&10], (0, 0));
         assert_eq!(state.cells[&30], (1, 0));
         assert!(moved.iter().any(|(id, c)| *id == 30 && *c == (1, 0)));
+    }
+
+    #[test]
+    fn inactive_pets_pack_after_active_ones() {
+        let mut state = row_grid();
+        for id in [10i64, 20, 30] {
+            state.order.push(id);
+            state.cells.insert(id, (0, 0));
+        }
+        state.repack_row();
+        // Mark the FIRST pet inactive: it must drop to the end, the rest slide forward.
+        state.inactive.insert(10);
+        let moved = state.repack_row();
+        assert_eq!(state.cells[&20], (0, 0));
+        assert_eq!(state.cells[&30], (1, 0));
+        assert_eq!(state.cells[&10], (2, 0));
+        assert!(moved.iter().any(|(id, c)| *id == 10 && *c == (2, 0)));
+    }
+
+    #[test]
+    fn reactivating_a_pet_restores_arrival_order() {
+        let mut state = row_grid();
+        for id in [10i64, 20, 30] {
+            state.order.push(id);
+            state.cells.insert(id, (0, 0));
+        }
+        state.inactive.insert(10);
+        state.repack_row();
+        assert_eq!(state.cells[&10], (2, 0));
+        // Re-activating pet 10 returns it to its arrival slot (column 0).
+        state.inactive.remove(&10);
+        state.repack_row();
+        assert_eq!(state.cells[&10], (0, 0));
+        assert_eq!(state.cells[&20], (1, 0));
+        assert_eq!(state.cells[&30], (2, 0));
     }
 
     #[test]

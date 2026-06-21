@@ -597,6 +597,18 @@ fn process_ws_command(text: &str, state: &AppState) -> Option<String> {
             serde_json::json!({ "id": cmd.id, "result": null })
         }
 
+        // Flag a pet active/inactive to re-pack the static row (mirrors
+        // tama_grid_set_active). Inactive pets drift to the far end of the line.
+        "tama_grid_set_active" => {
+            let user_id = args["userId"]
+                .as_i64()
+                .or_else(|| args["user_id"].as_i64())
+                .unwrap_or(0);
+            let active = args["active"].as_bool().unwrap_or(true);
+            state.grid.set_active_ws(state, user_id, active);
+            serde_json::json!({ "id": cmd.id, "result": null })
+        }
+
         // Remove pet state (mirrors tama_remove_pet_state Tauri command)
         "tama_remove_pet_state" => {
             let user_id = args["userId"]

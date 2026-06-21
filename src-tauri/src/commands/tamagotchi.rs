@@ -187,6 +187,20 @@ pub async fn tama_grid_move(
     Ok(())
 }
 
+/// Called by the overlay when a pet falls asleep (inactive) or wakes up (active).
+/// In the static row this re-packs the line so inactive pets drift to the far end and
+/// the talkers stay packed against the anchor; in free mode it's a no-op.
+#[tauri::command]
+pub async fn tama_grid_set_active(
+    user_id: i64,
+    active: bool,
+    app: tauri::AppHandle,
+) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    state.grid.set_active(&app, user_id, active);
+    Ok(())
+}
+
 /// Called by the overlay when a pet despawns. Frees the pet's grid cell (so the
 /// slot can be reused and a `tama-grid-remove` is broadcast) and deletes its row.
 #[tauri::command]

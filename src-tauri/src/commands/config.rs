@@ -121,9 +121,10 @@ pub async fn set_config_cmd(
         key.as_str(),
         "tama_placement_mode" | "tama_row_anchor" | "tama_grid_high_precision"
     );
-    let (row_mode, high_precision) = (
+    let (row_mode, high_precision, row_anchor) = (
         cache.tama_placement_mode == "row",
         cache.tama_grid_high_precision,
+        cache.tama_row_anchor.clone(),
     );
 
     let is_tama = key.starts_with("tama_");
@@ -168,7 +169,9 @@ pub async fn set_config_cmd(
     }
 
     if rebuild_grid {
-        state.grid.reconfigure(&app, row_mode, high_precision);
+        state
+            .grid
+            .reconfigure(&app, row_mode, high_precision, &row_anchor);
     }
     Ok(())
 }

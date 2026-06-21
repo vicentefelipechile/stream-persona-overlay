@@ -182,6 +182,8 @@ export class BasePet {
       this.props.hideAll();
       this.fsm.transition("idle");
       this._persistState(false);
+      // Re-pack the static row so a re-activated pet returns toward the anchor.
+      _invoke("tama_grid_set_active", { userId: this.userId, active: true }).catch(() => {});
     }
   }
 
@@ -375,6 +377,9 @@ export class BasePet {
     this._stopCurrentAction();
     this.props.showZzz(this.el);
     this._persistState(true);
+    // Flag the pet inactive so the static row re-packs it toward the far end, keeping
+    // the pets that are still talking grouped against the anchor.
+    _invoke("tama_grid_set_active", { userId: this.userId, active: false }).catch(() => {});
     setTimeout(() => {
       if (this.fsm.state === "sleeping") this.fsm.transition("despawning");
     }, 30_000);

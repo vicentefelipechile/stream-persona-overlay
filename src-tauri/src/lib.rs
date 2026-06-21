@@ -32,8 +32,8 @@ use commands::streamer::{
 };
 use commands::tamagotchi::{
     reset_guest_image, set_guest_image, tama_get_pet_states, tama_grid_ensure, tama_grid_get_state,
-    tama_grid_move, tama_remove_pet_state, tama_reset_all, tama_set_enabled, tama_trigger_action,
-    tama_upsert_pet_state,
+    tama_grid_move, tama_grid_set_active, tama_remove_pet_state, tama_reset_all, tama_set_enabled,
+    tama_trigger_action, tama_upsert_pet_state,
 };
 use commands::users::{
     delete_user_cmd, get_recent_logs_cmd, get_user, get_users, toggle_user_active_cmd,
@@ -121,7 +121,7 @@ pub fn run() {
             // cells. The grid is backend-authoritative: it broadcasts cell
             // coordinates so the Tauri overlay and OBS Browser Source stay in sync.
             {
-                let (row_mode, high_precision, wander_enabled) = {
+                let (row_mode, high_precision, wander_enabled, row_anchor) = {
                     let cfg = app_state
                         .config_cache
                         .read()
@@ -130,12 +130,13 @@ pub fn run() {
                         cfg.tama_placement_mode == "row",
                         cfg.tama_grid_high_precision,
                         cfg.tama_grid_wander_enabled,
+                        cfg.tama_row_anchor.clone(),
                     )
                 };
                 let grid_handle = app.handle().clone();
                 app_state
                     .grid
-                    .reconfigure(&grid_handle, row_mode, high_precision);
+                    .reconfigure(&grid_handle, row_mode, high_precision, &row_anchor);
 
                 // The static row never wanders, so only start the tick in free mode.
                 if wander_enabled && !row_mode {
@@ -273,6 +274,7 @@ pub fn run() {
             tama_grid_ensure,
             tama_grid_get_state,
             tama_grid_move,
+            tama_grid_set_active,
             set_guest_image,
             reset_guest_image,
             tama_demo_start,

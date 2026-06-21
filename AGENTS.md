@@ -405,7 +405,7 @@ pet_state    -- user_id (PK FK→users ON DELETE CASCADE), last_seen_at, floor_x
 | `tama_guest_mouth_closed_path` | `""` | Absolute path to a custom guest mouth-closed PNG (empty = use bundled `guest_closed.png`) |
 | `tama_guest_tiktok_avatar` | `"true"` | When `"true"`, TikTok guest pets use the chatter's TikTok profile picture (`data.user.profilePictureUrl`) as their sprite, taking priority over the bundled/custom guest sprite. The avatar is an `https` URL passed straight to the `<img>` (PetManager skips `convertFileSrc` for `http(s)` paths). |
 | `tama_placement_mode` | `"free"` | Pet placement model: `"free"` (the wandering 2D grid 150×30) or `"row"` (a single **static row** of equally-sized pets pinned to one bottom corner — no wander, no perspective). Changing it rebuilds the grid live (`GridManager::reconfigure`). On first run, an install that had `tama_layout_mode="static"` is migrated to `"row"` (gated by `tama_placement_mode_migrated`). |
-| `tama_row_anchor` | `"left"` | Which bottom corner the static row anchors to: `"left"` or `"right"`. Pets stack from that edge toward the centre. Only used when `tama_placement_mode="row"`; applied by the overlay (`Grid2D.rowCellToPx`) — the backend always emits sequential columns `0..n`. |
+| `tama_row_anchor` | `"left"` | Which bottom corner the static row anchors to: `"left"` or `"right"`. Pets stack from that edge toward the centre. Only used when `tama_placement_mode="row"`; the backend always emits sequential columns `0..n` and the overlay maps column 0 to the anchored edge (`Grid2D.rowCellToPx`). The anchor (and placement mode) travels **with** the authoritative grid event — see `tama-grid-config` / `GridSnapshot` in Section 8 — so a client that connects mid-stream renders the correct projection without depending on a separate `get_config_cmd`. In the static row, pets the overlay has flagged inactive (asleep) sort **after** the active ones (drifting toward the far end) while talkers stay packed against the anchor — see `tama_grid_set_active`. |
 | `tama_layout_mode` | `"dynamic"` | **Legacy** — previously picked the free grid size (`"static"`=6×1 / else 150×30). Superseded by `tama_placement_mode`; kept so get/set config don't drop it. No longer read by the grid. |
 | `tama_grid_high_precision` | `"false"` | Doubles both grid axes (the "Matriz de alta precisión" toggle: 6×1→12×2, 150×30→300×60). Rebuilds the grid live. |
 | `tama_grid_perspective` | `"true"` | Front rows (higher `cellY`) render larger, back rows smaller. Applied live by the overlay (`Grid2D`). |
@@ -536,8 +536,9 @@ All commands are registered in `lib.rs` via `tauri::generate_handler![]`.
 | `tama_upsert_pet_state` | `invoke("tama_upsert_pet_state", { user_id, display_name, cell_x, cell_y, is_sleeping })` | Sync a pet's cell + sleep state to DB (called by overlay on spawn / state change) |
 | `tama_remove_pet_state` | `invoke("tama_remove_pet_state", { user_id })` | Free the pet's grid cell (broadcasts `tama-grid-remove`) and delete its DB row (overlay on despawn) |
 | `tama_grid_ensure` | `invoke("tama_grid_ensure", { user_id })` | Ensure the pet has a grid cell (allocating one on first call) and broadcast `tama-grid-update`. Called by the overlay when a pet spawns. The backend is authoritative for placement. |
-| `tama_grid_get_state` | `invoke<GridSnapshot>("tama_grid_get_state")` | Returns `{ cols, rows, cells: GridUpdatePayload[] }` so a client connecting after pets exist can rehydrate dims + every cell. |
+| `tama_grid_get_state` | `invoke<GridSnapshot>("tama_grid_get_state")` | Returns `{ cols, rows, placement_mode, row_anchor, cells: GridUpdatePayload[] }` so a client connecting after pets exist can rehydrate dims + layout + every cell. |
 | `tama_grid_move` | `invoke("tama_grid_move", { user_id, cell_x, cell_y })` | Move a pet to the free cell nearest a target (the grid resolves it) and broadcast the update. Used by actions (e.g. fight) instead of hard-coded screen positions. |
+| `tama_grid_set_active` | `invoke("tama_grid_set_active", { user_id, active })` | Flag a pet active/inactive when it wakes/sleeps. In the **static row** this re-packs the line so inactive pets sort to the far end (away from the anchor) and active pets stay grouped against it; broadcasts a `tama-grid-update` for each pet the re-pack moved. No-op in `"free"` mode. Called by `BasePet` on sleep (`active:false`) and on wake from chat (`active:true`). |
 | `set_guest_image` | `invoke("set_guest_image", { imageType: "open" \| "closed", imageData: number[] })` | Upload a custom PNG/JPEG sprite for guest pets (max 2 MB). Resizes to 512×512 PNG, saves to `{app_data_dir}/guest_open\|closed.png`, updates `tama_guest_mouth_open\|closed_path` config key and emits `tama-config-changed`. |
 | `reset_guest_image` | `invoke("reset_guest_image", { imageType: "open" \| "closed" })` | Clear the custom guest image, reverting to the bundled default. |
 | `tama_demo_start` | `invoke("tama_demo_start", { count })` | Populate the overlay with `count` (1–20) synthetic **demo pets** so a first-time user can preview the overlay without a live stream. Emits `chat-message` (Tauri + WS) for each — reusing the exact real-chat spawn path — then runs a background loop (`AppState.demo_handle`) re-messaging random pets every ~2.5 s so they keep moving and never sleep. Re-callable: stops any running demo first. Demo pets use negative `user_id`s (`guest_user_id("demo", name)`) and the guest sprite. |
@@ -595,7 +596,7 @@ All events marked **WS** are also broadcast to OBS Browser Source clients via `s
 | `overlay-bg-changed` | `AppConfig` (full) | `commands/config.rs` (`set_overlay_background`/`clear_overlay_background`, and `set_config_cmd` for `overlay_bg_*` keys) | `overlay-background.ts` (both overlays) | Yes |
 | `overlay-will-show` | `()` | `commands/control.rs` | `overlay.ts` (fade cover reset) | Yes |
 | `tama-action` | `{ user_id, action_id, input }` | `commands/tamagotchi.rs` | `PetManager` (overlay.ts) | Yes |
-| `tama-grid-config` | `{ cols, rows }` | `grid/mod.rs` (`reconfigure`) | `PetManager` → `Grid2D.setDimensions` | Yes |
+| `tama-grid-config` | `{ cols, rows, placement_mode, row_anchor }` | `grid/mod.rs` (`reconfigure`) | `PetManager` → `Grid2D.setDimensions` + `_applyGridLayout` | Yes |
 | `tama-grid-update` | `GridUpdatePayload` | `grid/mod.rs` (assign / move / wander) | `PetManager` → `BasePet.applyCell` | Yes |
 | `tama-grid-remove` | `{ user_id }` | `grid/mod.rs` (`release`) | `PetManager` (drops local cell) | Yes |
 | `twitch-connected` | `string` (channel) | `twitch/mod.rs` (on RoomState) | `main.ts` | No |
@@ -673,9 +674,21 @@ interface GridUpdatePayload {
   cell_x: number;   // column, 0 = left
   cell_y: number;   // row, 0 = back of the floor band (far/small), higher = front (near/large)
 }
+
+interface GridSnapshot {
+  cols: number;
+  rows: number;
+  placement_mode: string;   // "free" | "row" — the projection the client must use
+  row_anchor: string;       // "left" | "right" — anchored edge in row mode
+  cells: GridUpdatePayload[];
+}
 ```
 
 > **Backend-authoritative pet positioning.** `grid/mod.rs` (`GridManager`, an `Arc` in `AppState`, modeled on `streamer_mic`) owns every pet's cell and the occupancy set. It assigns cells, runs a wander tick (tokio interval), and resolves the nearest free cell for fight/actions, broadcasting `tama-grid-*` over BOTH `app.emit` and `broadcast_ws`. The overlay only translates cell → pixels via `src/overlay/tamagotchi/core/Grid2D.ts` (floor band + perspective scale). There is no local idle-walk loop in `BasePet` anymore — it just renders the cell the backend assigns. Dimensions are fixed per mode: small 6×1 (`tama_layout_mode="static"`) / normal 150×30, doubled by `tama_grid_high_precision`.
+
+> **Layout travels with the grid event.** The placement mode + row anchor are part of the authoritative grid state, not just the config table: `tama-grid-config` and the `GridSnapshot` (from `tama_grid_get_state`) both carry `placement_mode` + `row_anchor`, and `PetManager._applyGridLayout` applies them. This guarantees that a client which connects mid-stream — or whose initial `get_config_cmd` raced — renders the correct projection instead of defaulting to the free-grid centre (the old bug: row-mode pets appearing centred instead of anchored).
+
+> **Static row packing.** In `"row"` mode `GridState` keeps an arrival-`order` vec plus an `inactive` set. `repack_row()` packs **active** pets first (column 0 = the anchored edge) then **inactive** pets, preserving arrival order within each group. So a pet that goes quiet drifts toward the far end (`tama_grid_set_active { active:false }`) and returns to its arrival slot when it talks again (`active:true`); a pet that despawns closes the gap. Both flags survive a `reconfigure`. (Note: with default timing a pet sleeps after `tama_inactivity_mins` then despawns 30 s later, so the inactive-drift window is short unless that timing is raised.)
 
 > **Important:** `mouth_open_path` / `mouth_closed_path` are absolute OS paths. To use them as `<img>` `src` in the frontend, you **must** convert them using `convertFileSrc(path)` from `@tauri-apps/api/core`. This transforms the path into Tauri's `asset://localhost/` protocol.
 
@@ -1261,7 +1274,7 @@ OBS Browser Source  -->  GET http://localhost:6767/overlay
 { "event": "chat-message", "payload": { ...ChatMessagePayload } }
 { "event": "tts-state",    "payload": { "user_id": 1, "speaking": true } }
 { "event": "tama-action",  "payload": { "user_id": 1, "action_id": "jump", "input": {} } }
-{ "event": "tama-grid-config", "payload": { "cols": 150, "rows": 30 } }
+{ "event": "tama-grid-config", "payload": { "cols": 150, "rows": 30, "placement_mode": "free", "row_anchor": "left" } }
 { "event": "tama-grid-update", "payload": { "user_id": 1, "cell_x": 80, "cell_y": 20 } }
 { "event": "tama-grid-remove", "payload": { "user_id": 1 } }
 { "event": "chroma-color-changed", "payload": "#00FF00" }
@@ -1275,6 +1288,7 @@ OBS Browser Source  -->  GET http://localhost:6767/overlay
 { "id": "uuid-v4", "command": "tama_remove_pet_state", "args": { "userId": 1 } }
 { "id": "uuid-v4", "command": "tama_grid_ensure",   "args": { "userId": 1 } }
 { "id": "uuid-v4", "command": "tama_grid_move",     "args": { "userId": 1, "cellX": 75, "cellY": 18 } }
+{ "id": "uuid-v4", "command": "tama_grid_set_active", "args": { "userId": 1, "active": false } }
 { "id": "uuid-v4", "command": "tama_grid_get_state" }
 ```
 
@@ -1363,15 +1377,16 @@ Pet placement is owned entirely by Rust (`grid/mod.rs`, modeled on `streamer_mic
 
 ### Static-row mode (`tama_placement_mode = "row"`)
 
-A second placement model that runs **in parallel** with the free grid, selected by the new "Modo de disposición" card in the Tamagotchi admin view. Pets do **not** wander: they line up in a single static row pinned to one bottom corner (`tama_row_anchor` = `"left"` / `"right"`), all the **same size** (no perspective), stacked from the edge toward the centre in arrival order (FIFO).
+A second placement model that runs **in parallel** with the free grid, selected by the "Modo de disposición" card in the Tamagotchi admin view. Pets do **not** wander: they line up in a single static row pinned to one bottom corner (`tama_row_anchor` = `"left"` / `"right"`), all the **same size** (no perspective), stacked from the edge toward the centre. Within the row, **active** pets pack first and **inactive** (asleep) pets sort to the far end; arrival order (FIFO) is the tiebreak inside each group.
 
-- **Backend (`grid/mod.rs`)** — `GridState.mode` is `Row`; the grid is `ROW_COLS × 1` (one cell tall). `GridState.order: Vec<i64>` records arrival order. `repack_row()` reassigns columns `0..n` from that order and returns the pets whose cell changed.
+- **Backend (`grid/mod.rs`)** — `GridState.mode` is `Row`; the grid is `ROW_COLS × 1` (one cell tall). `GridState.order: Vec<i64>` records arrival order and `GridState.inactive: HashSet<i64>` flags asleep pets. `GridState.row_anchor: String` stores the anchored edge so it can ride along the grid event. `repack_row()` packs active pets first then inactive pets — each in arrival order — assigning columns `0..n`, and returns the pets whose cell changed.
   - **Join:** `ensure_cell` pushes the user onto `order` and calls `repack_row`, returning the new pet's cell **plus** any siblings the re-pack shifted; `ensure`/`ensure_ws` emit a `tama-grid-update` for each.
-  - **Leave:** `release_cell` removes the user from `order` and `repack_row`s, so the trailing pets slide in to close the gap; `release`/`release_ws` emit the gap-close updates after the `tama-grid-remove`.
+  - **Leave:** `release_cell` removes the user from `order` + `inactive` and `repack_row`s, so the trailing pets slide in to close the gap; `release`/`release_ws` emit the gap-close updates after the `tama-grid-remove`.
+  - **Activity:** `tama_grid_set_active(user_id, active)` → `set_active_cell` toggles the `inactive` flag and `repack_row`s, so a pet that goes quiet drifts to the far end and returns to its arrival slot when it talks again; `set_active`/`set_active_ws` emit a `tama-grid-update` for each moved pet. Both `order` and `inactive` survive `reconfigure`.
   - **No wander / no fight repositioning:** `wander_tick` returns immediately in Row mode, and `place_nearest` is a no-op that returns the pet's current cell (the line is fixed). The wander tokio task in `lib.rs` is not even spawned when the app starts in Row mode.
-  - The backend always emits sequential columns `0..n`; it does **not** know the anchor.
-- **Overlay (`Grid2D.rowCellToPx`)** — translates the column to a flat row along the bottom (`top = (1 - BOTTOM_MARGIN_FRAC)·h - petSizePx`, `scale = 1`). `tama_row_anchor` decides whether column 0 sits flush left (`EDGE_PAD + col·pitch`) or flush right (mirrored). `pitch = petSizePx·(1 + ROW_GAP_FRAC)`. The `GridGuide` is force-hidden in row mode (no floor band to align to).
-- **Lifecycle reuse** — entry on chat-message, sleep/despawn on inactivity (`tama_inactivity_mins`), bubbles, lip-sync and per-pet actions (jump, dance…) all behave exactly as in free mode; only the *position* model differs. "Stops talking → leaves" is the existing inactivity timer; `release` + `repack_row` close the gap.
+  - The backend always emits sequential columns `0..n`; the anchor is carried in the grid event (below) for the overlay to interpret, not baked into the columns.
+- **Overlay (`Grid2D.rowCellToPx`)** — translates the column to a flat row along the bottom (`top = (1 - BOTTOM_MARGIN_FRAC)·h - petSizePx`, `scale = 1`). `tama_row_anchor` decides whether column 0 sits flush left (`EDGE_PAD + col·pitch`) or flush right (mirrored). `pitch = petSizePx·(1 + ROW_GAP_FRAC)`. The `GridGuide` is force-hidden in row mode (no floor band to align to). The placement mode + anchor are applied from the authoritative grid event (`tama-grid-config` / `GridSnapshot`) via `PetManager._applyGridLayout`, **not** only from the initial `get_config_cmd` — otherwise a client connecting mid-stream would default to the free-grid centre and render row-mode pets centred instead of anchored.
+- **Lifecycle reuse** — entry on chat-message, sleep/despawn on inactivity (`tama_inactivity_mins`), bubbles, lip-sync and per-pet actions (jump, dance…) all behave exactly as in free mode; only the *position* model differs. On sleep `BasePet` calls `tama_grid_set_active(active:false)` (drift to far end); on wake from chat, `active:true` (return to arrival slot). "Stops talking → leaves" is the existing inactivity timer; `release` + `repack_row` then close the gap. **Caveat:** with default timing a pet sleeps after `tama_inactivity_mins` and despawns 30 s later, so the inactive-drift is only visible briefly unless that timing is raised.
 
 ### Jump-on-speak mode (`tama_jump_on_speak = "true"`)
 

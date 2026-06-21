@@ -89,10 +89,23 @@ interface ChatEventPayload {
   extra: Record<string, unknown>;
 }
 
-interface GridConfigPayload { cols: number; rows: number; }
+interface GridConfigPayload {
+  cols: number;
+  rows: number;
+  // The backend ships the layout with the authoritative grid event so a client that
+  // connects mid-stream renders the right projection without a separate config fetch.
+  placement_mode?: string;
+  row_anchor?: string;
+}
 interface GridUpdatePayload { user_id: number; cell_x: number; cell_y: number; }
 interface GridRemovePayload { user_id: number; }
-interface GridSnapshot { cols: number; rows: number; cells: GridUpdatePayload[]; }
+interface GridSnapshot {
+  cols: number;
+  rows: number;
+  placement_mode?: string;
+  row_anchor?: string;
+  cells: GridUpdatePayload[];
+}
 
 // =========================================================================================================
 // PetManager
@@ -188,6 +201,7 @@ export class PetManager {
     // Grid events — backend-authoritative positioning.
     await this.transport.listen<GridConfigPayload>("tama-grid-config", e => {
       this.grid.setDimensions(e.payload.cols, e.payload.rows);
+      this._applyGridLayout(e.payload);
       this._retranslateAll();
       this.gridGuide?.draw();
     });
@@ -203,6 +217,7 @@ export class PetManager {
     try {
       const snap = await this.transport.invoke<GridSnapshot>("tama_grid_get_state");
       this.grid.setDimensions(snap.cols, snap.rows);
+      this._applyGridLayout(snap);
       for (const c of snap.cells) this._onGridUpdate(c, false);
     } catch (_) {}
 
@@ -293,6 +308,24 @@ export class PetManager {
     // pet spawns, so a pet that defaults to (0,0)=top-left would otherwise be seen
     // strolling from the corner to its spot — which reads as a bug to streamers.
     pet.applyCell(cell, px, animateMove && !isFirstPlacement && !cellUnchanged).catch(() => {});
+  }
+
+  /** Applies the placement mode + row anchor carried by an authoritative grid event
+   *  (`tama-grid-config` / snapshot). The grid is the single source of truth for the
+   *  layout, so honoring it here means a client that connects mid-stream — or one whose
+   *  initial `get_config_cmd` raced — always renders the right projection instead of
+   *  falling back to the free-grid centre. Only updates the fields actually present. */
+  private static _applyGridLayout(payload: { placement_mode?: string; row_anchor?: string }): void {
+    const partial: { placementMode?: PlacementMode; rowAnchor?: RowAnchor } = {};
+    if (payload.placement_mode !== undefined) {
+      partial.placementMode = payload.placement_mode === "row" ? "row" : "free";
+    }
+    if (payload.row_anchor !== undefined) {
+      partial.rowAnchor = payload.row_anchor === "right" ? "right" : "left";
+    }
+    if (partial.placementMode !== undefined || partial.rowAnchor !== undefined) {
+      this.grid.setConfig(partial);
+    }
   }
 
   /** Re-derive pixels for every pet from its authoritative cell (resize / config). */
